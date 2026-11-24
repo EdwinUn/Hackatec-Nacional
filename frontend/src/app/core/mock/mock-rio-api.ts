@@ -10,11 +10,7 @@ import {
   AlertRule,
   Bucket,
   CentrifugeAnalytics,
-<<<<<<< HEAD
-  CentrifugeCycleIngest,
   CriticalPoint,
-=======
->>>>>>> origin/feature/prototipo-c-skimmer
   DashboardOverview,
   Hotspot,
   IngestResult,
@@ -72,11 +68,7 @@ export class MockRioApi extends RioApi {
         river: { score: riverScore, category: wqiCategory(riverScore), dominant_parameter: dominant },
         outlet: { score: outletScore, category: wqiCategory(outletScore), dominant_parameter: 'dissolved_oxygen' },
       },
-<<<<<<< HEAD
-      ph: { inlet, outlet, improvement_pct: Math.round(improvementPct(inlet, outlet) * 10) / 10, trend: trend(outlet, 0.25) },
-=======
-      ph: { inlet, outlet, improvement_pct: Math.round(((outlet - inlet) / inlet) * 1000) / 10 },
->>>>>>> origin/feature/prototipo-c-skimmer
+      ph: { inlet, outlet, improvement_pct: Math.round(improvementPct(inlet, outlet) * 10) / 10 },
       sensors: { online: sensors.filter((s) => s.status === 'ok' || s.status === 'degraded').length, total: sensors.length },
       treatment_efficiency_pct: wr.totals.efficiency_pct,
       recovery: { clean_liters: wr.totals.liters_clean, waste_kg: wasteKg },

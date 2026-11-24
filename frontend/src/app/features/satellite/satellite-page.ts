@@ -10,8 +10,8 @@ import { LiveStreamService } from '../../core/services/live-stream.service';
 import { Pill } from '../../shared/components/pill';
 import { valueOrUndefined } from '../../shared/utils/resource.util';
 import { formatCoords, timeAgo } from '../../shared/utils/format.util';
-<<<<<<< HEAD
-import { CRITICALITY_META, SENSOR_STATUS_META, WQI_META } from '../../shared/utils/wqi.util';
+import { typeLabel } from '../../core/api/labels';
+import { CRITICALITY_META, SENSOR_STATUS_META, WQI_META, wqiText } from '../../shared/utils/wqi.util';
 import {
   ATTRIBUTION,
   BASIN_BOUNDS,
@@ -23,11 +23,6 @@ import {
   TILES,
   toLngLat,
 } from './basin';
-=======
-import { typeLabel } from '../../core/api/labels';
-import { SENSOR_STATUS_META, WQI_META, wqiText } from '../../shared/utils/wqi.util';
-import { ATTRIBUTION, BASIN_BOUNDS, BASIN_CENTER, BASIN_ZOOM, PRESA_VALSEQUILLO, RIO_ALSESECA, RIO_ATOYAC, TILES } from './basin';
->>>>>>> origin/feature/prototipo-c-skimmer
 
 const POSITION_LABEL: Record<SensorPosition, string> = { inlet: 'Entrada', outlet: 'Salida', river: 'Río' };
 const CATEGORIES = Object.keys(WQI_META).filter((k) => k !== 'sin_datos') as (keyof typeof WQI_META)[];

@@ -63,11 +63,7 @@
         @for (r of ruleList(); track r.id) {
           <li [class.off]="!r.enabled">
             <div class="r-head"><strong>{{ r.name }}</strong><app-pill [label]="sev[r.severity].label" [color]="sev[r.severity].color" [bg]="sev[r.severity].bg" /></div>
-<<<<<<< HEAD
-            <div class="cond"><code>{{ r.parameter }} {{ r.condition ?? r.operator + ' ' + r.threshold + ' ' + r.unit }}</code> <span class="muted">{{ r.enabled ? 'Activa' : 'Desactivada' }}</span></div>
-=======
             <div class="cond"><code>{{ criterion(r) }}</code> <span class="muted">{{ r.enabled ? 'Activa' : 'Desactivada' }}</span></div>
->>>>>>> origin/feature/prototipo-c-skimmer
             @if (r.description) { <div class="muted small">{{ r.description }}</div> }
           </li>
         } @empty { <li class="muted">Sin reglas.</li> }

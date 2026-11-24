@@ -94,11 +94,7 @@ export class DashboardStore {
     const w = this.water();
     return {
       ...o,
-<<<<<<< HEAD
       ph: { ...o.ph, inlet, outlet, improvement_pct: inlet ? improvementPct(inlet, outlet) : o.ph.improvement_pct },
-=======
-      ph: { inlet, outlet, improvement_pct: inlet && outlet !== null ? ((outlet - inlet) / inlet) * 100 : o.ph.improvement_pct },
->>>>>>> origin/feature/prototipo-c-skimmer
       alerts: { open: o.alerts.open + a.open, critical: o.alerts.critical + a.critical },
       treatment_efficiency_pct: w?.totals.efficiency_pct ?? o.treatment_efficiency_pct,
       recovery: { ...o.recovery, clean_liters: w?.totals.liters_clean ?? o.recovery.clean_liters, waste_kg: this.waste()?.total_kg ?? o.recovery.waste_kg },
@@ -178,20 +174,10 @@ export class DashboardStore {
     switch (e.type) {
       case 'reading': {
         const d = e.data;
-<<<<<<< HEAD
-        if (d.parameter !== 'ph' || (d.position !== 'inlet' && d.position !== 'outlet')) {
-          // River readings only refresh the sensor list.
-          this.touchSensor(d.station_id, d.position, d.parameter, d.value, d.timestamp);
-          return;
-        }
-        this.liveLatest.update((m) => ({ ...m, [d.station_id]: { ...m[d.station_id], [d.position]: d.value } }));
-        this.touchSensor(d.station_id, d.position, d.parameter, d.value, d.timestamp);
-=======
         // Every reading refreshes its sensor row; only pH inlet/outlet feeds the KPI and the chart.
         this.sensorLive.update((m) => ({ ...m, [d.sensor_id]: { ...m[d.sensor_id], value: d.value, ts: d.timestamp } }));
         if (d.parameter !== 'ph' || (d.position !== 'inlet' && d.position !== 'outlet')) return;
         this.liveLatest.update((m) => ({ ...m, [d.station_id]: { ...m[d.station_id], [d.position]: d.value } }));
->>>>>>> origin/feature/prototipo-c-skimmer
         const stations = Object.values(this.liveLatest());
         const avg = (k: 'inlet' | 'outlet') => {
           const v = stations.map((s) => s[k]).filter((x): x is number => x !== undefined);
@@ -217,16 +203,6 @@ export class DashboardStore {
         return;
     }
   }
-<<<<<<< HEAD
-
-  private touchSensor(stationId: string, position: string, parameter: string, value: number, ts: string): void {
-    // A station has several sensors per position (pH, turbidez…): match the parameter too.
-    const sensor = this.sensorsBase()?.find((s) => s.station_id === stationId && s.position === position && s.parameter === parameter);
-    if (!sensor) return;
-    this.sensorLive.update((m) => ({ ...m, [sensor.sensor_id]: { ...m[sensor.sensor_id], value, ts } }));
-  }
-=======
->>>>>>> origin/feature/prototipo-c-skimmer
 }
 
 function zeroWaste(): Record<WasteType, { kg: number; pieces: number }> {

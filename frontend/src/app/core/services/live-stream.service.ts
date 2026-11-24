@@ -5,8 +5,6 @@ import { mapEnvelope } from '../api/mappers';
 import { MockBackend } from '../mock/mock-backend';
 import { WsEnvelopeDto } from '../models/api.models';
 import { LiveEvent, LiveStatus } from '../models/rio.models';
-import { mapLiveEvent } from '../api/backend-mappers';
-import { BeEnvelope } from '../api/backend.types';
 import { FiltersService } from './filters.service';
 import { StationsService } from './stations.service';
 
@@ -29,7 +27,6 @@ export class LiveStreamService {
   private readonly mock = inject(MockBackend);
   private readonly stations = inject(StationsService);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly stations = inject(StationsService);
 
   readonly status = signal<LiveStatus>('disconnected');
   readonly events$ = new Subject<LiveEvent>();
@@ -88,14 +85,8 @@ export class LiveStreamService {
     };
     ws.onmessage = (m) => {
       try {
-<<<<<<< HEAD
-        // The backend sends `{ type, station_id, ts, data }` in its own field names (API.md).
-        const event = mapLiveEvent(JSON.parse(String(m.data)) as BeEnvelope, (id) => this.stations.name(id));
-        if (event) this.dispatch(event);
-=======
         const e = mapEnvelope(JSON.parse(String(m.data)) as WsEnvelopeDto, (id) => (id ? this.stations.name(id) : '—'));
         if (e) this.dispatch(e);
->>>>>>> origin/feature/prototipo-c-skimmer
       } catch {
         /* ignore malformed frames */
       }

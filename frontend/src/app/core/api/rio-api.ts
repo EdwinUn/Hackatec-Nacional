@@ -6,11 +6,7 @@ import {
   AlertRule,
   Bucket,
   CentrifugeAnalytics,
-<<<<<<< HEAD
-  CentrifugeCycleIngest,
   CriticalPoint,
-=======
->>>>>>> origin/feature/prototipo-c-skimmer
   DashboardOverview,
   Hotspot,
   IngestResult,
@@ -34,12 +30,8 @@ export abstract class RioApi {
   abstract waste(q: Query, bucket: Bucket): Observable<WasteAnalytics>;
   abstract centrifuge(q: Query, bucket: Bucket): Observable<CentrifugeAnalytics>;
   abstract sensorsHealth(q: Query): Observable<SensorHealth[]>;
-<<<<<<< HEAD
-  abstract hotspots(q: Query): Observable<Hotspot[]>;
-  abstract criticalPoints(q: Query): Observable<CriticalPoint[]>;
-=======
   abstract hotspots(): Observable<Hotspot[]>;
->>>>>>> origin/feature/prototipo-c-skimmer
+  abstract criticalPoints(q: Query): Observable<CriticalPoint[]>;
   abstract alerts(f: AlertFilters): Observable<Page<Alert>>;
   abstract patchAlert(id: string, body: AlertPatch): Observable<Alert>;
   abstract alertRules(): Observable<AlertRule[]>;

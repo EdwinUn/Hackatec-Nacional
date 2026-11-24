@@ -5,11 +5,11 @@ El contrato real del backend está en [`/API.md`](../API.md) (raíz del repo) y 
 ## Cómo está conectado
 
 - **Pantallas y mock:** usan los modelos de vista de [`src/app/core/models/rio.models.ts`](src/app/core/models/rio.models.ts).
-- **Respuestas reales:** están tipadas en [`src/app/core/api/backend.types.ts`](src/app/core/api/backend.types.ts) y se traducen a esos modelos en [`src/app/core/api/backend-mappers.ts`](src/app/core/api/backend-mappers.ts). Esta capa es una función pura por endpoint, más `mapLiveEvent` para el WebSocket.
+- **Respuestas reales:** están tipadas en [`src/app/core/models/api.models.ts`](src/app/core/models/api.models.ts) y se traducen a esos modelos en [`src/app/core/api/mappers.ts`](src/app/core/api/mappers.ts). Esta capa es una función pura por endpoint, más `mapEnvelope` para el WebSocket.
 - [`HttpRioApi`](src/app/core/api/http-rio-api.ts) llama al backend y aplica esas traducciones. [`LiveStreamService`](src/app/core/services/live-stream.service.ts) traduce cada mensaje de `ws://…/ws/live`.
-- Las pruebas de los mappers ([`backend-mappers.spec.ts`](src/app/core/api/backend-mappers.spec.ts)) usan respuestas **reales** capturadas del backend ([`backend.fixtures.ts`](src/app/core/api/backend.fixtures.ts)).
+- Las pruebas de los mappers están en [`mappers.spec.ts`](src/app/core/api/mappers.spec.ts).
 
-**Si el backend cambia un campo:** se ajustan `backend.types.ts` y `backend-mappers.ts` (y se regeneran los fixtures). Las pantallas no cambian.
+**Si el backend cambia un campo:** se ajustan `api.models.ts` y `mappers.ts`. Las pantallas no cambian.
 
 ## Detalles de la traducción
 
