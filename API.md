@@ -33,6 +33,7 @@ Actualiza este archivo **antes** o **junto con** cualquier cambio en los endpoin
 | 422 | `validation_error` | JSON inválido; `details` es la lista de campos `[{loc, msg, type}]` |
 | 422 | `invalid_data` | Regla de negocio (rango de fechas, volúmenes imposibles, referencia a un registro inexistente, etc.) |
 | 500 | `internal_error` | Error inesperado (queda en el log) |
+| 503 | `vision_unavailable` | La visión artificial no está disponible (falta `uv sync --extra vision`, el modelo no cargó o está desactivada) |
 
 ### Paginación
 
@@ -61,6 +62,9 @@ Usa el sufijo `Z` (`2026-11-23T18:00:00Z`). Si mandas un offset como `-06:00` o 
 | `severity` | `info`, `warning`, `critical` |
 | `status` (alerta) | `open`, `acknowledged`, `resolved` |
 | `kind` (regla) | `reading_range`, `sensor_offline`, `centrifuge_vibration`, `treatment_efficiency` |
+| `category` (visión) | `peces_muertos`, `boya_defectuosa`, `boya_saturada`, `acumulacion_basura`, `normal` |
+| `severity` (visión) | `critica`, `alta`, `media`, `baja` (¡en español, distinto de `severity` de alertas!) |
+| `buoy.status` (visión) | `no_detectada`, `integra`, `saturada`, `defectuosa` |
 
 Unidades por defecto: pH `pH`, turbidez `NTU`, temperatura `°C`, oxígeno disuelto `mg/L`, conductividad `µS/cm`, SDT `mg/L`.
 
@@ -364,6 +368,59 @@ Paginado, de la más reciente a la más vieja (`last_triggered_at`).
 | GET | `/api/v1/alert-rules` | Incluye `description` con el criterio del valor por defecto |
 | POST | `/api/v1/alert-rules` | 🔑 `{name, kind, severity, parameter?, location?, station_id?, min_value?, max_value?, enabled?, description?}` |
 | PATCH | `/api/v1/alert-rules/{id}` | 🔑 `{name?, severity?, location?, min_value?, max_value?, enabled?, description?}` |
+
+---
+
+## Visión artificial (fotos de reportes ciudadanos)
+
+> ⚠️ Modelo zero-shot y reglas de color **de prototipo**, sin validar con fotos reales de campo. Úsalo como apoyo a la revisión humana, no como diagnóstico. Ver `backend/README.md` § Visión artificial.
+
+### `POST /api/v1/vision/analyze`
+
+Analiza **una foto** y devuelve qué muestra. **Abierto** (sin `X-API-Key`): los ciudadanos no tienen cuenta. Requiere `uv sync --extra vision` en el backend; sin él responde `503 vision_unavailable`.
+
+**Request** — `multipart/form-data` con el campo `file` (JPEG, PNG o WebP, máx. `VISION_MAX_IMAGE_MB` = 8 MB):
+
+```bash
+curl -X POST http://localhost:8000/api/v1/vision/analyze -F "file=@foto.jpg;type=image/jpeg"
+```
+
+**Respuesta 200**
+
+```json
+{
+  "category": "peces_muertos",
+  "severity": "critica",
+  "summary": "Peces muertos detectados: alerta ambiental crítica.",
+  "reasons": ["El clasificador de escena ve peces muertos en el agua (100 %)."],
+  "detections": [
+    { "label": "dead fish", "label_es": "Pez muerto", "confidence": 0.62, "bbox": [10, 20, 200, 120] }
+  ],
+  "buoy": {
+    "status": "no_detectada", "ring_found": false, "barrier_count": 0, "barrier_fragments": 0,
+    "barrier_balance": 0.0, "cage_saturation": null
+  },
+  "scene": [
+    { "label": "peces_muertos", "label_es": "Peces muertos", "probability": 1.0 },
+    { "label": "pez_vivo", "label_es": "Pez vivo", "probability": 0.0 }
+  ],
+  "annotated_image": "data:image/jpeg;base64,/9j/4AAQ…",
+  "image": { "width": 862, "height": 1280 },
+  "model": "yolov8s-worldv2",
+  "elapsed_ms": 312.4,
+  "note": "Resultado de un modelo zero-shot (YOLO-World) y reglas de color de prototipo…"
+}
+```
+
+- `category` / `severity`: ver Enumeraciones. Prioridad: `peces_muertos` (siempre `critica`) > `boya_defectuosa` (`alta`; `critica` si además la cesta está saturada) > `boya_saturada` (`alta` si la cesta está cubierta ≥ 50 %, si no `media`) > `acumulacion_basura` (`baja`/`media`/`alta` por nº de objetos y % de la imagen) > `normal` (`baja`).
+- `detections[].bbox` = `[x1, y1, x2, y2]` en píxeles de la imagen **analizada** (`image`): la foto se reduce a un máximo de 1280 px por lado, así que el cliente debe usar `image.width/height` para escalar las cajas, o mostrar directamente `annotated_image`.
+- `annotated_image` es un *data URL* JPEG con las cajas, las regiones de color de la boya, un banner con la categoría/severidad y la escena dominante. Se puede asignar tal cual a `<img [src]>`.
+- `buoy`: verificación HSV (OpenCV) de la boya skimmer — anillo amarillo, barreras naranjas en «V» (esperadas: 2) y saturación de la cesta de malla (0–1, `null` si no se ve la cesta).
+- `scene`: clasificador de escena CLIP (probabilidades que suman 1, de mayor a menor); `null` si está desactivado (`VISION_SCENE_ENABLED=false`).
+
+**Errores:** `422 invalid_data` si el archivo está vacío, supera el máximo o no es una imagen legible; `422 validation_error` si falta `file`; `503 vision_unavailable` (ver tabla de errores).
+
+La inferencia corre en CPU (~0.3 s por foto tras la primera; la primera tras arrancar tarda más) y se atiende de **una foto a la vez**, así que varias peticiones simultáneas se encolan.
 
 ---
 

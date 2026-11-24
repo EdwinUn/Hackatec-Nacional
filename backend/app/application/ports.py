@@ -26,6 +26,7 @@ from app.domain.enums import (
     Severity,
     StationStatus,
 )
+from app.domain.vision import Assessment, BuoyInspection, Detection
 
 Page = tuple[list[Any], int]  # (items, total)
 
@@ -190,3 +191,29 @@ class AnalyticsReader(Protocol):
 
 class HealthProbe(Protocol):
     async def check(self) -> dict[str, str]: ...
+
+
+class VisionEngine(Protocol):
+    """Motor de visión artificial (YOLO-World + verificación HSV + dibujado).
+
+    La imagen decodificada es opaca para la aplicación (`Any`): solo la entiende el adaptador.
+    Si falta el extra `vision` o el modelo, los métodos lanzan `VisionUnavailableError`;
+    si los bytes no son una imagen, `decode` lanza `ValueError`.
+    """
+
+    def decode(self, data: bytes) -> Any: ...
+    def image_size(self, image: Any) -> tuple[int, int]:
+        """(ancho, alto) en píxeles."""
+        ...
+
+    def detect(self, image: Any) -> list[Detection]: ...
+    def inspect_buoy(self, image: Any, detections: list[Detection]) -> BuoyInspection: ...
+    def classify_scene(self, image: Any) -> dict[str, float] | None:
+        """Probabilidad de cada escena (peces muertos, basura…); None si no hay clasificador."""
+        ...
+
+    def annotate(
+        self, image: Any, detections: list[Detection], inspection: BuoyInspection, assessment: Assessment
+    ) -> bytes:
+        """JPEG con las cajas de detección y las regiones de color dibujadas."""
+        ...

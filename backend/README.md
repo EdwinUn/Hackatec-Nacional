@@ -88,7 +88,61 @@ Plantilla completa en [`../.env.example`](../.env.example). Se leen de `backend/
 | `SIMULATION_ENABLED` | `false` | Simulador en vivo dentro de la API (sin script aparte) |
 | `SIMULATION_INTERVAL_S` / `SIMULATION_SEED` | `5` / `42` | Ritmo y semilla del simulador |
 | `MAX_READINGS_PER_REQUEST` / `MAX_RANGE_DAYS` / `MAX_BUCKETS` | `1000` / `90` / `5000` | Límites de consultas |
+| `VISION_ENABLED` | `true` | Activa `POST /api/v1/vision/analyze` (requiere `uv sync --extra vision`) |
+| `VISION_MODEL` / `VISION_MODELS_DIR` | `yolov8s-worldv2.pt` / `models` | Pesos de YOLO-World; se descargan solos la primera vez (~25 MB) |
+| `VISION_CONF` / `VISION_IMGSZ` | `0.15` / `640` | Umbral del detector y resolución de inferencia |
+| `VISION_MAX_IMAGE_MB` | `8` | Tamaño máximo de la foto |
+| `VISION_SCENE_ENABLED` | `true` | Clasificador de escena CLIP que complementa al detector |
+| `VISION_PRELOAD` | `false` | Cargar los modelos al arrancar (~12 s, ~1.5 GB de RAM) en vez de en la primera foto |
 | `WEB_CONCURRENCY` | `2` | Workers de uvicorn en Docker |
+
+## Visión artificial (fotos de reportes ciudadanos)
+
+`POST /api/v1/vision/analyze` (ver [`../API.md`](../API.md)) analiza la foto de un reporte y devuelve categoría
+(`peces_muertos`, `boya_defectuosa`, `boya_saturada`, `acumulacion_basura`, `normal`), severidad, detecciones con
+confianza y la imagen anotada.
+
+```bash
+uv sync --extra vision        # ultralytics + PyTorch (solo CPU en Linux) + OpenCV headless + CLIP (~1.7 GB)
+make dev                      # los pesos de YOLO-World se descargan solos la primera vez
+```
+
+Sin el extra, la API arranca igual y el endpoint responde `503 vision_unavailable`.
+
+**Cómo funciona** (tres señales que se combinan en reglas puras del dominio, `app/domain/vision.py`):
+
+1. **YOLO-World** (`yolov8s-worldv2.pt`, zero-shot) con los prompts `dead fish`, `floating trash`, `plastic bottle`,
+   `plastic waste`, `floating buoy`, `orange floating barrier`, `wire mesh cage` → cajas con confianza.
+2. **Verificación HSV (OpenCV)** de la boya skimmer: anillo amarillo, barreras naranjas en «V» (se parte la máscara por
+   el eje de la boya; esperadas 2) y fragmentos sueltos → íntegra / defectuosa. La cesta se considera saturada cuando
+   los residuos detectados cubren ≥ 25 % de su área (≥ 50 % → severidad alta).
+3. **Clasificador de escena CLIP** (ViT-B/32, mismos pesos que usa YOLO-World): probabilidad de «peces muertos», «pez
+   vivo», «basura», «boya»… Es una **adición** a lo pedido originalmente, ver abajo por qué.
+
+Estructura: reglas en `app/domain/vision.py` (sin torch/OpenCV, con pruebas en `tests/unit/test_vision.py`), puerto
+`VisionEngine` en `ports.py`, caso de uso `application/services/vision.py` y adaptadores en
+`adapters/outbound/vision/` (`yolo_world.py`, `buoy_color.py`, `clip_scene.py`, `annotator.py`, `engine.py`). Los
+adaptadores importan `ultralytics`/`cv2` de forma diferida. La inferencia corre en un hilo (no bloquea el event loop) y
+se atiende de a una foto.
+
+### ⚠️ Qué tan fiable es (valores de prototipo)
+
+Se probó con **muy pocas fotos** (5 reales de Wikimedia Commons + 4 boyas dibujadas a mano), así que son indicios, no
+métricas:
+
+| Señal | Resultado observado |
+| --- | --- |
+| YOLO-World `s` con los 7 prompts | **No detectó** ninguna de las 2 mortandades de peces ni la botella flotando (confianza 0.03–0.07 frente al umbral 0.25), pero sí dio 0.46–0.66 a un casco de barco / a un calamar *vivo* como `dead fish`. Un modelo más grande (`x`) o más resolución (1280 px) **no lo arregló**. |
+| CLIP (escena) | Acertó las 2 mortandades (0.98, 1.00), la botella (`basura` 0.69) y descartó el calamar vivo (`pez_vivo` 0.89). Dio 0.84 a la foto de un casco con basura: queda justo bajo el umbral de 0.90. |
+| HSV de la boya | Distingue boya íntegra / una barrera / sin barreras / barrera despedazada **en imágenes sintéticas**. No se ha probado con fotos reales de la boya; el color depende mucho de la luz. |
+| Cesta saturada | La lógica está probada (pruebas unitarias), pero depende de que YOLO-World localice la cesta y los residuos, y con estos prompts casi no lo hace. |
+
+Por eso CLIP arbitra «vivo vs. muerto» (el detector no puede) y confirma peces muertos o basura cuando no hay cajas.
+Los umbrales (`VisionPolicy`: 0.90 peces, 0.60 basura, 0.50 boya, 25 %/50 % cesta, 3/8 objetos…) son de prototipo.
+
+**Para mejorar de verdad:** juntar fotos reales de la boya y del río (con peces muertos, basura y cesta llena/vacía),
+medir precisión/recall con ellas y, si hace falta, ajustar `VisionPolicy` o afinar un detector (`ia/` está fuera de
+alcance por ahora, decisión del equipo).
 
 ## Arquitectura (hexagonal pragmática)
 

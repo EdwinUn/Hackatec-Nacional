@@ -5,6 +5,7 @@ import { RouterLink } from '@angular/router';
 import { Button } from 'primeng/button';
 import { OpsApi } from '../../core/api/ops-api';
 import { ReportStatus } from '../../core/models/ops.models';
+import { AiAnalysis } from '../../shared/components/ai-analysis';
 import { MiniMap } from '../../shared/components/mini-map';
 import { Pill } from '../../shared/components/pill';
 import { formatCoords, timeAgo } from '../../shared/utils/format.util';
@@ -15,7 +16,7 @@ const FLOW: ReportStatus[] = ['new', 'verified', 'in_progress', 'resolved'];
 
 @Component({
   selector: 'app-report-track-page',
-  imports: [DatePipe, RouterLink, Button, MiniMap, Pill],
+  imports: [DatePipe, RouterLink, AiAnalysis, Button, MiniMap, Pill],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './reports.scss',
   template: `
@@ -56,6 +57,10 @@ const FLOW: ReportStatus[] = ['new', 'verified', 'in_progress', 'resolved'];
           <p class="muted small" style="margin:0"><i class="pi pi-map-marker"></i> {{ coords(r.latitude, r.longitude) }} · {{ r.created_at | date: 'dd/MM/yyyy HH:mm' }}</p>
           <app-mini-map class="map" [value]="{ latitude: r.latitude, longitude: r.longitude }" />
         </section>
+
+        @if (r.ai) {
+          <section class="rm-card"><app-ai-analysis [analysis]="r.ai" [original]="r.photo" /></section>
+        }
       } @else if (res.isLoading()) {
         <div class="skeleton" style="height: 260px"></div>
       } @else {

@@ -10,6 +10,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.domain.enums import SensorLocation, SensorStatus, SensorType, StationStatus, WasteType
+from app.domain.vision import BuoyStatus, VisionCategory, VisionSeverity
 from app.domain.wqi import WqiCategory, WqiResult
 
 
@@ -227,3 +228,50 @@ class Hotspot(BaseModel):
     alerts_open: int
     alerts_critical_open: int
     last_reading_at: datetime | None
+
+
+# ── Visión artificial (reportes ciudadanos) ─────────────────────────────────
+class VisionDetectionOut(BaseModel):
+    label: str = Field(description="Prompt en inglés del detector, p. ej. `dead fish`")
+    label_es: str
+    confidence: float = Field(ge=0, le=1)
+    bbox: tuple[int, int, int, int] = Field(description="[x1, y1, x2, y2] en píxeles de la imagen analizada")
+
+
+class BuoyReportOut(BaseModel):
+    status: BuoyStatus
+    ring_found: bool = Field(description="Anillo amarillo de la boya visible (HSV)")
+    barrier_count: int = Field(description="Barreras naranjas completas (esperadas: 2, en «V»)")
+    barrier_fragments: int = Field(description="Fragmentos naranjas sueltos (barrera rota)")
+    barrier_balance: float = Field(description="Área barrera menor / mayor (1 = simétricas)")
+    cage_saturation: float | None = Field(
+        description="Fracción 0–1 de la cesta cubierta de residuos; null si no se ve"
+    )
+
+
+class SceneScoreOut(BaseModel):
+    label: str
+    label_es: str
+    probability: float = Field(ge=0, le=1)
+
+
+class ImageSizeOut(BaseModel):
+    width: int
+    height: int
+
+
+class VisionAnalysisOut(BaseModel):
+    category: VisionCategory
+    severity: VisionSeverity
+    summary: str
+    reasons: list[str]
+    detections: list[VisionDetectionOut]
+    buoy: BuoyReportOut
+    scene: list[SceneScoreOut] | None = Field(
+        description="Clasificador de escena (CLIP), de mayor a menor probabilidad; null si está desactivado"
+    )
+    annotated_image: str = Field(description="Data URL `data:image/jpeg;base64,…` con las cajas dibujadas")
+    image: ImageSizeOut
+    model: str
+    elapsed_ms: float
+    note: str = Field(description="Aviso: umbrales y modelo son de prototipo")

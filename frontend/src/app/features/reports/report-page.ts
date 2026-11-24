@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -9,19 +9,23 @@ import { SelectButton } from 'primeng/selectbutton';
 import { Textarea } from 'primeng/textarea';
 import { InputText } from 'primeng/inputtext';
 import { OpsApi } from '../../core/api/ops-api';
+import { VisionApi } from '../../core/api/vision-api';
 import { CitizenReport, GeoPoint, ReportType } from '../../core/models/ops.models';
+import { VisionAnalysis } from '../../core/models/vision.models';
 import { GeoService } from '../../core/services/geo.service';
+import { AiAnalysis } from '../../shared/components/ai-analysis';
 import { MapPoint, MiniMap } from '../../shared/components/mini-map';
 import { PhotoInput } from '../../shared/components/photo-input';
 import { Pill } from '../../shared/components/pill';
 import { formatCoords, timeAgo } from '../../shared/utils/format.util';
 import { REPORT_STATUS_META, REPORT_TYPE_META, REPORT_TYPES } from '../../shared/utils/ops.util';
 import { valueOrUndefined } from '../../shared/utils/resource.util';
+import { reportTypeFor, shrinkDataUrl } from '../../shared/utils/vision.util';
 import { rememberFolio, myFolios } from './my-reports';
 
 @Component({
   selector: 'app-report-page',
-  imports: [FormsModule, RouterLink, Button, InputText, Message, SelectButton, Textarea, MiniMap, PhotoInput, Pill],
+  imports: [FormsModule, RouterLink, AiAnalysis, Button, InputText, Message, SelectButton, Textarea, MiniMap, PhotoInput, Pill],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './reports.scss',
   template: `
@@ -47,7 +51,7 @@ import { rememberFolio, myFolios } from './my-reports';
           <form class="rm-card stack form" (ngSubmit)="submit()">
             <fieldset>
               <legend>1. ¿Qué encontraste?</legend>
-              <p-selectbutton [options]="typeOptions" [(ngModel)]="type" name="type" optionValue="value" [allowEmpty]="false" class="types" ariaLabel="Tipo de problema">
+              <p-selectbutton [options]="typeOptions" [ngModel]="type()" (ngModelChange)="onType($event)" name="type" optionValue="value" [allowEmpty]="false" class="types" ariaLabel="Tipo de problema">
                 <ng-template #item let-o>
                   <span class="type-opt"><i [class]="o.icon" [style.color]="o.color" aria-hidden="true"></i>{{ o.label }}</span>
                 </ng-template>
@@ -69,6 +73,12 @@ import { rememberFolio, myFolios } from './my-reports';
             <fieldset>
               <legend>3. Foto (recomendada)</legend>
               <app-photo-input [(value)]="photo" label="Tomar foto del problema" />
+              @if (photo()) {
+                <app-ai-analysis [analysis]="analysisValue()" [loading]="analysis.isLoading()" [error]="analysisError()" [original]="photo()" (retry)="retryAnalysis()" />
+                @if (aiSuggestion(); as s) {
+                  <p-message severity="info" size="small"><i class="pi pi-sparkles"></i> La IA sugiere el tipo «{{ s }}»@if (!typeTouched()) { y ya lo marcamos por ti; puedes cambiarlo arriba }.</p-message>
+                }
+              }
             </fieldset>
 
             <fieldset>
@@ -123,6 +133,7 @@ import { rememberFolio, myFolios } from './my-reports';
 export class ReportPage {
   private readonly api = inject(OpsApi);
   private readonly geo = inject(GeoService);
+  private readonly vision = inject(VisionApi);
   private readonly toast = inject(MessageService);
   private readonly router = inject(Router);
 
@@ -132,7 +143,9 @@ export class ReportPage {
   protected readonly coords = formatCoords;
   protected readonly ago = timeAgo;
 
-  protected type: ReportType = 'trash';
+  protected readonly type = signal<ReportType>('trash');
+  /** The citizen picked the type by hand: the AI suggestion no longer overrides it. */
+  protected readonly typeTouched = signal(false);
   protected description = '';
   protected readonly photo = signal<string | null>(null);
   protected readonly point = signal<GeoPoint | null>(null);
@@ -145,11 +158,51 @@ export class ReportPage {
   protected readonly sent = signal<CitizenReport | null>(null);
   protected readonly mine = signal(myFolios());
 
+  // ── AI analysis of the photo (runs by itself when a photo is chosen) ──
+  private readonly analysisTry = signal(0);
+  protected readonly analysis = rxResource({
+    params: () => {
+      const photo = this.photo();
+      return photo ? { photo, attempt: this.analysisTry() } : undefined;
+    },
+    stream: ({ params }) => this.vision.analyze(params.photo),
+  });
+  protected readonly analysisValue = computed<VisionAnalysis | null>(() => valueOrUndefined(this.analysis) ?? null);
+  protected readonly analysisError = computed(() => {
+    const e = this.analysis.error() as (Error & { status?: number }) | undefined;
+    if (!e) return null;
+    if (e.name === 'TimeoutError') return 'El análisis tardó demasiado.';
+    return e.status === 0 ? 'No se pudo conectar con el servidor para analizar la foto.' : e.message || 'No se pudo analizar la foto.';
+  });
+  protected readonly aiSuggestion = computed(() => {
+    const a = this.analysisValue();
+    const t = a ? reportTypeFor(a.category) : null;
+    return t ? REPORT_TYPE_META[t].label : null;
+  });
+
   private readonly reports = rxResource({ stream: () => this.api.citizenReports() });
   protected readonly recent = computed(() => (valueOrUndefined(this.reports) ?? []).slice(0, 6));
   protected readonly mapPoints = computed<MapPoint[]>(() =>
     (valueOrUndefined(this.reports) ?? []).map((r) => ({ id: r.id, latitude: r.latitude, longitude: r.longitude, color: REPORT_TYPE_META[r.type].color, label: `${r.folio} · ${REPORT_TYPE_META[r.type].label}` })),
   );
+
+  constructor() {
+    // Apply the AI's suggested type once, unless the citizen already chose one.
+    effect(() => {
+      const a = this.analysisValue();
+      const t = a ? reportTypeFor(a.category) : null;
+      if (t && !untracked(this.typeTouched)) this.type.set(t);
+    });
+  }
+
+  protected onType(t: ReportType): void {
+    this.type.set(t);
+    this.typeTouched.set(true);
+  }
+
+  protected retryAnalysis(): void {
+    this.analysisTry.update((n) => n + 1);
+  }
 
   protected canSend(): boolean {
     return !!this.point() && (!!this.photo() || this.description.trim().length >= 5) && !this.sending();
@@ -167,12 +220,13 @@ export class ReportPage {
     }
   }
 
-  protected submit(): void {
+  protected async submit(): Promise<void> {
     const p = this.point();
     if (!p || !this.canSend()) return;
     this.sending.set(true);
     this.error.set(null);
-    this.api.createCitizenReport({ type: this.type, description: this.description, photo: this.photo(), ...p }).subscribe({
+    const ai = await this.compactAnalysis();
+    this.api.createCitizenReport({ type: this.type(), description: this.description, photo: this.photo(), ai, ...p }).subscribe({
       next: (r) => {
         this.sending.set(false);
         rememberFolio(r.folio);
@@ -188,12 +242,24 @@ export class ReportPage {
     });
   }
 
+  /** The AI result to send with the report; its annotated image is shrunk so it fits local storage. */
+  private async compactAnalysis(): Promise<VisionAnalysis | null> {
+    const a = this.analysisValue();
+    if (!a) return null;
+    try {
+      return { ...a, annotated_image: await shrinkDataUrl(a.annotated_image) };
+    } catch {
+      return { ...a, annotated_image: '' };
+    }
+  }
+
   protected reset(): void {
     this.sent.set(null);
     this.description = '';
     this.photo.set(null);
     this.point.set(null);
-    this.type = 'trash';
+    this.type.set('trash');
+    this.typeTouched.set(false);
   }
 
   protected track(): void {

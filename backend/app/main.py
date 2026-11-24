@@ -7,7 +7,7 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.adapters.inbound.http.errors import ERROR_SCHEMA, install_error_handlers
-from app.adapters.inbound.http.routers import alerts, analytics, catalog, health, ingest
+from app.adapters.inbound.http.routers import alerts, analytics, catalog, health, ingest, vision
 from app.adapters.inbound.websocket import endpoint as ws_endpoint
 from app.config.container import VERSION, Container
 from app.config.logging import configure_logging
@@ -21,6 +21,7 @@ API del prototipo de monitoreo y limpieza de agua de ríos (Hackatec Nacional 20
 - **Ingesta** (`X-API-Key`): lecturas de sensores, ciclos de centrifugado, lotes tratados, basura.
 - **Dashboard**: KPIs, series de pH, salud de sensores, centrífuga, recuperación de agua, basura,
   proyección de pH y mapa de puntos críticos.
+- **Visión artificial**: `POST /api/v1/vision/analyze` analiza las fotos de los reportes ciudadanos.
 - **Tiempo real**: `WS /ws/live?station_id=` (ver `API.md`).
 
 ⚠️ Umbrales, WQI y proyección son **valores de prototipo configurables**, no criterios validados.
@@ -85,7 +86,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         return response
 
     v1 = APIRouter(prefix="/api/v1")
-    for module in (ingest, catalog, alerts, analytics, health):
+    for module in (ingest, catalog, alerts, analytics, vision, health):
         v1.include_router(module.router)
     app.include_router(v1)
     app.include_router(health.router)  # /health también en la raíz (lo usa el frontend actual)

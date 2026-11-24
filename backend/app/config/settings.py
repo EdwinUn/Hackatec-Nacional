@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     simulation_interval_s: float = Field(default=5, gt=0)
     simulation_seed: int | None = None
 
+    # Visión artificial de los reportes ciudadanos (requiere `uv sync --extra vision`).
+    vision_enabled: bool = True
+    vision_model: str = "yolov8s-worldv2.pt"
+    vision_models_dir: str = "models"
+    vision_conf: float = Field(default=0.15, gt=0, le=1)  # umbral del detector; el dominio filtra de nuevo
+    vision_imgsz: int = Field(default=640, ge=160, le=1280)
+    vision_max_image_mb: int = Field(default=8, ge=1, le=50)
+    vision_scene_enabled: bool = True  # clasificador de escena CLIP (complementa al detector)
+    vision_preload: bool = False  # cargar el modelo al arrancar en vez de en la primera foto
+
     max_readings_per_request: int = Field(default=1000, ge=1)
     max_range_days: int = Field(default=90, ge=1)
     max_buckets: int = Field(default=5000, ge=10)

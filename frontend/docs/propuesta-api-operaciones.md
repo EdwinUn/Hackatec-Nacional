@@ -143,3 +143,16 @@ Dos tipos de mensaje nuevos, con el mismo sobre `{ type, station_id, ts, data }`
 | `tecnico2@demo.mx` | technician | `demo123` |
 | `supervisor@demo.mx` | supervisor | `demo123` |
 | `admin@demo.mx` | admin | `demo123` |
+
+---
+
+## Análisis con IA de la foto del reporte
+
+La foto se analiza **antes** de enviar el reporte con `POST /api/v1/vision/analyze` (ya implementado y documentado en `API.md` § Visión artificial; es abierto, sin cuenta). El front guarda el resultado dentro del reporte, en el campo opcional **`ai`** de `CitizenReport` / `NewCitizenReport` (mismo esquema que la respuesta de `/vision/analyze`: `category`, `severity`, `summary`, `reasons`, `detections`, `buoy`, `scene`, `annotated_image`, …).
+
+Propuesta para Back, si decide persistirlo:
+
+- `POST /citizen-reports` acepta `ai` (opcional) y lo devuelve en `GET /citizen-reports` y `GET /citizen-reports/by-folio/{folio}`.
+- **No confiar en el `ai` que manda el cliente** para decidir prioridades: lo ideal es que el backend vuelva a analizar la foto que recibe (o guarde un hash y valide).
+- `annotated_image` pesa ~300 KB en base64; el front lo reduce a ~50 KB antes de enviarlo. En producción conviene guardarla como archivo y devolver una URL.
+- El front muestra el resultado al crear el reporte (con la imagen anotada), al consultar el folio y en la bandeja/tareas del personal.
