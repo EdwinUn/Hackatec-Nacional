@@ -22,7 +22,7 @@
 }
 
 /* Atl-Monitor phone look: light fintech canvas, white 20px cards, hairline borders. */
-@media (max-width: 767px) {
+@media (max-width: 767px), (pointer: coarse) and (max-width: 1400px) {
   :root { --rm-canvas: var(--atl-bg); --rm-border: var(--atl-line); --rm-muted: var(--atl-muted); --rm-text: var(--atl-ink); }
   .rm-card { border-radius: 20px; box-shadow: none; }
   .page { padding: .5rem 1rem 1.5rem; }

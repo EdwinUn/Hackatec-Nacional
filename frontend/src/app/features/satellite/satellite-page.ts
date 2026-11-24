@@ -565,7 +565,7 @@ export class SatellitePage {
 
   /** Phone: fold the card back into its pill; desktop: deselect the station. */
   protected closeStation(): void {
-    if (window.matchMedia('(max-width: 767px)').matches) this.stationOpen.set(false);
+    if (window.matchMedia('(max-width: 767px), (pointer: coarse) and (max-width: 1400px)').matches) this.stationOpen.set(false);
     else this.selectedId.set(null);
   }
 

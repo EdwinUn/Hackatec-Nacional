@@ -20,7 +20,7 @@
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
 :host ::ng-deep .rule-form .p-inputnumber, :host ::ng-deep .rule-form .p-inputnumber input { width: 100%; }
 
-@media (max-width: 767px) {
+@media (max-width: 767px), (pointer: coarse) and (max-width: 1400px) {
   :host { display: block; max-width: 100%; overflow-x: hidden; }
   .page, .layout, .stack, .cards, .alert, .rules { max-width: 100%; min-width: 0; }
   .layout { grid-template-columns: minmax(0, 1fr); }

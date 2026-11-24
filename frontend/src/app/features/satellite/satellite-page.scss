@@ -45,13 +45,13 @@
   .panel { width: 290px; }
 }
 .map-error { top: 1rem; left: 50%; transform: translateX(-50%); padding: .7rem 1rem; display: flex; align-items: center; gap: .75rem; font-size: .88rem; }
-@media (max-width: 767px) {
+@media (max-width: 767px), (pointer: coarse) and (max-width: 1400px) {
   .panel { top: auto; right: .5rem; left: .5rem; bottom: .5rem; width: auto; max-height: 46%; }
   .map-error { top: auto; bottom: .75rem; width: calc(100% - 1.5rem); }
 }
 
 .m-only { display: none; }
-@media (max-width: 767px) {
+@media (max-width: 767px), (pointer: coarse) and (max-width: 1400px) {
   .m-only { display: flex; }
   .d-only { display: none; }
   /* Layout: the map fills everything above a fixed bottom dock (pills strip + room for the floating navbar). */
@@ -114,4 +114,4 @@
 .dash-text { margin: 0; font-size: .85rem; overflow-wrap: anywhere; color: #d7e6df; }
 .kv { margin: 0; display: grid; gap: .45rem; div { display: flex; flex-direction: column; padding: .5rem .7rem; border-radius: 10px; background: rgb(255 255 255 / .08); } dt { font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; color: #9fc2b3; } dd { margin: 0; font-size: .88rem; overflow-wrap: anywhere; } }
 .src { font-size: .72rem; }
-@media (min-width: 768px) { .dash:not(.m-open) { display: none; } }
+@media (min-width: 768px) and (pointer: fine), (min-width: 1401px) { .dash:not(.m-open) { display: none; } }

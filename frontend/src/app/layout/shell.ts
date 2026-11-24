@@ -107,7 +107,7 @@ export class Shell {
   }
 
   protected toggleSidebar(): void {
-    if (window.matchMedia('(max-width: 767px)').matches) this.mobileOpen.update((v) => !v);
+    if (window.matchMedia('(max-width: 767px), (pointer: coarse) and (max-width: 1400px)').matches) this.mobileOpen.update((v) => !v);
     else this.collapsed.update((v) => !v);
   }
 
