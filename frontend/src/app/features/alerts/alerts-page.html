@@ -1,0 +1,84 @@
+<div class="page">
+  <div>
+    <h1 class="page-title">Centro de alertamiento temprano</h1>
+    <p class="page-sub">Eventos detectados por los sensores y reglas del sistema. Los cambios llegan en vivo por WebSocket.</p>
+  </div>
+
+  <div class="layout">
+    <section class="stack">
+      <div class="rm-card filters">
+        <div class="f"><span class="lbl" id="lbl-status">Estado</span>
+          <p-selectbutton [options]="statusOptions" [ngModel]="status()" (ngModelChange)="setStatus($event)" optionLabel="label" optionValue="value" size="small" ariaLabelledBy="lbl-status" /></div>
+        <div class="f"><span class="lbl" id="lbl-sev">Severidad</span>
+          <p-selectbutton [options]="severityOptions" [ngModel]="severity()" (ngModelChange)="setSeverity($event)" optionLabel="label" optionValue="value" size="small" ariaLabelledBy="lbl-sev" /></div>
+        <span class="count muted">{{ total() }} resultados</span>
+      </div>
+
+      <div class="cards" aria-live="polite">
+        @for (a of items(); track a.id) {
+          <article class="rm-card alert" [style.border-color]="sev[a.severity].color + '66'" [style.background]="a.status === 'open' ? sev[a.severity].bg + '55' : null">
+            <header>
+              <app-pill [label]="sev[a.severity].label" [color]="sev[a.severity].color" [bg]="sev[a.severity].bg" />
+              <app-pill [label]="statusMeta[a.status].label" [color]="a.status === 'open' ? '#b91c1c' : a.status === 'acknowledged' ? '#a16207' : '#0f7a4d'" [bg]="a.status === 'open' ? '#fbdcdc' : a.status === 'acknowledged' ? '#fcefc7' : '#dcf5e8'" />
+              <span class="muted when">{{ ago(a.created_at) }}</span>
+            </header>
+            <p class="msg">{{ a.message }}</p>
+            <p class="meta muted"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ a.station_name }} · {{ a.created_at | date: 'dd/MM/yyyy HH:mm' }}</p>
+            @if (a.note) { <p class="note"><i class="pi pi-comment" aria-hidden="true"></i> {{ a.note }}</p> }
+            @if (a.status !== 'resolved') {
+              <footer>
+                @if (a.status === 'open') {
+                  <p-button label="Reconocer" icon="pi pi-eye" size="small" [outlined]="true" (onClick)="openDialog(a, 'acknowledged')" />
+                }
+                <p-button label="Resolver" icon="pi pi-check" size="small" (onClick)="openDialog(a, 'resolved')" />
+              </footer>
+            }
+          </article>
+        } @empty {
+          @if (page.error()) {
+            <div class="rm-card state-error" role="alert">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              <p><strong>No se pudieron cargar las alertas.</strong><span class="muted">Revisa la conexión con el backend.</span></p>
+              <p-button label="Reintentar" icon="pi pi-refresh" size="small" (onClick)="page.reload()" />
+            </div>
+          } @else if (page.isLoading()) {
+            <div class="skeleton" style="height: 120px"></div>
+            <div class="skeleton" style="height: 120px"></div>
+          } @else {
+            <div class="rm-card empty"><i class="pi pi-check-circle" aria-hidden="true"></i> No hay alertas con estos filtros.</div>
+          }
+        }
+      </div>
+
+      @if (total() > pageSize) {
+        <p-paginator [first]="offset()" [rows]="pageSize" [totalRecords]="total()" (onPageChange)="onPage($event)" />
+      }
+    </section>
+
+    <aside class="rm-card rules" aria-label="Reglas de alerta">
+      <h2 class="rm-card-title"><i class="pi pi-sliders-h" aria-hidden="true"></i> Reglas configuradas</h2>
+      <p class="muted small">Criterios y umbrales vigentes del sistema (<code>GET /alert-rules</code>).</p>
+      <ul>
+        @for (r of ruleList(); track r.id) {
+          <li [class.off]="!r.enabled">
+            <div class="r-head"><strong>{{ r.name }}</strong><app-pill [label]="sev[r.severity].label" [color]="sev[r.severity].color" [bg]="sev[r.severity].bg" /></div>
+            <div class="cond"><code>{{ r.parameter }} {{ r.operator }} {{ r.threshold }} {{ r.unit }}</code> <span class="muted">{{ r.enabled ? 'Activa' : 'Desactivada' }}</span></div>
+            @if (r.description) { <div class="muted small">{{ r.description }}</div> }
+          </li>
+        } @empty { <li class="muted">Sin reglas.</li> }
+      </ul>
+    </aside>
+  </div>
+</div>
+
+<p-dialog [visible]="dialogOpen()" (visibleChange)="dialogOpen.set($event)" [modal]="true" [style]="{ width: 'min(440px, 94vw)' }" [header]="target()?.status === 'resolved' ? 'Resolver alerta' : 'Reconocer alerta'">
+  @if (target(); as t) {
+    <p class="msg">{{ t.alert.message }}</p>
+    <label for="note" class="lbl">Nota (opcional)</label>
+    <textarea pTextarea id="note" rows="3" class="w-full" style="width: 100%" [ngModel]="note()" (ngModelChange)="note.set($event)" placeholder="Ej. Brigada en sitio, muestra tomada…"></textarea>
+  }
+  <ng-template #footer>
+    <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="dialogOpen.set(false)" />
+    <p-button [label]="target()?.status === 'resolved' ? 'Resolver' : 'Reconocer'" [loading]="saving()" (onClick)="confirm()" />
+  </ng-template>
+</p-dialog>

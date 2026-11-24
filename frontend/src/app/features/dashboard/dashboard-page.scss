@@ -1,0 +1,22 @@
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
+.kpi-skel { height: 128px; }
+.kpis-error { grid-column: 1 / -1; }
+.pills { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .4rem; }
+.sub-line { margin-top: .35rem; color: var(--rm-muted); font-size: .8rem; display: flex; align-items: center; gap: .4rem; i { color: var(--rm-green); } }
+.main-row { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 1rem; }
+.bottom-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.chart-skel { height: 340px; }
+.small { font-size: .78rem; font-weight: 500; }
+.good { color: #0f7a4d; } .bad { color: #b91c1c; }
+.bars { list-style: none; margin: 0; padding: 0; display: grid; gap: .85rem; }
+.bar-head { display: flex; justify-content: space-between; font-size: .85rem; margin-bottom: .3rem; font-weight: 550; .muted { font-weight: 400; font-variant-numeric: tabular-nums; } }
+.live-now { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin-bottom: .5rem; padding: .7rem .85rem; border-radius: 10px; background: var(--rm-green-soft); div { display: flex; flex-direction: column; } strong { font-size: 1.4rem; font-variant-numeric: tabular-nums; } small { font-size: .75rem; font-weight: 500; color: var(--rm-muted); } .muted { font-size: .75rem; } }
+.sensors { list-style: none; margin: 0; padding: 0; display: grid; max-height: 330px; overflow: auto;
+  li { padding: .6rem 0; border-bottom: 1px solid var(--rm-border); &:last-child { border-bottom: 0; } }
+  .s-main { display: flex; justify-content: space-between; align-items: center; gap: .5rem; font-size: .88rem; }
+  .s-meta { display: flex; flex-wrap: wrap; gap: .25rem .9rem; font-size: .76rem; margin-top: .25rem; font-variant-numeric: tabular-nums; } }
+.signal { display: inline-flex; align-items: center; gap: .35rem; }
+.sig-bar { width: 38px; height: 5px; border-radius: 3px; background: #e4e6ea; overflow: hidden; span { display: block; height: 100%; } }
+@media (max-width: 1199px) { .main-row { grid-template-columns: 1fr; } .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .bottom-row { grid-template-columns: 1fr 1fr; } }
+
+@media (max-width: 639px) { .kpis, .bottom-row { grid-template-columns: 1fr; } .page { padding: .9rem .75rem 1.5rem; } }
