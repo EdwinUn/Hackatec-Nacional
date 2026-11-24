@@ -9,6 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.domain.criticality import CriticalityLevel
 from app.domain.enums import SensorLocation, SensorStatus, SensorType, StationStatus, WasteType
 from app.domain.vision import BuoyStatus, VisionCategory, VisionSeverity
 from app.domain.wqi import WqiCategory, WqiResult
@@ -215,6 +216,32 @@ class PhForecast(BaseModel):
     history: list[SeriesPoint]
     points: list[ForecastPointOut]
     note: str | None = None
+
+
+class CriticalIssue(BaseModel):
+    rule: str
+    severity: str
+    parameter: SensorType | None
+    occurrences: int
+
+
+class CriticalPoint(BaseModel):
+    rank: int
+    station_id: UUID
+    name: str
+    river: str
+    latitude: float
+    longitude: float
+    score: float = Field(description="Índice de criticidad 0–100 (valor de prototipo, ver README)")
+    level: CriticalityLevel
+    components: dict[str, float] = Field(description="calidad, alertas y recurrencia, cada uno 0–100")
+    wqi: float | None
+    wqi_category: WqiCategory | None
+    dominant_parameter: SensorType | None
+    alerts_active: dict[str, int] = Field(description="Alertas no resueltas por severidad")
+    occurrences: int = Field(description="Repeticiones de alertas vivas en el periodo")
+    top_issues: list[CriticalIssue]
+    reasons: list[str] = Field(description="Explicación en lenguaje natural, de mayor a menor peso")
 
 
 class Hotspot(BaseModel):

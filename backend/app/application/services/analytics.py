@@ -12,6 +12,8 @@ from app.application.read_models import (
     CentrifugeAnalytics,
     CentrifugePoint,
     CentrifugeSummary,
+    CriticalIssue,
+    CriticalPoint,
     ForecastPointOut,
     Hotspot,
     LatestValue,
@@ -31,6 +33,7 @@ from app.application.read_models import (
     WqiOut,
 )
 from app.application.time_range import Bucket, TimeRange
+from app.domain.criticality import CriticalityInput, score_criticality
 from app.domain.enums import SensorLocation, SensorType
 from app.domain.forecast import linear_forecast
 from app.domain.treatment import NEUTRAL_PH
@@ -238,6 +241,62 @@ class AnalyticsService:
             ],
         )
 
+    async def critical_points(self, tr: TimeRange) -> list[CriticalPoint]:
+        """Ranking de estaciones por índice de criticidad, con los motivos de cada una."""
+        latest = await self._reader.latest_values(None, tr.end)
+        wqi = self._wqi_by_station(latest, RAW_LOCATIONS)
+        stations = await self._reader.stations_with_alerts()
+        active_rows, recurrent_rows = await self._reader.alert_pressure(tr.start, tr.end)
+
+        active: dict = defaultdict(lambda: {"critical": 0, "warning": 0, "info": 0})
+        for row in active_rows:
+            active[row["station_id"]][row["severity"]] = row["n"]
+        issues: dict = defaultdict(list)
+        for row in recurrent_rows:
+            issues[row["station_id"]].append(row)
+
+        points = []
+        for s in stations:
+            sid = s["station_id"]
+            w = wqi.get(sid)
+            wqi_out = WqiOut.from_result(w)
+            act = active[sid]
+            occurrences = sum(i["occurrences"] for i in issues[sid])
+            result = score_criticality(
+                CriticalityInput(
+                    wqi=w.score if w else None,
+                    critical_active=act["critical"],
+                    warning_active=act["warning"],
+                    info_active=act["info"],
+                    occurrences=occurrences,
+                )
+            )
+            top = [CriticalIssue(**i) for i in issues[sid][:3]]
+            points.append(
+                CriticalPoint(
+                    rank=0,
+                    station_id=sid,
+                    name=s["name"],
+                    river=s["river"],
+                    latitude=s["latitude"],
+                    longitude=s["longitude"],
+                    score=result.score,
+                    level=result.level,
+                    components=result.components,
+                    wqi=w.score if w else None,
+                    wqi_category=w.category if w else None,
+                    dominant_parameter=wqi_out.dominant_parameter if wqi_out else None,
+                    alerts_active=dict(act),
+                    occurrences=occurrences,
+                    top_issues=top,
+                    reasons=_reasons(result.components, wqi_out, act, top),
+                )
+            )
+        points.sort(key=lambda p: p.score, reverse=True)
+        for i, p in enumerate(points, start=1):
+            p.rank = i
+        return points
+
     async def hotspots(self, at) -> list[Hotspot]:
         latest = await self._reader.latest_values(None, at)
         wqi = self._wqi_by_station(latest, RAW_LOCATIONS)
@@ -253,3 +312,50 @@ class AnalyticsService:
             )
             for s in stations
         ]
+
+
+PARAMETER_LABEL = {
+    SensorType.PH: "pH",
+    SensorType.TURBIDITY: "turbidez",
+    SensorType.TEMPERATURE: "temperatura",
+    SensorType.DISSOLVED_OXYGEN: "oxígeno disuelto",
+    SensorType.CONDUCTIVITY: "conductividad",
+    SensorType.TDS: "sólidos disueltos",
+}
+
+
+def _reasons(
+    components: dict[str, float], wqi: WqiOut | None, active: dict, top: list[CriticalIssue]
+) -> list[str]:
+    """Motivos en español, ordenados por el componente que más aporta al índice."""
+    texts: dict[str, str | None] = {
+        "calidad": (
+            f"Calidad del agua {wqi.category.value} (WQI {wqi.score:g})"
+            + (
+                f", sobre todo por {PARAMETER_LABEL[wqi.dominant_parameter]}"
+                if wqi.dominant_parameter
+                else ""
+            )
+            if wqi
+            else None
+        ),
+        "alertas": (
+            ", ".join(
+                f"{n} {one if n == 1 else many}"
+                for n, one, many in (
+                    (active["critical"], "alerta crítica activa", "alertas críticas activas"),
+                    (active["warning"], "advertencia activa", "advertencias activas"),
+                )
+                if n
+            )
+            or None
+        ),
+        "recurrencia": (
+            f"Lo más repetido: {top[0].rule} ({top[0].occurrences} veces)"
+            if top and top[0].occurrences
+            else None
+        ),
+    }
+    order = sorted(components, key=lambda k: components[k], reverse=True)
+    reasons = [texts[k] for k in order if texts.get(k)]
+    return reasons or ["Sin alertas ni datos de calidad en el periodo"]

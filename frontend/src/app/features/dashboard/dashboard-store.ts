@@ -14,7 +14,7 @@ import {
 import { FiltersService } from '../../core/services/filters.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
 import { valueOrUndefined } from '../../shared/utils/resource.util';
-import { WASTE_TYPES } from '../../shared/utils/wqi.util';
+import { WASTE_TYPES, improvementPct } from '../../shared/utils/wqi.util';
 
 export interface LivePhPoint {
   ts: number;
@@ -94,7 +94,7 @@ export class DashboardStore {
     const w = this.water();
     return {
       ...o,
-      ph: { inlet, outlet, improvement_pct: inlet && outlet !== null ? ((outlet - inlet) / inlet) * 100 : o.ph.improvement_pct },
+      ph: { ...o.ph, inlet, outlet, improvement_pct: inlet ? improvementPct(inlet, outlet) : o.ph.improvement_pct },
       alerts: { open: o.alerts.open + a.open, critical: o.alerts.critical + a.critical },
       treatment_efficiency_pct: w?.totals.efficiency_pct ?? o.treatment_efficiency_pct,
       recovery: { ...o.recovery, clean_liters: w?.totals.liters_clean ?? o.recovery.clean_liters, waste_kg: this.waste()?.total_kg ?? o.recovery.waste_kg },

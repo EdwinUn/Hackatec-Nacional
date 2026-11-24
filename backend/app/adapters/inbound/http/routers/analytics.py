@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query
 from app.adapters.inbound.http.deps import BucketQuery, ContainerDep, TimeRangeDep
 from app.application.read_models import (
     CentrifugeAnalytics,
+    CriticalPoint,
     Hotspot,
     Overview,
     PhForecast,
@@ -91,6 +92,15 @@ async def forecast_ph(
     now = c.clock()
     tr = TimeRange(now - timedelta(hours=lookback), now)
     return await c.analytics.ph_forecast(station_id, location, tr, timedelta(hours=horizon))
+
+
+@router.get(
+    "/analytics/critical-points",
+    response_model=list[CriticalPoint],
+    summary="Ranking de puntos críticos (índice de criticidad con motivos)",
+)
+async def critical_points(c: ContainerDep, tr: TimeRangeDep):
+    return await c.analytics.critical_points(tr)
 
 
 @router.get(

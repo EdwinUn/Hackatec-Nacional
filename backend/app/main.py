@@ -61,6 +61,8 @@ def create_app(settings: Settings | None = None, container: Container | None = N
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
+        # En dev, cualquier puerto de localhost (ng serve cambia de puerto si el 4200 está ocupado).
+        allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?" if settings.is_dev else None,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

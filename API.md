@@ -223,7 +223,7 @@ Todos aceptan `station_id` (omitir = todas las estaciones) y `from`/`to`.
 ```json
 {
   "station_id": "e68a…", "from": "2026-11-23T04:13:51Z", "to": "2026-11-24T04:13:51Z",
-  "wqi": { "score": 80.0, "category": "buena", "components": [
+  "wqi": { "score": 80.0, "category": "buena", "dominant_parameter": "turbidity", "components": [
     { "parameter": "ph", "value": 7.362, "sub_index": 100.0, "weight": 0.25 },
     { "parameter": "turbidity", "value": 46.977, "sub_index": 48.28, "weight": 0.25 }
   ] },
@@ -233,10 +233,16 @@ Todos aceptan `station_id` (omitir = todas las estaciones) y `from`/`to`.
   "sensors_online": 12, "sensors_total": 12,
   "water_in_l": 23743.7, "water_clean_l": 21239.6, "sludge_kg": 64.48, "efficiency_pct": 89.45,
   "waste_kg": 42.66, "waste_items": 319, "cycles_running": 0,
-  "alerts_open": 7, "alerts_critical_open": 3
+  "alerts_open": 7, "alerts_critical_open": 3,
+  "trend_bucket": "1h",
+  "trend": [
+    { "bucket": "2026-11-23T05:00:00Z", "wqi": 81.2, "ph_inlet": 7.31, "ph_outlet": 7.12, "water_clean_l": 2210.4 }
+  ]
 }
 ```
 
+- `dominant_parameter`: el parámetro con el sub-índice más bajo, es decir, el que más baja la calidad. Es `null` si no hay datos.
+- `trend`: serie corta para sparklines de los KPI (WQI, pH de entrada y salida, litros limpios). Usa buckets de `1h` hasta 48 h de rango y de `1d` por encima.
 - `wqi`: agua cruda (río + entrada). `wqi_outlet`: agua que regresa al río. Categorías: `excelente | buena | regular | mala | critica`. Si faltan datos, valen `null`.
 - `alerts_open` cuenta las alertas no resueltas (`open` + `acknowledged`).
 
@@ -317,6 +323,34 @@ Lista de sensores con `uptime_pct` = % de ventanas de 5 min del rango con al men
 ```
 
 Con menos de 3 puntos, `points` llega vacío y `note` explica el motivo.
+
+### `GET /api/v1/analytics/critical-points?from=&to=`
+
+Ranking de estaciones por **índice de criticidad** (0–100, valor de prototipo). El índice combina tres componentes, cada uno de 0 a 100:
+
+- **calidad** = 100 − WQI;
+- **alertas** = alertas de calidad del agua activas (crítica 25, advertencia 8, informativa 2);
+- **recurrencia** = repeticiones en el periodo, en escala logarítmica.
+
+Fórmula: `0.5·calidad + 0.3·alertas + 0.2·recurrencia`. Niveles: `critico` ≥ 50, `atencion` ≥ 30, `estable`. Solo cuentan las alertas de calidad del agua (`reading_range`); un sensor caído o una falla de la centrífuga no es contaminación.
+
+```json
+[{
+  "rank": 1, "station_id": "e68a…", "name": "Río Atoyac — Parque Lineal / Echeverría", "river": "Río Atoyac",
+  "latitude": 19.0185, "longitude": -98.2435, "score": 65.0, "level": "critico",
+  "components": { "calidad": 36.1, "alertas": 90.0, "recurrencia": 100.0 },
+  "wqi": 63.9, "wqi_category": "regular", "dominant_parameter": "turbidity",
+  "alerts_active": { "critical": 2, "warning": 5, "info": 0 }, "occurrences": 448,
+  "top_issues": [ { "rule": "pH fuera del rango aceptable", "severity": "warning", "parameter": "ph", "occurrences": 204 } ],
+  "reasons": [
+    "Lo más repetido: pH fuera del rango aceptable (204 veces)",
+    "2 alertas críticas activas, 5 advertencias activas",
+    "Calidad del agua regular (WQI 63.9), sobre todo por turbidez"
+  ]
+}]
+```
+
+`reasons` viene ordenado por el componente que más aporta al índice.
 
 ### `GET /api/v1/analytics/hotspots`
 

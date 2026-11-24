@@ -1,4 +1,4 @@
-import { AlertSeverity, AlertStatus, CentrifugeState, SensorStatus, WasteType, WqiCategory } from '../../core/models/rio.models';
+import { AlertSeverity, AlertStatus, CentrifugeState, CriticalityLevel, SensorStatus, WasteType, WqiCategory } from '../../core/models/rio.models';
 
 export const WQI_META: Record<WqiCategory, { label: string; color: string; bg: string }> = {
   excelente: { label: 'Excelente', color: '#0f7a4d', bg: '#dcf5e8' },
@@ -21,6 +21,22 @@ export function wqiCategory(score: number): WqiCategory {
   if (score >= 35) return 'mala';
   return 'critica';
 }
+
+/**
+ * pH improvement = how much closer to neutral (7) the water gets: 7.56 → 7.22 is +61 %
+ * (|0.56| → |0.22|), 5.0 → 6.8 is +90 %. Negative means the treatment moved it away from 7.
+ */
+export function improvementPct(inlet: number | null | undefined, outlet: number | null | undefined): number {
+  if (inlet === null || inlet === undefined || outlet === null || outlet === undefined) return 0;
+  const before = Math.abs(inlet - 7);
+  return before < 1e-6 ? 0 : ((before - Math.abs(outlet - 7)) / before) * 100;
+}
+
+export const CRITICALITY_META: Record<CriticalityLevel, { label: string; color: string; bg: string }> = {
+  critico: { label: 'Crítico', color: '#dc2626', bg: '#fbdcdc' },
+  atencion: { label: 'Atención', color: '#d97706', bg: '#fcefc7' },
+  estable: { label: 'Estable', color: '#16a34a', bg: '#dcf5e8' },
+};
 
 export const SEVERITY_META: Record<AlertSeverity, { label: string; color: string; bg: string; icon: string }> = {
   info: { label: 'Informativa', color: '#1d4ed8', bg: '#dbeafe', icon: 'pi pi-info-circle' },

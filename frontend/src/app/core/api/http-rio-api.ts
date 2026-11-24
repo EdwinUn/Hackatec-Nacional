@@ -7,6 +7,7 @@ import {
   AlertDto,
   AlertRuleDto,
   CentrifugeAnalyticsDto,
+  CriticalPointDto,
   CycleDto,
   HotspotDto,
   OverviewDto,
@@ -20,10 +21,11 @@ import {
   WasteAnalyticsDto,
   WaterRecoveryDto,
 } from '../models/api.models';
-import { AlertFilters, AlertPatch, AlertRulePatch, Bucket, IngestResult, Query, StationStatus, WasteType } from '../models/rio.models';
+import { AlertFilters, AlertPatch, AlertRulePatch, Bucket, CriticalPoint, IngestResult, Query, StationStatus, WasteType } from '../models/rio.models';
 import {
   mapAlert,
   mapCentrifuge,
+  mapCriticalPoint,
   mapForecast,
   mapHotspot,
   mapOverview,
@@ -52,10 +54,14 @@ export class HttpRioApi extends RioApi {
     shareReplay({ bufferSize: 1, refCount: false }),
   );
 
+  private url(path: string): string {
+    return this.cfg.apiBaseUrl + path;
+  }
+
   private get<T>(path: string, params: Params = {}): Observable<T> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
-    return this.http.get<T>(this.cfg.apiBaseUrl + path, { params: p });
+    return this.http.get<T>(this.url(path), { params: p });
   }
 
   private get keyHeaders(): HttpHeaders {
@@ -91,6 +97,9 @@ export class HttpRioApi extends RioApi {
   }
   hotspots() {
     return this.get<HotspotDto[]>('/analytics/hotspots').pipe(map((l) => l.map(mapHotspot)));
+  }
+  criticalPoints(q: Query): Observable<CriticalPoint[]> {
+    return this.get<CriticalPointDto[]>('/analytics/critical-points', { from: q.from, to: q.to }).pipe(map((l) => l.map(mapCriticalPoint)));
   }
   alerts(f: AlertFilters) {
     return combineLatest([this.get<PageDto<AlertDto>>('/alerts', { ...f }), this.names$]).pipe(

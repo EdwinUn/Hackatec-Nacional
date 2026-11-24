@@ -187,6 +187,12 @@ class AnalyticsReader(Protocol):
         bucket: timedelta,
     ) -> list[tuple[datetime, float]]: ...
     async def stations_with_alerts(self) -> list[dict[str, Any]]: ...
+    async def alert_pressure(
+        self, start: datetime, end: datetime
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Solo alertas de calidad del agua: (activas por estación/severidad,
+        repeticiones por estación/regla en el periodo)."""
+        ...
 
 
 class HealthProbe(Protocol):
