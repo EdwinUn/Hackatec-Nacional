@@ -23,8 +23,9 @@ _Cómo lo resolvemos y qué lo hace diferente._
 | Parte | Tecnología |
 | ----- | ---------- |
 | Frontend | Angular 22 + PrimeNG 22 (tema Aura) |
-| Backend | FastAPI + SQLModel |
-| Base de datos | PostgreSQL 17 (contenedor local) |
+| Backend | FastAPI + SQLAlchemy 2 async · arquitectura hexagonal (ver [backend/README.md](backend/README.md)) |
+| Base de datos | PostgreSQL 17 + migraciones Alembic |
+| Tiempo real | Redis pub/sub + WebSocket |
 | IA | Fuera de alcance por ahora (`ia/` queda reservada) |
 
 ## Estructura
@@ -32,9 +33,9 @@ _Cómo lo resolvemos y qué lo hace diferente._
 ```
 .
 ├── frontend/      # App Angular + PrimeNG
-├── backend/       # API FastAPI + SQLModel
+├── backend/       # API FastAPI (dominio, casos de uso, adaptadores) — ver backend/README.md
 ├── ia/            # Reservada (IA fuera de alcance por ahora)
-├── compose.yaml   # PostgreSQL local
+├── compose.yaml   # PostgreSQL + Redis + API
 ├── API.md         # Contrato de endpoints entre front y back
 └── CLAUDE.md      # Contexto del proyecto para Claude Code
 ```
@@ -46,8 +47,8 @@ _Cómo lo resolvemos y qué lo hace diferente._
 | Zona | Dueño | Notas |
 | --- | --- | --- |
 | `frontend/**` | Front | |
-| `backend/app/models/`, `routers/`, `services/`, `seed.py` | Back | |
-| `compose.yaml`, `backend/app/config.py`, `database.py`, `main.py`, `backend/tests/`, `.env.example`, `README.md`, `CLAUDE.md` | Integración | Back sí agrega la línea `include_router` en `main.py` |
+| `backend/app/domain/`, `application/`, `adapters/`, `backend/scripts/`, `backend/migrations/` | Back | |
+| `compose.yaml`, `backend/app/config/`, `backend/app/main.py`, `backend/tests/`, `.env.example`, `README.md`, `CLAUDE.md` | Integración | Back sí agrega la línea `include_router` en `main.py` |
 | `API.md` | Back escribe, Front revisa | Cada cambio es un PR propio, **antes** del código |
 
 Si necesitas tocar algo que no es tuyo, avisa al dueño o abre un PR que él revise.
@@ -68,38 +69,30 @@ El contrato es [API.md](API.md). Ver la sección *"Cómo proponer un endpoint"*.
 ### Requisitos
 
 - Node.js 20+ (el CLI de Angular se usa con `npx ng`, no hace falta instalarlo global)
-- Python 3.11+
-- Docker o Podman (para PostgreSQL)
+- [uv](https://docs.astral.sh/uv/) (instala Python 3.12 por su cuenta)
+- Docker o Podman (para PostgreSQL y Redis)
 
-### 1. Base de datos
-
-```bash
-docker compose up -d db          # o: podman compose up -d db
-```
-
-Sin compose (solo Podman o Docker):
+### 1. Infraestructura (PostgreSQL + Redis)
 
 ```bash
-podman run -d --name hackatec-db \
-  -e POSTGRES_USER=hackatec -e POSTGRES_PASSWORD=hackatec -e POSTGRES_DB=hackatec \
-  -p 5432:5432 -v hackatec_pgdata:/var/lib/postgresql/data \
-  docker.io/library/postgres:17
+docker compose up -d db redis    # o: podman compose up -d db redis
 ```
 
-Después de reiniciar la compu: `podman start hackatec-db` (o `docker compose up -d db`).
+Después de reiniciar la compu: `docker compose up -d db redis`.
 
 ### 2. Backend
 
 ```bash
 cd backend
-python -m venv .venv
-source .venv/bin/activate        # fish: source .venv/bin/activate.fish · Windows: .venv\Scripts\activate
-pip install -r requirements.txt
 cp ../.env.example .env
-python -m app.seed               # datos de ejemplo (solo si la BD está vacía)
-fastapi dev app/main.py          # http://localhost:8000/docs
-pytest                           # tests de humo
+uv sync                          # crea .venv con Python 3.12 y dependencias
+make migrate seed simulate       # esquema, 3 estaciones de Puebla y 24 h de datos simulados
+make dev                         # http://localhost:8000/docs
+make live                        # (otra terminal) datos en vivo + alerta demo a los 2 min
+make test                        # pruebas
 ```
+
+O todo en Docker: `docker compose up -d --build` (la API migra sola), y luego `make seed simulate` desde `backend/`. Detalles en [backend/README.md](backend/README.md).
 
 ### 3. Frontend
 
@@ -112,38 +105,32 @@ npx ng test --watch=false        # tests
 
 ### 4. Comprobar que todo funciona
 
-Con la BD arriba, `fastapi dev` corriendo en una terminal y `npx ng serve` en otra:
+Con la infraestructura arriba, `make dev` corriendo en una terminal y `npx ng serve` en otra:
 
 | Qué revisar | Resultado esperado |
 | --- | --- |
-| `pytest` (en `backend/`) | `1 passed` |
+| `make test` (en `backend/`) | `77 passed` |
 | `npx ng test --watch=false` (en `frontend/`) | `1 passed` |
-| http://localhost:8000/docs → `GET /health` → *Try it out* | `{"status": "ok"}` |
-| http://localhost:4200 | Se ve la lista de items del seed |
+| http://localhost:8000/health | `{"status": "ok", "postgres": "ok", "redis": "ok", …}` |
+| http://localhost:8000/api/v1/dashboard/overview | KPIs con WQI, pH, agua y alertas |
 
-Prueba de punta a punta: crea un item y recarga `localhost:4200`; debe aparecer.
-
-```bash
-curl -X POST localhost:8000/items -H 'Content-Type: application/json' -d '{"name": "prueba"}'
-```
+> ⚠️ La pantalla de ejemplo del frontend (lista de `items`) ya no tiene backend: esos endpoints de borrador se retiraron. El contrato nuevo está en [API.md](API.md).
 
 Problemas comunes:
 
-- **Puerto 5432 ocupado:** ya tienes otro Postgres instalado; detenlo.
-- **El front no muestra items:** revisa que el backend esté corriendo y que `useMocks` sea `false` en `environment.development.ts`.
+- **Puerto 5432 o 6379 ocupado:** ya tienes otro Postgres o Redis instalado; detenlo.
+- **`make test` omite las pruebas de integración:** falta la BD `rio_test` (ver [backend/README.md](backend/README.md#pruebas-y-lint)).
 
-Para apagar: `Ctrl+C` en las terminales del back y del front, y `docker compose stop db` (o `podman stop hackatec-db`).
+Para apagar: `Ctrl+C` en las terminales del back y del front, y `docker compose stop`.
 
 ### Resetear la base de datos
 
-Las tablas se crean solas al arrancar el backend (`SQLModel.metadata.create_all`), pero **no se modifican** si cambias un modelo existente. Cuando el Back cambia una tabla, cada quien resetea su BD:
+El esquema lo manejan las migraciones de Alembic (`make migrate`). Para empezar de cero con datos demo:
 
 ```bash
-docker compose down -v && docker compose up -d db
-# o con podman sin compose:
-podman rm -f hackatec-db && podman volume rm hackatec_pgdata   # y vuelve a correr el `podman run` de arriba
-
-cd backend && python -m app.seed
+cd backend && make reset simulate     # vacía las tablas, siembra y genera 24 h de datos
+# o borrando también el volumen:
+docker compose down -v && docker compose up -d db redis && make migrate seed simulate
 ```
 
 ### Licencia de PrimeNG
