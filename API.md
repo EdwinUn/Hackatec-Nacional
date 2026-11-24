@@ -16,6 +16,9 @@ Actualiza este archivo **antes** o **junto con** cualquier cambio en los endpoin
 | Qué | Cómo |
 | --- | --- |
 | Ingesta y escrituras de catálogo/reglas (`POST`/`PATCH`) | Header `X-API-Key: <INGEST_API_KEY>` |
+| `PATCH /stations/{id}`, `PATCH /sensors/{id}`, `PATCH /alert-rules/{id}`, `POST /waste-collections` | `X-API-Key` **o** `Authorization: Bearer <token>` de un usuario activo del personal |
+| Módulo de operaciones (`/users`, `/work-orders`, `PATCH /citizen-reports/{id}`) | `Authorization: Bearer <token>` (ver «Operaciones»). Token vencido o inválido → 401; rol insuficiente → 403 |
+| `POST/GET /citizen-reports`, `GET /citizen-reports/by-folio/{folio}` | Públicos (ciudadanía sin cuenta) |
 | Lecturas (`GET`) y `PATCH /alerts/{id}` | Abiertas (no hay usuarios finales todavía) |
 | WebSocket | Abierto con `ENVIRONMENT=dev`; si no, `?api_key=<INGEST_API_KEY>` |
 
@@ -32,6 +35,12 @@ Actualiza este archivo **antes** o **junto con** cualquier cambio en los endpoin
 | 409 | `conflict` | Ej. nombre de estación repetido, actualizar un ciclo ya cerrado, resolver una alerta ya resuelta |
 | 422 | `validation_error` | JSON inválido; `details` es la lista de campos `[{loc, msg, type}]` |
 | 422 | `invalid_data` | Regla de negocio (rango de fechas, volúmenes imposibles, referencia a un registro inexistente, etc.) |
+| 401 | `invalid_credentials` | Correo o contraseña incorrectos en el login |
+| 403 | `forbidden` | El rol del usuario no permite la acción |
+| 403 | `inactive` | La cuenta está desactivada (login) |
+| 409 | `invalid_transition` | Cambio de estado de una orden de trabajo no permitido |
+| 413 | `payload_too_large` | El cuerpo de la petición supera 2 MB (`MAX_BODY_KB`) |
+| 429 | `rate_limited` | Demasiados reportes ciudadanos desde la misma IP, o demasiados intentos de login |
 | 500 | `internal_error` | Error inesperado (queda en el log) |
 
 ### Paginación
@@ -176,13 +185,77 @@ Balance de agua de un lote tratado. `efficiency_pct` la calcula el backend.
 
 ---
 
+## Dispositivos — telemetría de la boya (ESP32 / Wokwi)
+
+La boya manda **un mensaje plano por envío**. El backend lo reparte así:
+
+- **Calidad del agua → lecturas** de los sensores de la estación (mismas validaciones, alertas, salud y evento `reading` que `POST /readings`):
+
+  | Campo | Sensor (`type` / `location`, en orden de preferencia) |
+  | --- | --- |
+  | `ph` | `ph` / `inlet`, si no hay → `river` |
+  | `tds_ppm` | `tds` / `inlet` → `river` |
+  | `temp_c` | `temperature` / `inlet` → `river` |
+  | `turb_in_ntu` | `turbidity` / `inlet` |
+  | `turb_out_ntu` | `turbidity` / `outlet` |
+
+  Un campo cuya estación no tiene ese sensor no se guarda y se reporta en `unmapped`.
+- **Estado del dispositivo → `device_telemetry`**: `n`, `bat_v`, `bat_pct`, `rio_ms`, `gen_w`, `gen_v`, `freno`, `bomba`, `alerta`, `eficiencia_pct` (todos opcionales). Ojo: `eficiencia_pct` es la del firmware (por turbidez); no es la `efficiency_pct` de los lotes (por volumen).
+- **Hora**: `ts` opcional (ISO-8601 con zona o epoch en s). Si no viene, no se entiende (ej. `"sin-hora"`), es anterior a 2024 (ESP32 sin NTP) o está más de 5 min en el futuro, se usa la hora de llegada.
+- Campos desconocidos se ignoran (el firmware puede agregar campos sin romper nada).
+
+### Por MQTT
+
+Firmware de referencia (Wokwi y boya real): [`firmware/boya-rm01/sketch.ino`](firmware/boya-rm01/sketch.ino).
+
+La API se suscribe a `MQTT_TOPIC` (default `riomonitor/+/telemetria`; el `+` es el `code`) en el broker de `MQTT_URL` (vacío = apagado). Mismo cuerpo que el POST. Un mensaje inválido o de una boya desconocida se registra en el log y se descarta. Con varios workers usa suscripción compartida `$share/rio-api/…` para no ingerir dos veces.
+
+### `POST /api/v1/devices/{code}/telemetry` 🔑
+
+```json
+{ "boya": "RM-01", "n": 42, "ph": 6.9, "tds_ppm": 410, "temp_c": 22.0, "turb_in_ntu": 180, "turb_out_ntu": 12,
+  "eficiencia_pct": 93.3, "bat_v": 11.8, "bat_pct": 78, "rio_ms": 0.9, "gen_v": 14.2, "freno": false, "bomba": true, "alerta": false }
+```
+
+`boya` es opcional, pero si viene debe coincidir con `{code}` (422). Código sin estación → 404.
+
+→ 200
+
+```json
+{ "station_id": "80f0…", "code": "RM-01", "ts": "2026-11-24T17:54:53Z",
+  "readings": { "received": 5, "accepted": 5, "duplicates": 0, "rejected": [], "alerts_triggered": 0 },
+  "unmapped": [] }
+```
+
+### `GET /api/v1/devices/{code}/telemetry/latest`
+
+Último estado (404 si la boya todavía no envía nada). **`DeviceTelemetryOut`**:
+
+```json
+{ "id": "…", "station_id": "80f0…", "ts": "…", "seq": 42, "battery_v": 11.8, "battery_pct": 78,
+  "river_speed_ms": 0.9, "generator_w": null, "generator_v": 14.2, "pump_on": true, "brake_on": false,
+  "alarm_on": false, "device_efficiency_pct": 93.3 }
+```
+
+### `GET /api/v1/devices/{code}/telemetry?since=&limit=100`
+
+Historial de `DeviceTelemetryOut`, más reciente primero (`limit` 1–1000).
+
+### Para la escena 3D de la boya
+
+1. `GET /api/v1/stations` → la estación con `code` = la boya; `GET /api/v1/sensors?station_id=…` para saber qué sensor es cada sonda.
+2. Estado inicial: `GET /dashboard/overview?station_id=…` (calidad del agua) y `GET /devices/{code}/telemetry/latest` (batería, bomba…).
+3. En vivo: `WS /ws/live?station_id=…` → `reading` (sondas) y `device_telemetry` (batería, corriente, generador, bomba, alarma).
+
+---
+
 ## Catálogo
 
 | Método | Ruta | Notas |
 | --- | --- | --- |
 | GET | `/api/v1/stations?status=&river=` | Paginado |
-| POST | `/api/v1/stations` | 🔑 `{name, river, latitude, longitude, status?, installed_at?, description?}` |
-| GET / PATCH | `/api/v1/stations/{id}` | PATCH 🔑 parcial (ej. `{"status": "maintenance"}`). `null` solo en campos opcionales (`description`, `installed_at`); en los demás responde 422 |
+| POST | `/api/v1/stations` | 🔑 `{name, river, latitude, longitude, status?, installed_at?, description?, code?}` |
+| GET / PATCH | `/api/v1/stations/{id}` | PATCH 🔑 parcial (ej. `{"status": "maintenance"}`). `null` solo en campos opcionales (`description`, `installed_at`, `code`); en los demás responde 422 |
 | GET | `/api/v1/sensors?station_id=&type=&location=&status=` | Paginado |
 | POST | `/api/v1/sensors` | 🔑 `{station_id, type, location, unit?, valid_min?, valid_max?, calibration_offset?, calibration_factor?, model?}` |
 | GET / PATCH | `/api/v1/sensors/{id}` | PATCH 🔑 `{status?, valid_min?, valid_max?, calibration_offset?, calibration_factor?, calibrated_at?, model?}` |
@@ -193,9 +266,11 @@ Balance de agua de un lote tratado. `efficiency_pct` la calcula el backend.
 {
   "id": "a6579f11-ce55-4f01-8145-bb03f3df9d31", "name": "Presa de Valsequillo — Oasis / Embarcadero",
   "river": "Presa de Valsequillo", "latitude": 18.918, "longitude": -98.155, "status": "active",
-  "installed_at": "2026-11-10", "description": "…", "created_at": "…", "updated_at": "…"
+  "installed_at": "2026-11-10", "description": "…", "code": "RM-03", "created_at": "…", "updated_at": "…"
 }
 ```
+
+`code` es el código del dispositivo físico (`RM-01`): único, 1–32 caracteres `A–Z 0–9 - _`, se guarda en mayúsculas. Es lo que usa la boya en `/devices/{code}/…` y en el tópico MQTT. El seed crea dos boyas con dispositivo, `RM-01` (Atoyac, colector Panzacola) y `RM-02` (Atoyac, estación testigo), con solo los 5 sensores del firmware. Las 3 estaciones simuladas no tienen `code`. **Una estación con `code` la alimenta un dispositivo y el simulador no la toca.**
 
 **`SensorOut`**
 
@@ -471,6 +546,145 @@ Ejemplos:
 ```
 
 Responde 503 con `"status": "degraded"` si Postgres o Redis fallan. Con `REDIS_URL` vacío, `redis` vale `"disabled"`.
+
+---
+
+## Operaciones: personal, reportes ciudadanos y órdenes de trabajo
+
+Contrato acordado con Front (propuesta en `frontend/docs/propuesta-api-operaciones.md`, que trae además los modelos TypeScript y el detalle de implementación). Las listas de este módulo devuelven un **arreglo simple** (máximo 500), no el sobre `{items, total, …}`.
+
+### Autenticación
+
+Roles: `technician` (técnico de campo), `supervisor`, `admin`. La ciudadanía **no** tiene cuenta.
+
+`POST /api/v1/auth/login` con `{ "email": "tecnico@demo.mx", "password": "demo123" }` responde 200:
+
+```json
+{
+  "access_token": "<JWT>", "token_type": "bearer", "expires_in": 43200,
+  "user": { "id": "…", "name": "Luis Hernández", "email": "tecnico@demo.mx", "role": "technician", "active": true }
+}
+```
+
+- **Errores:** 401 `invalid_credentials`, también si el correo no existe; 403 `inactive` si la cuenta está desactivada; 429 `rate_limited` tras 10 intentos en 10 min por IP o por correo. El correo no distingue mayúsculas.
+- **Token:** JWT HS256 con claims `sub`, `role` y `exp`, válido 12 h (`JWT_EXPIRES_MIN`). Se envía como `Authorization: Bearer <token>`.
+- **Desactivación:** si un usuario se desactiva, su token deja de servir (401).
+
+### Usuarios (solo `admin`)
+
+| Método | Ruta | Cuerpo → respuesta |
+| --- | --- | --- |
+| GET | `/api/v1/users` | `User[]`, ordenados por nombre |
+| POST | `/api/v1/users` | `{ name, email, role, password }` → 201 `User`. 409 si el correo ya existe; contraseña mínima de 6 caracteres |
+| PATCH | `/api/v1/users/{id}` | `{ name?, role?, active? }` → `User`. Un admin no puede desactivarse ni quitarse el rol a sí mismo (409) |
+
+`User` = `{ id, name, email, role, active }` (nunca incluye la contraseña ni el hash).
+
+### Reportes ciudadanos
+
+```json
+{
+  "id": "…", "folio": "RC-0042", "type": "discharge", "description": "Tubo descargando agua gris con espuma",
+  "photo": "http://<host>:8000/media/9b2f….jpg", "latitude": 19.051, "longitude": -98.251, "accuracy": 12,
+  "status": "new", "station_id": "…", "work_order_id": null, "public_note": null,
+  "created_at": "…", "updated_at": "…"
+}
+```
+
+- **`type`:** `trash | discharge | odor | foam | dead_fish | other`.
+- **`status`:** `new | verified | in_progress | resolved | rejected`.
+- **`station_id`:** la estación más cercana a 8 km o menos (haversine); `null` si no hay ninguna. La calcula el servidor.
+- **`photo`:** se recibe como data URL JPEG/PNG de máximo 300 KB y se guarda como archivo. Se devuelve como **URL absoluta** con el mismo host por el que llegó la petición, así que funciona también desde el celular en la red local.
+
+| Método | Ruta | Acceso | Notas |
+| --- | --- | --- | --- |
+| POST | `/api/v1/citizen-reports` | Público | `{ type, description, photo, latitude, longitude, accuracy? }` → 201 con `folio` y `status: "new"`. Sin descripción ni foto → 422 `validation_error`. Foto inválida o > 300 KB → 422 `invalid_data`. 5 reportes por IP cada 10 min → 429 `rate_limited` |
+| GET | `/api/v1/citizen-reports` | Público | Más recientes primero, máx. 500 |
+| GET | `/api/v1/citizen-reports/by-folio/{folio}` | Público | Sin distinguir mayúsculas; 404 si no existe |
+| PATCH | `/api/v1/citizen-reports/{id}` | supervisor / admin | `{ status?, public_note? }` (p. ej. descartar). `work_order_id` es solo lectura |
+
+### Órdenes de trabajo
+
+```json
+{
+  "id": "…", "folio": "OT-0007", "type": "waste_collection", "title": "Vaciar contenedor", "description": "…",
+  "priority": "normal", "status": "assigned", "station_id": "…", "station_name": "…",
+  "citizen_report_id": null, "alert_id": null, "location": { "latitude": 19.05, "longitude": -98.25 },
+  "assigned_to": "<user id>", "assigned_name": "Luis Hernández", "created_by": "<user id>", "due_at": null,
+  "checklist": [{ "key": "container", "label": "Contenedor de basura vaciado", "done": true }],
+  "evidence": [{ "kind": "after", "photo": "http://<host>:8000/media/….jpg", "ts": "…" }],
+  "notes": "", "result": { "waste_type": "plastic", "weight_kg": 6.2, "items_count": 41 },
+  "check_in": { "latitude": 19.05, "longitude": -98.25, "accuracy": 8, "ts": "…" },
+  "created_at": "…", "started_at": null, "completed_at": null, "verified_at": null
+}
+```
+
+**Valores posibles**
+- **`type`:** `citizen_report | maintenance | waste_collection | calibration`.
+- **`priority`:** `low | normal | high | urgent`.
+- **`status`:** `pending | assigned | in_progress | done | verified | cancelled`.
+
+**Campos que llena el servidor**
+- **`checklist`:** lo genera el servidor según el tipo. El cliente solo marca `done`; los textos los pone el servidor y una `key` desconocida da 422.
+- **`evidence`:** máximo 2 fotos (`before`/`after`). Se envían como data URL; también se puede reenviar la URL que devolvió el servidor.
+- **`location`:** si no viene, se toma la del reporte ciudadano o, si no hay, la de la estación.
+- **`created_by`:** se toma del token. **`station_name`** y **`assigned_name`** los resuelve el servidor.
+
+| Método | Ruta | Acceso | Notas |
+| --- | --- | --- | --- |
+| GET | `/api/v1/work-orders?assigned_to=&status=a,b&type=` | personal | Más recientes primero. Un técnico solo recibe las suyas aunque pida otras |
+| GET | `/api/v1/work-orders/{id}` | personal | Las órdenes ajenas responden 404 a un técnico |
+| POST | `/api/v1/work-orders` | supervisor / admin | `{ type, title, description, priority, station_id, citizen_report_id?, alert_id?, location?, assigned_to?, due_at? }` → 201. Con `assigned_to` nace `assigned`; sin él, `pending`. Referencias inexistentes o técnico inactivo → 422 |
+| PATCH | `/api/v1/work-orders/{id}` | personal | Campos según rol: un técnico puede `status`, `checklist`, `evidence`, `notes`, `result` y `check_in` (en las suyas); `assigned_to`, `priority` y `due_at` solo supervisor/admin (403) |
+
+**Reglas**
+- **Transiciones** (409 `invalid_transition` con un mensaje para la persona, p. ej. «No se puede pasar de «asignada» a «verificada»»):
+  - `pending → assigned | cancelled`
+  - `assigned → in_progress | pending | cancelled`
+  - `in_progress → done | assigned | cancelled`
+  - `done → verified | in_progress`
+  - `verified` y `cancelled` son finales. Repetir el estado actual no hace nada.
+- **Qué puede hacer un técnico:** solo `assigned → in_progress` e `in_progress → done`. Verificar, cancelar o reabrir lo hace un supervisor (403 si lo intenta un técnico).
+- **Asignación:** asignar pasa `pending → assigned`; quitar el técnico (`assigned_to: null`) pasa `assigned → pending`.
+- **Órdenes cerradas** (409 `conflict`):
+  - una orden `verified` o `cancelled` solo acepta `status`, y desde ahí cualquier transición es inválida;
+  - en una orden `done`, el técnico ya no puede editar datos (un supervisor la verifica o la reabre);
+  - las órdenes `done`, `verified` o `cancelled` no se reasignan.
+- **Un reporte, una orden activa:** crear una orden para un reporte que ya atiende otra orden no cancelada da 409.
+- **Evidencia:** una foto `before` y una `after` como máximo. Una URL reenviada debe ser una foto guardada por el servidor; si no, 422.
+- **Fechas:** `started_at` se llena la primera vez que pasa a `in_progress`; `completed_at` en `done`; `verified_at` en `verified`.
+- **Cierre (`done`):** exige un `result` coherente con el tipo (422):
+  - `waste_collection`: `waste_type` válido y `weight_kg > 0`.
+  - `calibration`: `sensor_id`, `calibration_offset` y `calibration_factor`.
+  - `citizen_report`: `confirmed`.
+  - `maintenance`: no necesita resultado.
+- **Cascada al reporte ciudadano:**
+
+  | Orden | Reporte |
+  | --- | --- |
+  | Al crearse | `verified`, con `work_order_id` |
+  | `in_progress` | `in_progress` |
+  | `done` / `verified` | `resolved`, con `public_note = result.action_taken` |
+  | `done` / `verified` con `confirmed: false` | `rejected`, con la nota o «La brigada no encontró el problema reportado.» |
+  | `cancelled` | `verified` |
+
+  La cascada se aplica cuando la orden cambia de estado (y al crearla). Guardar notas, checklist o evidencia no la dispara, así no pisa la moderación manual del supervisor.
+
+### Eventos WebSocket nuevos
+
+Llegan con el mismo sobre `{ type, station_id, ts, data }`:
+
+| `type` | Cuándo | `data` |
+| --- | --- | --- |
+| `work_order_assigned` | Se crea una orden con técnico o se asigna/reasigna | La `WorkOrder`, con `evidence[].photo = null` |
+| `citizen_report_created` | Se crea un reporte ciudadano | El `CitizenReport`, con `photo = null` (pedir el listado para verla) |
+| `device_telemetry` | La boya envía telemetría (HTTP o MQTT) | `DeviceTelemetryOut` (sin `created_at`) + `code` |
+
+Los eventos llegan a todos los clientes conectados (prototipo); el front filtra por `assigned_to`.
+
+### Cuentas demo
+
+Las crea `make seed`, solo con `ENVIRONMENT` de desarrollo: `tecnico@demo.mx`, `tecnico2@demo.mx` (technician), `supervisor@demo.mx` y `admin@demo.mx`. Contraseña: `demo123`.
 
 ---
 

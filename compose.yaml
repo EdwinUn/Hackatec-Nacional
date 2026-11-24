@@ -1,6 +1,7 @@
 # Stack local: PostgreSQL + Redis + API.
 #   docker compose up -d              # todo (la API migra sola al arrancar)
 #   docker compose up -d db redis     # solo infraestructura (API con `make dev` en backend/)
+#   docker compose up -d mqtt         # broker MQTT local (MQTT_URL=mqtt://localhost:1883)
 services:
   db:
     image: docker.io/library/postgres:17
@@ -31,6 +32,14 @@ services:
       timeout: 3s
       retries: 10
 
+  mqtt:
+    image: docker.io/library/eclipse-mosquitto:2
+    container_name: hackatec-mqtt
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./backend/docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
   api:
     build: ./backend
     container_name: hackatec-api
@@ -42,6 +51,8 @@ services:
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
+    volumes:
+      - media:/app/media
     depends_on:
       db:
         condition: service_healthy
@@ -50,3 +61,4 @@ services:
 
 volumes:
   pgdata:
+  media:

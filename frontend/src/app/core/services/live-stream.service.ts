@@ -1,4 +1,4 @@
-import { DestroyRef, Injectable, effect, inject, signal, untracked } from '@angular/core';
+import { DestroyRef, Injectable, Injector, effect, inject, signal, untracked } from '@angular/core';
 import { Subject } from 'rxjs';
 import { APP_CONFIG } from '../config/app-config';
 import { mapEnvelope } from '../api/mappers';
@@ -25,7 +25,9 @@ export class LiveStreamService {
   private readonly cfg = inject(APP_CONFIG);
   private readonly filters = inject(FiltersService);
   private readonly mock = inject(MockBackend);
-  private readonly stations = inject(StationsService);
+  // Lazy: StationsService → HTTP → authInterceptor → AuthService → HttpOpsApi → LiveStreamService
+  // would be a circular dependency if it were injected in the constructor.
+  private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly status = signal<LiveStatus>('disconnected');
@@ -89,7 +91,7 @@ export class LiveStreamService {
       try {
         const frame = JSON.parse(String(m.data)) as WsEnvelopeDto;
         this.raw$.next({ type: frame.type, data: frame.data });
-        const e = mapEnvelope(frame, (id) => (id ? this.stations.name(id) : '—'));
+        const e = mapEnvelope(frame, (id) => (id ? this.injector.get(StationsService).name(id) : '—'));
         if (e) this.dispatch(e);
       } catch {
         /* ignore malformed frames */
