@@ -28,7 +28,7 @@ export abstract class OpsApi {
   abstract createUser(body: NewUser): Observable<User>;
   abstract patchUser(id: string, body: UserPatch): Observable<User>;
 
-  /** `POST /citizen-reports` is public; listing and PATCH need staff. */
+  /** `POST /citizen-reports` and `GET /citizen-reports` are public; only PATCH needs supervisor/admin. */
   abstract citizenReports(): Observable<CitizenReport[]>;
   abstract createCitizenReport(body: NewCitizenReport): Observable<CitizenReport>;
   /** `GET /citizen-reports/by-folio/{folio}` (public). */
