@@ -93,7 +93,7 @@ Después de reiniciar la compu: `podman start hackatec-db` (o `docker compose up
 ```bash
 cd backend
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate        # fish: source .venv/bin/activate.fish · Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp ../.env.example .env
 python -m app.seed               # datos de ejemplo (solo si la BD está vacía)
@@ -109,6 +109,30 @@ npm install
 npx ng serve                     # http://localhost:4200
 npx ng test --watch=false        # tests
 ```
+
+### 4. Comprobar que todo funciona
+
+Con la BD arriba, `fastapi dev` corriendo en una terminal y `npx ng serve` en otra:
+
+| Qué revisar | Resultado esperado |
+| --- | --- |
+| `pytest` (en `backend/`) | `1 passed` |
+| `npx ng test --watch=false` (en `frontend/`) | `1 passed` |
+| http://localhost:8000/docs → `GET /health` → *Try it out* | `{"status": "ok"}` |
+| http://localhost:4200 | Se ve la lista de items del seed |
+
+Prueba de punta a punta: crea un item y recarga `localhost:4200`; debe aparecer.
+
+```bash
+curl -X POST localhost:8000/items -H 'Content-Type: application/json' -d '{"name": "prueba"}'
+```
+
+Problemas comunes:
+
+- **Puerto 5432 ocupado:** ya tienes otro Postgres instalado; detenlo.
+- **El front no muestra items:** revisa que el backend esté corriendo y que `useMocks` sea `false` en `environment.development.ts`.
+
+Para apagar: `Ctrl+C` en las terminales del back y del front, y `docker compose stop db` (o `podman stop hackatec-db`).
 
 ### Resetear la base de datos
 
