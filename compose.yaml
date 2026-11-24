@@ -1,0 +1,22 @@
+# Base de datos local para desarrollo.
+# Uso: docker compose up -d db   (o: podman compose up -d db)
+services:
+  db:
+    image: docker.io/library/postgres:17
+    container_name: hackatec-db
+    environment:
+      POSTGRES_USER: hackatec
+      POSTGRES_PASSWORD: hackatec
+      POSTGRES_DB: hackatec
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hackatec -d hackatec"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

@@ -1,0 +1,42 @@
+<main class="container">
+  <header class="header">
+    <h1>Hackatec</h1>
+    <p-tag
+      [value]="'Backend: ' + backendStatus()"
+      [severity]="backendStatus() === 'ok' ? 'success' : backendStatus() === 'error' ? 'danger' : 'info'"
+    />
+  </header>
+
+  <p-card header="Items de ejemplo" subheader="Front → API → PostgreSQL">
+    @if (error()) {
+      <p-message severity="error" class="mb">{{ error() }}</p-message>
+    }
+
+    <form class="form" (ngSubmit)="addItem()">
+      <input pInputText name="name" placeholder="Nombre del item" [(ngModel)]="newName" />
+      <p-button type="submit" label="Agregar" icon="pi pi-plus" [disabled]="!newName.trim()" />
+    </form>
+
+    <p-table [value]="items()" [tableStyle]="{ 'min-width': '30rem' }">
+      <ng-template #header>
+        <tr>
+          <th>ID</th>
+          <th>Nombre</th>
+          <th>Creado</th>
+        </tr>
+      </ng-template>
+      <ng-template #body let-item>
+        <tr>
+          <td>{{ item.id }}</td>
+          <td>{{ item.name }}</td>
+          <td>{{ item.created_at | date: 'short' }}</td>
+        </tr>
+      </ng-template>
+      <ng-template #emptymessage>
+        <tr>
+          <td colspan="3">Sin items todavía.</td>
+        </tr>
+      </ng-template>
+    </p-table>
+  </p-card>
+</main>

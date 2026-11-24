@@ -9,6 +9,8 @@ dist/
 .angular/
 coverage/
 *.tsbuildinfo
+# License key de PrimeNG (local, se comparte por privado)
+frontend/src/environments/license.local.ts
 npm-debug.log*
 yarn-error.log*
 
