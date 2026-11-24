@@ -43,7 +43,12 @@ def test_live_websocket_receives_reading_events(migrated_db):
 
 def test_websocket_requires_api_key_outside_dev(migrated_db):
     app = create_app(
-        make_settings(environment="production", ingest_api_key="prod-key", health_sweep_interval_s=3600)
+        make_settings(
+            environment="production",
+            ingest_api_key="prod-key",
+            jwt_secret="x" * 32,
+            health_sweep_interval_s=3600,
+        )
     )
     with TestClient(app) as client:
         with pytest.raises(WebSocketDisconnect) as rejected, client.websocket_connect("/ws/live") as ws:

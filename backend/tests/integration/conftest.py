@@ -7,6 +7,7 @@ Si la BD no está disponible, las pruebas se omiten.
 
 import asyncio
 import os
+import tempfile
 from pathlib import Path
 
 import asyncpg
@@ -27,20 +28,21 @@ TEST_DB_URL = os.getenv("TEST_DATABASE_URL", "postgresql+asyncpg://hackatec:hack
 API_KEY = "test-key"
 BACKEND = Path(__file__).resolve().parents[2]
 TABLES = (
+    "skimmer_collections, tasks, work_orders, citizen_reports, users, "
     "alerts, alert_rules, readings, treatment_batches, centrifuge_cycles, waste_collections, "
-    "sensors, stations, skimmer_collections, tasks, staff_users"
+    "sensors, stations"
 )
 
 
 def make_settings(**overrides) -> Settings:
     values = {
+        "media_dir": str(Path(tempfile.gettempdir()) / "rio-test-media"),
         "database_url": TEST_DB_URL,
         "redis_url": "",
         "environment": "test",
         "ingest_api_key": API_KEY,
         "log_json": False,
         "log_level": "WARNING",
-        "demo_users_enabled": False,
     }
     return Settings(_env_file=None, **(values | overrides))
 
@@ -78,8 +80,11 @@ async def container(migrated_db):
 async def clean_db(container):
     async with container.engine.begin() as conn:
         await conn.execute(text(f"TRUNCATE {TABLES} CASCADE"))
+        await conn.execute(text("ALTER SEQUENCE citizen_report_folio_seq RESTART"))
+        await conn.execute(text("ALTER SEQUENCE work_order_folio_seq RESTART"))
     await container.alerts.install_default_rules()
     container.broker.published.clear()
+    container.rate_limiter.reset()
 
 
 @pytest.fixture

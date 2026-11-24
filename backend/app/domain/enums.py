@@ -70,14 +70,7 @@ class RuleKind(StrEnum):
     TREATMENT_EFFICIENCY = "treatment_efficiency"
 
 
-class UserRole(StrEnum):
-    """Personal de la brigada. Los ciudadanos no inician sesión."""
-
-    TECHNICIAN = "technician"
-    SUPERVISOR = "supervisor"
-    ADMIN = "admin"
-
-
+# ── Bandeja del operador y bitácora de boyas skimmer ──────────────────────────
 class TaskKind(StrEnum):
     REPORT = "report"  # atender un reporte ciudadano
     REPAIR = "repair"  # reparar una boya / equipo

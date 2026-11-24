@@ -51,3 +51,6 @@ Thumbs.db
 
 # ── Claude Code (config local) ───────────
 .claude/settings.local.json
+
+# Fotos de reportes y evidencias (backend/media)
+backend/media/

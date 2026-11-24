@@ -8,7 +8,6 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, computed_field
 
 from app.domain.enums import (
     AlertStatus,
-    BuoyCondition,
     CycleStatus,
     RuleKind,
     SensorLocation,
@@ -16,10 +15,6 @@ from app.domain.enums import (
     SensorType,
     Severity,
     StationStatus,
-    TaskKind,
-    TaskPriority,
-    TaskStatus,
-    UserRole,
     WasteType,
 )
 from app.domain.treatment import compare_treatment
@@ -100,6 +95,30 @@ class IngestResultOut(Out):
     duplicates: int = Field(description="Ya existían (sensor_id, ts); se ignoran (idempotencia)")
     rejected: list[RejectionOut]
     alerts_triggered: int
+
+
+class DeviceTelemetryOut(Out):
+    id: UUID
+    station_id: UUID
+    ts: datetime
+    seq: int | None
+    battery_v: float | None
+    battery_pct: float | None
+    river_speed_ms: float | None
+    generator_w: float | None
+    generator_v: float | None
+    pump_on: bool | None
+    brake_on: bool | None
+    alarm_on: bool | None
+    device_efficiency_pct: float | None
+
+
+class TelemetryResultOut(Out):
+    station_id: UUID
+    code: str
+    ts: datetime = Field(description="Instante con el que se guardaron las lecturas")
+    readings: IngestResultOut
+    unmapped: list[str] = Field(description="Campos de calidad sin sensor en la estación (no se guardan)")
 
 
 class HeartbeatIn(BaseModel):
@@ -275,12 +294,14 @@ class StationIn(BaseModel):
     status: StationStatus = StationStatus.ACTIVE
     installed_at: date | None = None
     description: str | None = None
+    code: str | None = Field(default=None, max_length=32, description="Código del dispositivo (ej. RM-01)")
 
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
                 {
                     "name": "Atoyac · Parque Lineal",
+                    "code": "RM-01",
                     "river": "Río Atoyac",
                     "latitude": 19.0185,
                     "longitude": -98.2435,
@@ -292,7 +313,7 @@ class StationIn(BaseModel):
 
 
 class StationPatch(PatchModel):
-    nullable = frozenset({"installed_at", "description"})
+    nullable = frozenset({"installed_at", "description", "code"})
 
     name: str | None = Field(default=None, min_length=1, max_length=120)
     river: str | None = Field(default=None, min_length=1, max_length=120)
@@ -301,6 +322,7 @@ class StationPatch(PatchModel):
     status: StationStatus | None = None
     installed_at: date | None = None
     description: str | None = None
+    code: str | None = Field(default=None, max_length=32, description="Código del dispositivo (ej. RM-01)")
 
 
 class StationOut(Out):
@@ -312,6 +334,7 @@ class StationOut(Out):
     status: StationStatus
     installed_at: date | None
     description: str | None
+    code: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -468,130 +491,3 @@ class HealthOut(BaseModel):
     postgres: str
     redis: str
     version: str
-
-
-# ── Personal operativo ─────────────────────────────────────────────────────────
-class LoginIn(BaseModel):
-    email: str = Field(min_length=3, max_length=200)
-    password: str = Field(min_length=1, max_length=200)
-
-    model_config = ConfigDict(
-        json_schema_extra={"examples": [{"email": "operador@atlmonitor.mx", "password": "atoyac2026"}]}
-    )
-
-
-class StaffUserOut(Out):
-    id: UUID
-    name: str
-    email: str
-    role: UserRole
-    active: bool
-
-
-class LoginOut(BaseModel):
-    access_token: str
-    token_type: Literal["bearer"] = "bearer"
-    expires_in: int = Field(description="Segundos")
-    user: StaffUserOut
-
-
-class TaskOut(Out):
-    id: UUID
-    title: str
-    description: str
-    kind: TaskKind
-    priority: TaskPriority
-    status: TaskStatus
-    assigned_to: UUID | None
-    station_id: UUID | None
-    buoy_code: str | None
-    closing_note: str | None
-    resolved_at: datetime | None
-    resolved_by: UUID | None
-    created_at: datetime
-    updated_at: datetime
-
-
-class TaskCounts(BaseModel):
-    asignadas: int
-    reparaciones_pendientes: int
-    urgentes: int
-    listos: int
-
-
-class TaskPage(Page[TaskOut]):
-    counts: TaskCounts
-
-
-class TaskIn(BaseModel):
-    title: str = Field(min_length=3, max_length=200)
-    kind: TaskKind
-    description: str = Field(default="", max_length=2000)
-    priority: TaskPriority = TaskPriority.NORMAL
-    assigned_to: UUID | None = None
-    station_id: UUID | None = None
-    buoy_code: str | None = Field(default=None, max_length=60)
-
-
-class TaskPatch(BaseModel):
-    """Atender: `{"status": "in_progress"}`. Resolver: `{"status": "done", "closing_note": "…"}`."""
-
-    status: TaskStatus | None = None
-    closing_note: str | None = Field(default=None, max_length=2000)
-    priority: TaskPriority | None = None
-    assigned_to: UUID | None = None
-
-
-class MaterialIn(BaseModel):
-    kg: NonNeg = 0
-    piezas: int = Field(default=0, ge=0)
-
-
-class CollectionIn(BaseModel):
-    station_id: UUID
-    buoy_code: str = Field(min_length=1, max_length=60, examples=["SK-01"])
-    buoy_condition: BuoyCondition
-    plastico: MaterialIn = MaterialIn()
-    organico: MaterialIn = MaterialIn()
-    vidrio: MaterialIn = MaterialIn()
-    otros: MaterialIn = MaterialIn()
-    metal: MaterialIn = MaterialIn()
-    ts: AwareDatetime | None = Field(default=None, description="Default: ahora")
-    notes: str | None = Field(default=None, max_length=1000)
-    task_id: UUID | None = Field(default=None, description="Si se manda, la tarea de vaciado se cierra sola")
-
-    def materials(self) -> dict[str, dict[str, float]]:
-        return {
-            n: {"kg": getattr(self, n).kg, "piezas": getattr(self, n).piezas}
-            for n in ("plastico", "organico", "vidrio", "otros", "metal")
-        }
-
-
-class CollectionOut(Out):
-    id: UUID
-    station_id: UUID
-    ts: datetime
-    buoy_code: str
-    buoy_condition: BuoyCondition
-    materials: dict[str, MaterialIn]
-    total_kg: float
-    total_pieces: int
-    operator_name: str | None
-    notes: str | None
-    task_id: UUID | None
-
-
-class MaterialTotal(BaseModel):
-    material: Literal["plastico", "organico", "vidrio", "otros", "metal"]
-    waste_type: WasteType
-    kg: float
-    piezas: int
-    pct: float = Field(description="% del peso total")
-
-
-class ClassificationOut(BaseModel):
-    total_kg: float
-    total_piezas: int
-    recolecciones: int
-    ultima: datetime | None
-    por_material: list[MaterialTotal]

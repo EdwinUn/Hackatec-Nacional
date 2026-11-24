@@ -25,6 +25,12 @@ El WebSocket (`LiveStreamService`) reconecta con backoff exponencial (1 s … 30
 ignorado por Git (`ng serve` lo usa vía `fileReplacements`): `apiBaseUrl`, `wsUrl`, `ingestApiKey` (`X-API-Key`) y `primeLicense`
 (PrimeNG 22 pide clave; tier *community* gratuito en <https://primeui.store>). En producción, inyéctalas al desplegar (p. ej. desde secretos del CI).
 
+## Módulo de operaciones (login, reportes ciudadanos, órdenes de trabajo)
+Rutas `/login`, `/operaciones/*` y el reporte/seguimiento público de ciudadanos (`/reportar`, `/reportar/seguimiento/:folio`). **Todavía no tiene backend:** funciona con
+`MockOpsApi` (datos guardados en el navegador) mientras `opsMocks` sea `true` (valor por defecto). Los endpoints propuestos,
+las reglas de negocio y lo que Back debe implementar están en [`docs/propuesta-api-operaciones.md`](docs/propuesta-api-operaciones.md).
+Cuando existan en `main`, se pone `opsMocks: false` en los environments.
+
 ## Contrato de API
 Los esquemas exactos de `API.md` viven en `src/app/core/models/api.models.ts`; `src/app/core/api/mappers.ts`
 los convierte a los modelos de las vistas (`rio.models.ts`) y `http-rio-api.ts` hace las peticiones
@@ -34,8 +40,13 @@ pruebas de `mappers.spec.ts` usan fixtures con el formato real.
 ## App Android (Capacitor)
 ```bash
 npm run build:android      # ng build (development) + cap sync
-cd android && ANDROID_HOME=~/Android/Sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk ./gradlew assembleDebug
+cd android && ANDROID_HOME=~/Android/Sdk JAVA_HOME=<ruta a un JDK 21> ./gradlew assembleDebug
 ```
+Gradle 8.14 necesita **JDK 17–21**; con Java 25 falla (`Unsupported class file major version 69`). La ruta depende de
+cada equipo: `/usr/lib/jvm/java-21-openjdk` (paquete del sistema), `~/.jdks/jdk-21…` (descargado por un IDE) o el JBR de
+Android Studio (`<android-studio>/jbr`). Si VS Code marca en rojo `android/`, es la extensión de Java importando con el
+Java del sistema: en `.vscode/settings.json` (ignorado por git) pon `"java.import.gradle.java.home": "<ruta a un JDK 21>"`
+y ejecuta "Java: Clean Java Language Server Workspace".
 Usa la configuración `development` (IP del backend y claves de `environment.development.ts`); la de producción
 apunta a `localhost`, que en el teléfono es el propio teléfono. El WebView sirve la app desde `http://localhost`
 (`androidScheme: 'http'`, `cleartext: true`), origen que el CORS del backend debe permitir.

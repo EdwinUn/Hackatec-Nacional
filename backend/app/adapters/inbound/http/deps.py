@@ -6,9 +6,8 @@ from fastapi import Depends, Header, HTTPException, Query, Request
 
 from app.application.time_range import Bucket, TimeRange
 from app.config.container import Container
-from app.domain.entities import StaffUser
-from app.domain.enums import UserRole
-from app.domain.errors import AuthenticationError, ForbiddenError
+from app.domain.errors import UnauthorizedError
+from app.domain.operations import User
 
 
 def get_container(request: Request) -> Container:
@@ -25,6 +24,43 @@ def require_api_key(
     expected = container.settings.ingest_api_key.get_secret_value()
     if not x_api_key or not secrets.compare_digest(x_api_key, expected):
         raise HTTPException(401, "X-API-Key inválida o ausente")
+
+
+def _bearer(authorization: str | None) -> str | None:
+    if authorization and authorization[:7].lower() == "bearer ":
+        return authorization[7:].strip() or None
+    return None
+
+
+AuthorizationHeader = Annotated[
+    str | None, Header(description="`Bearer <token>` de una sesión del personal (POST /auth/login)")
+]
+
+
+async def current_user(container: ContainerDep, authorization: AuthorizationHeader = None) -> User:
+    """Usuario del personal con sesión activa; 401 si falta, venció o fue desactivado."""
+    token = _bearer(authorization)
+    if token is None:
+        raise UnauthorizedError("Inicia sesión para continuar")
+    return await container.staff.authenticate(token)
+
+
+CurrentUser = Annotated[User, Depends(current_user)]
+
+
+async def require_key_or_staff(
+    container: ContainerDep,
+    x_api_key: Annotated[str | None, Header(description="Llave de ingesta (INGEST_API_KEY)")] = None,
+    authorization: AuthorizationHeader = None,
+) -> None:
+    """Acepta la `X-API-Key` de ingesta **o** el Bearer de un usuario activo del personal."""
+    expected = container.settings.ingest_api_key.get_secret_value()
+    if x_api_key and secrets.compare_digest(x_api_key, expected):
+        return
+    token = _bearer(authorization)
+    if token is None:
+        raise HTTPException(401, "Se requiere X-API-Key o una sesión del personal")
+    await container.staff.authenticate(token)
 
 
 def time_range(
@@ -59,27 +95,3 @@ class Pagination:
 
 
 PaginationDep = Annotated[Pagination, Depends()]
-
-
-async def current_user(
-    container: ContainerDep,
-    authorization: Annotated[
-        str | None, Header(description="Bearer <access_token> de POST /auth/login")
-    ] = None,
-) -> StaffUser:
-    scheme, _, token = (authorization or "").partition(" ")
-    if scheme.lower() != "bearer" or not token:
-        raise AuthenticationError("Inicia sesión para continuar")
-    return await container.staff.authenticate(token)
-
-
-CurrentUser = Annotated[StaffUser, Depends(current_user)]
-
-
-def require_roles(*roles: UserRole):
-    async def dep(user: CurrentUser) -> StaffUser:
-        if user.role not in roles:
-            raise ForbiddenError("No tienes permiso para esta acción")
-        return user
-
-    return dep

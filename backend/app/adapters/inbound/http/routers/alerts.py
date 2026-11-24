@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, status
 from pydantic import AwareDatetime
 
-from app.adapters.inbound.http.deps import ContainerDep, PaginationDep, require_api_key
+from app.adapters.inbound.http.deps import ContainerDep, PaginationDep, require_api_key, require_key_or_staff
 from app.adapters.inbound.http.schemas import (
     AlertOut,
     AlertPatch,
@@ -14,6 +14,8 @@ from app.adapters.inbound.http.schemas import (
 )
 from app.domain.enums import AlertStatus, Severity
 
+# Efectos de una orden de trabajo: también con el Bearer del personal (no viaja la llave en el teléfono).
+key_or_staff = [Depends(require_key_or_staff)]
 router = APIRouter(tags=["alertas"])
 
 
@@ -64,7 +66,7 @@ async def create_rule(body: AlertRuleIn, c: ContainerDep):
 @router.patch(
     "/alert-rules/{rule_id}",
     response_model=AlertRuleOut,
-    dependencies=[Depends(require_api_key)],
+    dependencies=key_or_staff,
     summary="Ajustar umbral / activar",
 )
 async def update_rule(rule_id: UUID, body: AlertRulePatch, c: ContainerDep):

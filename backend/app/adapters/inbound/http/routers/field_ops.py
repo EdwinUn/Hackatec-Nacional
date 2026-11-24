@@ -1,17 +1,16 @@
+"""Bandeja del operador y bitácora de vaciado de boyas skimmer (personal con sesión)."""
+
 from uuid import UUID
 
 from fastapi import APIRouter, Query, status
 from pydantic import AwareDatetime
 
 from app.adapters.inbound.http.deps import ContainerDep, CurrentUser, PaginationDep
-from app.adapters.inbound.http.schemas import (
+from app.adapters.inbound.http.schemas import Page
+from app.adapters.inbound.http.schemas_field_ops import (
     ClassificationOut,
     CollectionIn,
     CollectionOut,
-    LoginIn,
-    LoginOut,
-    Page,
-    StaffUserOut,
     TaskCounts,
     TaskIn,
     TaskOut,
@@ -20,20 +19,7 @@ from app.adapters.inbound.http.schemas import (
 )
 from app.domain.enums import TaskView
 
-router = APIRouter(tags=["personal operativo"])
-
-
-@router.post("/auth/login", response_model=LoginOut, summary="Iniciar sesión (personal de la brigada)")
-async def login(body: LoginIn, c: ContainerDep):
-    s = await c.staff.login(body.email, body.password)
-    return LoginOut(
-        access_token=s.access_token, expires_in=s.expires_in, user=StaffUserOut.model_validate(s.user)
-    )
-
-
-@router.get("/auth/me", response_model=StaffUserOut, summary="Usuario de la sesión actual")
-async def me(user: CurrentUser):
-    return user
+router = APIRouter(tags=["operaciones · bandeja y skimmers"])
 
 
 @router.get(
@@ -41,11 +27,10 @@ async def me(user: CurrentUser):
     response_model=TaskPage,
     summary="Bandeja del operador",
     description="`view`: `asignadas` (mías sin cerrar), `reparaciones_pendientes`, `urgentes`, "
-    "`listos` (resueltas). "
-    "Sin `view` devuelve todas. `counts` trae el número de cada pestaña.",
+    "`listos` (resueltas). Sin `view` devuelve todas. `counts` trae el número de cada pestaña.",
 )
 async def list_tasks(user: CurrentUser, c: ContainerDep, page: PaginationDep, view: TaskView | None = None):
-    items, total, counts = await c.staff.list_tasks(user, view, page.limit, page.offset)
+    items, total, counts = await c.field_ops.list_tasks(user, view, page.limit, page.offset)
     return TaskPage(
         items=items,
         total=total,
@@ -59,12 +44,12 @@ async def list_tasks(user: CurrentUser, c: ContainerDep, page: PaginationDep, vi
     "/tasks", response_model=TaskOut, status_code=status.HTTP_201_CREATED, summary="Crear tarea (supervisor)"
 )
 async def create_task(body: TaskIn, user: CurrentUser, c: ContainerDep):
-    return await c.staff.create_task(user, body.model_dump())
+    return await c.field_ops.create_task(user, body.model_dump())
 
 
 @router.get("/tasks/{task_id}", response_model=TaskOut, summary="Detalle de una tarea")
 async def get_task(task_id: UUID, user: CurrentUser, c: ContainerDep):
-    return await c.staff.get_task(task_id)
+    return await c.field_ops.get_task(task_id)
 
 
 @router.patch(
@@ -75,7 +60,7 @@ async def get_task(task_id: UUID, user: CurrentUser, c: ContainerDep):
     "Una tarea resuelta no cambia (409).",
 )
 async def patch_task(task_id: UUID, body: TaskPatch, user: CurrentUser, c: ContainerDep):
-    return await c.staff.update_task(user, task_id, body.model_dump(exclude_unset=True))
+    return await c.field_ops.update_task(user, task_id, body.model_dump(exclude_unset=True))
 
 
 @router.post(
@@ -90,7 +75,7 @@ async def patch_task(task_id: UUID, body: TaskPatch, user: CurrentUser, c: Conta
 async def record_collection(body: CollectionIn, user: CurrentUser, c: ContainerDep):
     data = body.model_dump(exclude={"plastico", "organico", "vidrio", "otros", "metal"})
     data["materials"] = body.materials()
-    return await c.staff.record_collection(user, data)
+    return await c.field_ops.record_collection(user, data)
 
 
 @router.get("/skimmers/recoleccion", response_model=Page[CollectionOut], summary="Bitácora de recolecciones")
@@ -101,7 +86,7 @@ async def list_collections(
     start: AwareDatetime | None = Query(default=None, alias="from"),
     end: AwareDatetime | None = Query(default=None, alias="to"),
 ):
-    items, total = await c.staff.list_collections(station_id, start, end, page.limit, page.offset)
+    items, total = await c.field_ops.list_collections(station_id, start, end, page.limit, page.offset)
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)
 
 
@@ -117,4 +102,4 @@ async def classification(
     start: AwareDatetime | None = Query(default=None, alias="from"),
     end: AwareDatetime | None = Query(default=None, alias="to"),
 ):
-    return await c.staff.classification(station_id, start, end)
+    return await c.field_ops.classification(station_id, start, end)

@@ -1,12 +1,12 @@
 """Entidades del dominio. Dataclasses puras: sin FastAPI, SQLAlchemy ni Redis."""
 
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from uuid import UUID, uuid4
 
 from app.domain.enums import (
     AlertStatus,
-    BuoyCondition,
     CycleStatus,
     RuleKind,
     SensorLocation,
@@ -14,10 +14,6 @@ from app.domain.enums import (
     SensorType,
     Severity,
     StationStatus,
-    TaskKind,
-    TaskPriority,
-    TaskStatus,
-    UserRole,
     WasteType,
 )
 from app.domain.errors import ConflictError, InvalidDataError
@@ -54,10 +50,24 @@ class Station(Entity):
     status: StationStatus = StationStatus.ACTIVE
     installed_at: date | None = None
     description: str | None = None
+    # Código del dispositivo físico (ej. "RM-01"): así se identifica la boya en MQTT/telemetría.
+    code: str | None = None
 
     def __post_init__(self) -> None:
         if not -90 <= self.latitude <= 90 or not -180 <= self.longitude <= 180:
             raise InvalidDataError("Coordenadas fuera de rango")
+        if self.code is not None:
+            self.code = normalize_device_code(self.code)
+
+
+DEVICE_CODE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
+
+
+def normalize_device_code(code: str) -> str:
+    normalized = code.strip().upper()
+    if not DEVICE_CODE.match(normalized):
+        raise InvalidDataError("code: 1–32 caracteres A–Z, 0–9, '-' o '_' (ej. RM-01)")
+    return normalized
 
 
 @dataclass(kw_only=True)
@@ -287,74 +297,3 @@ class Alert(Entity):
         if note:
             self.note = note
         self.touch(now)
-
-
-# ── Personal operativo, tareas y bitácora de boyas skimmer ─────────────────────
-#: material de la encuesta (español) → `waste_type` del dashboard
-SKIMMER_MATERIALS: dict[str, WasteType] = {
-    "plastico": WasteType.PLASTIC,
-    "organico": WasteType.ORGANIC,
-    "vidrio": WasteType.GLASS,
-    "otros": WasteType.OTHER,
-    "metal": WasteType.METAL,
-}
-
-
-@dataclass(kw_only=True)
-class StaffUser(Entity):
-    email: str
-    name: str
-    role: UserRole
-    password_hash: str
-    active: bool = True
-
-
-@dataclass(kw_only=True)
-class Task(Entity):
-    title: str
-    kind: TaskKind
-    description: str = ""
-    priority: TaskPriority = TaskPriority.NORMAL
-    status: TaskStatus = TaskStatus.PENDING
-    assigned_to: UUID | None = None
-    station_id: UUID | None = None
-    buoy_code: str | None = None
-    closing_note: str | None = None
-    resolved_at: datetime | None = None
-    resolved_by: UUID | None = None
-
-    def resolve(self, note: str, by: UUID, now: datetime) -> None:
-        note = note.strip()
-        if self.status is TaskStatus.DONE:
-            raise ConflictError("La tarea ya está resuelta")
-        if len(note) < 3:
-            raise InvalidDataError("Escribe una nota de cierre (mínimo 3 caracteres)")
-        self.status, self.closing_note, self.resolved_by, self.resolved_at = TaskStatus.DONE, note, by, now
-        self.touch(now)
-
-
-@dataclass(kw_only=True)
-class SkimmerCollection(Entity):
-    """Un vaciado de boya: pesaje por material y estado físico. `materials[m] = {"kg": .., "piezas": ..}`."""
-
-    station_id: UUID
-    ts: datetime
-    buoy_code: str
-    buoy_condition: BuoyCondition
-    materials: dict[str, dict[str, float]]
-    total_kg: float
-    total_pieces: int
-    operator_id: UUID | None = None
-    operator_name: str | None = None
-    notes: str | None = None
-    task_id: UUID | None = None
-
-    def __post_init__(self) -> None:
-        unknown = set(self.materials) - set(SKIMMER_MATERIALS)
-        if unknown:
-            raise InvalidDataError(f"Material desconocido: {', '.join(sorted(unknown))}")
-        for name, m in self.materials.items():
-            if m.get("kg", 0) < 0 or m.get("piezas", 0) < 0:
-                raise InvalidDataError(f"{name}: kg y piezas no pueden ser negativos")
-        if self.total_kg <= 0 and self.total_pieces <= 0:
-            raise InvalidDataError("Registra al menos un material con peso o piezas")

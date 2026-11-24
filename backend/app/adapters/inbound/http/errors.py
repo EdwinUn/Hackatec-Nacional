@@ -12,27 +12,30 @@ from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.domain.errors import (
-    AuthenticationError,
     ConflictError,
     DomainError,
     ForbiddenError,
     InvalidDataError,
     NotFoundError,
+    RateLimitedError,
+    UnauthorizedError,
     VisionUnavailableError,
 )
 
 log = logging.getLogger(__name__)
 
-STATUS = {
+STATUS: dict[type[DomainError], int] = {
     NotFoundError: 404,
     ConflictError: 409,
     InvalidDataError: 422,
-    VisionUnavailableError: 503,
-    AuthenticationError: 401,
+    UnauthorizedError: 401,
     ForbiddenError: 403,
+    RateLimitedError: 429,
+    VisionUnavailableError: 503,
 }
 HTTP_CODES = {
     400: "bad_request",
+    429: "rate_limited",
     401: "unauthorized",
     403: "forbidden",
     404: "not_found",
@@ -64,8 +67,11 @@ ERROR_SCHEMA = {
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(DomainError)
     async def domain_error(_: Request, exc: DomainError) -> JSONResponse:
-        status = next((s for cls, s in STATUS.items() if isinstance(exc, cls)), 400)
-        return JSONResponse(error_body(exc.code, exc.message, exc.details), status_code=status)
+        status = next((STATUS[cls] for cls in type(exc).__mro__ if cls in STATUS), 400)
+        headers = {"WWW-Authenticate": "Bearer"} if status == 401 else None
+        return JSONResponse(
+            error_body(exc.code, exc.message, exc.details), status_code=status, headers=headers
+        )
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:

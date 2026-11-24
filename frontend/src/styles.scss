@@ -95,4 +95,8 @@ a { color: inherit; }
 
 /* Citizen report pins on the satellite map */
 .report-pin { padding: 0; border: 0; background: none; cursor: pointer; }
+.buoy-pin { display: flex; align-items: center; gap: .3rem; padding: 0; border: 0; background: none; cursor: pointer; }
+.buoy-pin .icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; border: 2px solid #fff; background: #0e7490; color: #fff; font-size: .85rem; box-shadow: 0 1px 5px rgb(0 0 0 / .55); }
+.buoy-pin .name { background: rgb(9 28 34 / .82); color: #eaf7fa; font: 600 .72rem/1 inherit; padding: .25rem .45rem; border-radius: 6px; white-space: nowrap; }
+.buoy-popup .open { margin-top: .45rem; display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .6rem; border: 0; border-radius: 6px; background: var(--rm-green); color: #fff; font: 600 12px/1.2 inherit; cursor: pointer; }
 .report-pin span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 5px rgb(0 0 0 / .55); color: #fff; font-size: .75rem; }

@@ -6,7 +6,9 @@ Chart.register(...registerables);
 Chart.defaults.color = '#475569';
 Chart.defaults.borderColor = 'rgba(100,116,139,.16)';
 Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
-Chart.defaults.animation = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches ? false : { duration: 400 };
+// Merge, don't replace: Chart.js builds every animation from Object.keys(defaults.animation), so a
+// bare `{ duration }` object drops `type`/`fn` → "this._fn is not a function" when a color animates.
+Chart.defaults.set('animation', { duration: typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 400 });
 
 /** Chart.js wrapper. Updates the chart in place when the config changes (no flicker on live points). */
 @Component({

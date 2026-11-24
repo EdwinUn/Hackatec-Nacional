@@ -85,6 +85,8 @@ class ServiceSink:
         stations, _ = await self.catalog.list_stations(status=None, river=None, limit=500, offset=0)
         result = []
         for st in stations:
+            if st.code:  # la alimenta un dispositivo (boya real o Wokwi): no se simula
+                continue
             sensors, _ = await self.catalog.list_sensors(
                 station_id=st.id, type=None, location=None, status=None, limit=500, offset=0
             )
@@ -167,6 +169,7 @@ class HttpSink:
                 ),
             )
             for st in stations
+            if not st.get("code")  # la alimenta un dispositivo (boya real o Wokwi): no se simula
         ]
 
     async def ingest(self, readings: Sequence[tuple[UUID, ReadingSample]]) -> None:

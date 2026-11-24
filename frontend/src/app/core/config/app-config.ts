@@ -6,7 +6,7 @@ export interface AppConfig {
   apiBaseUrl: string;
   wsUrl: string;
   ingestApiKey: string;
-  /** Operations module (login, citizen reports, work orders) from the local mock until the backend has those endpoints. */
+  /** Operations module (login, citizen reports, work orders) from the local mock instead of the backend. */
   opsMocks: boolean;
 }
 

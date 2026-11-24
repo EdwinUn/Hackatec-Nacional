@@ -2,7 +2,7 @@
 COMPOSE := docker compose -f ../compose.yaml
 HOURS ?= 24
 
-.PHONY: help up infra down logs dev migrate seed reset simulate live test test-unit lint format
+.PHONY: help up infra down logs dev migrate seed reset simulate live boya test test-unit lint format
 
 help:  ## Lista los objetivos
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-10s %s\n", $$1, $$2}'
@@ -36,6 +36,11 @@ simulate:  ## Histórico simulado de HOURS horas (default 24)
 
 live:  ## Emite en vivo vía HTTP contra localhost:8000 (con descarga ácida demo a los 2 min)
 	uv run python -m scripts.simulate --live
+
+CODE ?= RM-01
+SCENARIO ?= contaminada
+boya:  ## Emula el ESP32 de una boya por MQTT (CODE=RM-01 SCENARIO=contaminada|limpia|bateria-baja)
+	uv run python -m scripts.buoy --code $(CODE) --scenario $(SCENARIO)
 
 test:  ## Todas las pruebas (integración necesita la BD rio_test; ver README)
 	uv run pytest

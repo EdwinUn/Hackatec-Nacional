@@ -85,13 +85,21 @@ Plantilla completa en [`../.env.example`](../.env.example). Se leen de `backend/
 | `HEALTH_SWEEP_INTERVAL_S` | `60` | Cada cuánto se revisan sensores silenciosos |
 | `ALERT_RENOTIFY_AFTER_MIN` | `15` | Re-emitir por WS una alerta activa que vuelve a dispararse |
 | `WS_PING_INTERVAL_S` | `20` | Ping del servidor por WebSocket |
+| `JWT_SECRET` / `JWT_EXPIRES_MIN` | valor de dev / `720` | Sesiones del personal (HS256, ≥ 32 bytes). Fuera de dev la API no arranca con el valor por defecto |
+| `MEDIA_DIR` / `MAX_PHOTO_KB` | `media` / `300` | Fotos de reportes y evidencias (servidas en `/media`) |
+| `REPORT_RATE_LIMIT` / `REPORT_RATE_WINDOW_MIN` | `5` / `10` | Reportes ciudadanos por IP (compartido entre workers vía Redis) |
+| `REPORT_STATION_RADIUS_KM` | `8` | Radio para vincular un reporte con la estación más cercana |
+| `LOGIN_RATE_LIMIT` / `LOGIN_RATE_WINDOW_MIN` | `10` / `10` | Intentos de login por IP y por correo |
+| `MAX_BODY_KB` | `2048` | Tope del cuerpo de cualquier petición (413 antes de parsear) |
+| `MQTT_URL` | vacío | Broker de la telemetría de las boyas (`mqtt://host:1883`, `mqtts://user:pass@host:8883`). Vacío = puente MQTT apagado |
+| `MQTT_TOPIC` / `MQTT_SHARED_GROUP` | `riomonitor/+/telemetria` / `rio-api` | Tópico (el `+` es el `code` de la estación) y grupo de suscripción compartida (vacío = normal, solo con 1 worker) |
 | `SIMULATION_ENABLED` | `false` | Simulador en vivo dentro de la API (sin script aparte) |
 | `SIMULATION_INTERVAL_S` / `SIMULATION_SEED` | `5` / `42` | Ritmo y semilla del simulador |
 | `MAX_READINGS_PER_REQUEST` / `MAX_RANGE_DAYS` / `MAX_BUCKETS` | `1000` / `90` / `5000` | Límites de consultas |
 | `VISION_ENABLED` | `true` | Activa `POST /api/v1/vision/analyze` (requiere `uv sync --extra vision`) |
 | `VISION_MODEL` / `VISION_MODELS_DIR` | `yolov8s-worldv2.pt` / `models` | Pesos de YOLO-World; se descargan solos la primera vez (~25 MB) |
 | `VISION_CONF` / `VISION_IMGSZ` | `0.15` / `640` | Umbral del detector y resolución de inferencia |
-| `VISION_MAX_IMAGE_MB` | `8` | Tamaño máximo de la foto |
+| `VISION_MAX_IMAGE_MB` | `2` | Tamaño máximo de la foto (la petición completa también pasa por `MAX_BODY_KB`) |
 | `VISION_SCENE_ENABLED` | `true` | Clasificador de escena CLIP que complementa al detector |
 | `VISION_PRELOAD` | `false` | Cargar los modelos al arrancar (~12 s, ~1.5 GB de RAM) en vez de en la primera foto |
 | `WEB_CONCURRENCY` | `2` | Workers de uvicorn en Docker |
@@ -107,7 +115,7 @@ uv sync --extra vision        # ultralytics + PyTorch (solo CPU en Linux) + Open
 make dev                      # los pesos de YOLO-World se descargan solos la primera vez
 ```
 
-Sin el extra, la API arranca igual y el endpoint responde `503 vision_unavailable`.
+Sin el extra, la API arranca igual y el endpoint responde `503 vision_unavailable`. La foto se limita a `VISION_MAX_IMAGE_MB` (2 MB) y la petición completa a `MAX_BODY_KB`; si subes uno, sube el otro.
 
 **Cómo funciona** (tres señales que se combinan en reglas puras del dominio, `app/domain/vision.py`):
 
@@ -184,9 +192,10 @@ tests/unit, tests/integration
 **Tareas de fondo** (lifespan, se cancelan limpiamente al apagar, compatible con `--reload`):
 - reenvío de eventos Redis → WebSocket (una por worker);
 - barrido de salud de sensores cada 60 s (detecta silencios y abre la alerta `Sensor sin señal`);
-- simulador en vivo si `SIMULATION_ENABLED=true`.
+- simulador en vivo si `SIMULATION_ENABLED=true`;
+- puente MQTT de telemetría de las boyas si `MQTT_URL` tiene valor (reconecta solo, con backoff hasta 30 s).
 
-Con varios workers, el barrido y el simulador toman un lock en Redis (`SET NX EX`) para que solo corra uno.
+El simulador solo alimenta estaciones **sin** `code`; las que tienen `code` (boyas RM-01 y RM-02 del seed) las alimenta su ESP32 por MQTT. Con varios workers, el barrido y el simulador toman un lock en Redis (`SET NX EX`) para que solo corra uno. El puente MQTT corre en cada worker, pero con suscripción compartida (`$share/rio-api/…`): el broker entrega cada mensaje a uno solo.
 
 ## Modelo de datos
 
@@ -194,13 +203,16 @@ Todas las tablas usan `id` UUID y fechas `timestamptz` en UTC. Todas tienen `cre
 
 | Tabla | Campos clave | Índices / restricciones |
 | --- | --- | --- |
-| `stations` | name (único), river, latitude, longitude, status, installed_at, description | `river` |
+| `stations` | name (único), **code** (único, ej. `RM-01`), river, latitude, longitude, status, installed_at, description | `river` |
 | `sensors` | station_id, type, location, unit, valid_min/max, status, last_seen_at, calibration_offset/factor, calibrated_at, model | `station_id` |
 | `readings` | sensor_id, station_id, ts, value, quality (0–1) | **único (sensor_id, ts DESC)** · (station_id, ts) · **BRIN(ts)** · CHECK quality |
 | `centrifuge_cycles` | station_id, started_at, ended_at, status, rpm_avg/max, vibration_mm_s, power_w, water_in_l, water_out_clean_l, sludge_kg, failure_reason | (station_id, started_at) |
 | `treatment_batches` | station_id, cycle_id, **ts**, volume_in_l, volume_clean_l, **sludge_kg**, ph_in/out, turbidity_in/out_ntu, efficiency_pct | (station_id, ts) · cycle_id |
+| `device_telemetry` | station_id, ts, seq, battery_v/pct, river_speed_ms, generator_w/v, pump_on, brake_on, alarm_on, device_efficiency_pct | (station_id, ts DESC) |
 | `waste_collections` | station_id, ts, weight_kg, items_count, waste_type, collector_id | (station_id, ts) |
 | `alert_rules` | name, kind, severity, parameter, location, station_id (null = todas), min_value, max_value, enabled, description | station_id |
+| `tasks` | title, kind, description, priority, status, assigned_to → users, station_id, buoy_code, closing_note, resolved_at, resolved_by → users | (status, priority) · (assigned_to, status) |
+| `skimmer_collections` | station_id, ts, buoy_code, buoy_condition, materials (JSONB por material: kg y piezas), total_kg, total_pieces, operator_id → users, operator_name, notes, task_id → tasks | (station_id, ts) |
 | `alerts` | rule_id, station_id, sensor_id, subject_key, kind, parameter, severity, status, message, trigger_value, thresholds, first/last_triggered_at, occurrences, last_notified_at, acknowledged_at, resolved_at, note | **único parcial (rule_id, subject_key) WHERE status IN (open, acknowledged)** · (station_id, status) · last_triggered_at |
 
 ## Reglas del dominio (valores de prototipo, configurables)
@@ -250,6 +262,17 @@ El generador ([`generator.py`](app/adapters/outbound/simulation/generator.py)) e
 
 La eficiencia de agua recuperada ronda 86–95 %. En `--live`, a los 2 min se programa una descarga ácida en Atoyac de 10 min para ver la alerta llegar en tiempo real. Las líneas base son ilustrativas, no mediciones reales.
 
+### Emulador de la boya ESP32
+
+Wokwi en línea solo da WiFi a una simulación a la vez. Para tener las dos boyas en vivo, una corre en Wokwi y la otra con [`scripts/buoy.py`](scripts/buoy.py), que publica por MQTT el mismo JSON que el firmware, con sus mismas reglas de bomba, freno y alerta:
+
+```bash
+make boya                                  # RM-01, agua contaminada, cada 15 s
+make boya CODE=RM-02 SCENARIO=limpia       # escenarios: contaminada | limpia | bateria-baja
+```
+
+Usa el broker de `MQTT_URL`. Los valores son simulados.
+
 ## Ejemplos curl
 
 ```bash
@@ -268,6 +291,12 @@ curl -s -X POST $API/treatment-batches -H "X-API-Key: $KEY" -H 'Content-Type: ap
   -d "{\"station_id\":\"$STATION\",\"cycle_id\":\"$CYCLE\",\"volume_in_l\":520,\"volume_clean_l\":468,\"ph_in\":5.6,\"ph_out\":6.9}"
 curl -s -X POST $API/waste-collections -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
   -d "{\"station_id\":\"$STATION\",\"weight_kg\":1.2,\"items_count\":9,\"waste_type\":\"plastic\"}"
+
+# Telemetría de la boya (lo mismo que publica el ESP32 por MQTT)
+curl -s -X POST $API/devices/RM-01/telemetry -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+  -d '{"boya":"RM-01","n":1,"ph":6.9,"tds_ppm":410,"temp_c":22,"turb_in_ntu":180,"turb_out_ntu":12,"bat_pct":78,"bomba":true}'
+curl -s $API/devices/RM-01/telemetry/latest | jq
+mosquitto_pub -h localhost -t riomonitor/RM-01/telemetria -m '{"ph":7.1,"turb_in_ntu":150,"turb_out_ntu":9}'
 
 # Dashboard
 curl -s "$API/dashboard/overview?station_id=$STATION" | jq
@@ -301,6 +330,27 @@ websocat "ws://localhost:8000/ws/live?station_id=$STATION"
 - **WQI sobre el último valor de cada parámetro**, excluyendo sensores en `fault`. Si hay sonda de río y de entrada, se promedian.
 - **Buckets en UTC.** Puebla está en UTC−6, así que un bucket `1d` va de 18:00 a 18:00 hora local. Un parámetro `tz` sería la siguiente mejora.
 - **Lado de lectura con DTOs directos** (`read_models.py`, Pydantic) en vez de pasar por entidades de dominio. Es una concesión pragmática documentada en los puertos.
+
+### Operaciones (personal, reportes ciudadanos, órdenes de trabajo)
+
+- **Reglas puras:** transiciones, permisos del técnico, checklist, validación de cierre, cascada al reporte, estación más cercana y folios, en [`domain/operations.py`](app/domain/operations.py), con pruebas en `tests/unit/test_operations.py`.
+- **Casos de uso:** `staff.py`, `citizen_reports.py` y `work_orders.py` en `application/services/`.
+- **Adaptadores nuevos:**
+  - contraseñas con **argon2id** (`security/passwords.py`) y tokens **JWT HS256** (`security/tokens.py`);
+  - fotos en disco (`media/storage.py`, servidas en `/media`);
+  - límite por IP con Redis o en memoria (`messaging/rate_limit.py`).
+- **Folios:** `RC-0001` / `OT-0001` salen de dos `SEQUENCE` de Postgres, así que no se repiten aunque haya varios workers.
+- **Fotos:** se guardan como archivo. Se devuelven como URL absoluta con el host de la petición (funciona en LAN y en el celular). En los eventos WebSocket la foto va `null`.
+- **Diferencia con el mock del front:** una orden `done` con `confirmed: false` deja el reporte en `rejected` también después de verificarse (el mock lo regresaba a `resolved`).
+- **Endurecimiento tras la revisión de código:**
+  - las órdenes cerradas no se editan;
+  - la cascada solo responde a cambios de estado;
+  - login con límite de intentos, argon2 fuera del event loop y verificación contra un hash ficticio (tiempo constante);
+  - tope de 2 MB por petición;
+  - sin `NaN`/`Infinity`;
+  - el límite de Redis es atómico.
+- **Bandeja del operador y boyas skimmer:** `/tasks` es una bandeja ligera (sin checklist ni evidencias, a diferencia de las órdenes de trabajo) con pestañas `asignadas`, `reparaciones_pendientes`, `urgentes` y `listos`. `POST /skimmers/recoleccion` guarda el pesaje por material y además registra una `waste_collection` por material, así que la tarjeta «Clasificación de basura» del dashboard la ve sin consultas nuevas. Reglas en [`domain/field_ops.py`](app/domain/field_ops.py) y caso de uso `field_ops.py`; usan las mismas cuentas y roles de `staff.py`.
+- **Efectos sobre estaciones, sensores y basura:** los sigue disparando el front. Esos 4 endpoints aceptan la `X-API-Key` o el Bearer del personal, para que la llave de ingesta no viaje en el teléfono.
 
 ## Próximos pasos sugeridos
 

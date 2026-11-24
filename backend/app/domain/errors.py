@@ -21,17 +21,35 @@ class ConflictError(DomainError):
     code = "conflict"
 
 
-class VisionUnavailableError(DomainError):
-    """La visión artificial no está disponible (falta el extra `vision` o el modelo)."""
-
-    code = "vision_unavailable"
+class InvalidTransitionError(ConflictError):
+    code = "invalid_transition"
 
 
-class AuthenticationError(DomainError):
-    """Credenciales o token inválidos."""
+class UnauthorizedError(DomainError):
+    """Falta la credencial, está vencida o no es válida."""
 
     code = "unauthorized"
 
 
+class InvalidCredentialsError(UnauthorizedError):
+    code = "invalid_credentials"
+
+
 class ForbiddenError(DomainError):
+    """La credencial es válida pero el rol no permite la acción."""
+
     code = "forbidden"
+
+
+class InactiveAccountError(ForbiddenError):
+    code = "inactive"
+
+
+class RateLimitedError(DomainError):
+    code = "rate_limited"
+
+
+class VisionUnavailableError(DomainError):
+    """La visión artificial no está disponible (falta el extra `vision` o el modelo)."""
+
+    code = "vision_unavailable"

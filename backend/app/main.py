@@ -2,12 +2,28 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
+from app.adapters.inbound.http.body_limit import BodySizeLimitMiddleware
 from app.adapters.inbound.http.errors import ERROR_SCHEMA, install_error_handlers
-from app.adapters.inbound.http.routers import alerts, analytics, catalog, health, ingest, staff, vision
+from app.adapters.inbound.http.routers import (
+    alerts,
+    analytics,
+    auth,
+    catalog,
+    citizen_reports,
+    devices,
+    field_ops,
+    health,
+    ingest,
+    users,
+    vision,
+    work_orders,
+)
 from app.adapters.inbound.websocket import endpoint as ws_endpoint
 from app.config.container import VERSION, Container
 from app.config.logging import configure_logging
@@ -19,8 +35,11 @@ DESCRIPTION = """
 API del prototipo de monitoreo y limpieza de agua de ríos (Hackatec Nacional 2026 · SECIHTI Puebla).
 
 - **Ingesta** (`X-API-Key`): lecturas de sensores, ciclos de centrifugado, lotes tratados, basura.
+- **Dispositivos**: telemetría plana de la boya ESP32 por HTTP o MQTT (`riomonitor/{code}/telemetria`).
 - **Dashboard**: KPIs, series de pH, salud de sensores, centrífuga, recuperación de agua, basura,
   proyección de pH y mapa de puntos críticos.
+- **Operaciones** (`Bearer`): personal, reportes ciudadanos, órdenes de trabajo, bandeja del operador
+  (`/tasks`) y bitácora de boyas skimmer (`/skimmers`).
 - **Visión artificial**: `POST /api/v1/vision/analyze` analiza las fotos de los reportes ciudadanos.
 - **Tiempo real**: `WS /ws/live?station_id=` (ver `API.md`).
 
@@ -68,6 +87,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         allow_headers=["*"],
     )
     install_error_handlers(app)
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_body_kb * 1024)
 
     @app.middleware("http")
     async def request_log(request: Request, call_next):
@@ -88,11 +108,27 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         return response
 
     v1 = APIRouter(prefix="/api/v1")
-    for module in (ingest, catalog, alerts, analytics, vision, staff, health):
+    for module in (
+        ingest,
+        devices,
+        catalog,
+        alerts,
+        analytics,
+        health,
+        auth,
+        users,
+        citizen_reports,
+        work_orders,
+        field_ops,
+        vision,
+    ):
         v1.include_router(module.router)
     app.include_router(v1)
     app.include_router(health.router)  # /health también en la raíz (lo usa el frontend actual)
     app.include_router(ws_endpoint.router)
+    # Fotos de reportes y evidencias (LocalMediaStorage).
+    Path(settings.media_dir).mkdir(parents=True, exist_ok=True)
+    app.mount("/media", StaticFiles(directory=settings.media_dir), name="media")
     return app
 
 

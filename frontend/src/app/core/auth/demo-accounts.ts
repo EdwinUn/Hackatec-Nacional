@@ -1,8 +1,8 @@
-/** Demo accounts created by the backend on startup in dev (`API.md`, «Personal operativo»). */
-export const REAL_DEMO_PASSWORD = 'atoyac2026';
-export const REAL_DEMO_OPERATOR = 'operador@atlmonitor.mx';
+/** Demo accounts the backend seed creates in dev (`make seed`, `API.md` «Operaciones»). */
+export const REAL_DEMO_PASSWORD = 'demo123';
+export const REAL_DEMO_OPERATOR = 'tecnico@demo.mx';
 export const REAL_DEMO_USERS: { email: string; label: string }[] = [
-  { email: REAL_DEMO_OPERATOR, label: 'Operador de brigada' },
-  { email: 'supervisor@atlmonitor.mx', label: 'Supervisor' },
-  { email: 'admin@atlmonitor.mx', label: 'Administrador' },
+  { email: REAL_DEMO_OPERATOR, label: 'Técnico de campo' },
+  { email: 'supervisor@demo.mx', label: 'Supervisor' },
+  { email: 'admin@demo.mx', label: 'Administrador' },
 ];

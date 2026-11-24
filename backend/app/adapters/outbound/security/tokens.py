@@ -1,69 +1,33 @@
-"""Hash de contraseñas (scrypt) y tokens JWT HS256, solo con la biblioteca estándar."""
+from datetime import timedelta
+from uuid import UUID
 
-import base64
-import hashlib
-import hmac
-import json
-import secrets
-import time
-from typing import Any
+import jwt
 
-from app.domain.errors import AuthenticationError
+from app.domain.entities import utcnow
+from app.domain.errors import UnauthorizedError
 
-_N, _R, _P = 2**14, 8, 1
+ALGORITHM = "HS256"
 
 
-def hash_password(password: str) -> str:
-    salt = secrets.token_bytes(16)
-    digest = hashlib.scrypt(password.encode(), salt=salt, n=_N, r=_R, p=_P)
-    return f"scrypt${salt.hex()}${digest.hex()}"
+class JwtTokenService:
+    """JWT HS256 con claims `sub` (id del usuario), `role` y `exp`."""
 
+    def __init__(self, secret: str, expires: timedelta) -> None:
+        self._secret = secret
+        self._expires = expires
 
-def verify_password(password: str, stored: str) -> bool:
-    try:
-        scheme, salt_hex, digest_hex = stored.split("$")
-        if scheme != "scrypt":
-            return False
-        digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt_hex), n=_N, r=_R, p=_P)
-        return hmac.compare_digest(digest, bytes.fromhex(digest_hex))
-    except ValueError:
-        return False
+    def issue(self, user_id: UUID, role: str) -> tuple[str, int]:
+        now = utcnow()
+        claims = {"sub": str(user_id), "role": role, "iat": now, "exp": now + self._expires}
+        return jwt.encode(claims, self._secret, algorithm=ALGORITHM), int(self._expires.total_seconds())
 
-
-def _b64(data: bytes) -> str:
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
-
-
-def _unb64(text: str) -> bytes:
-    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
-
-
-class JwtCodec:
-    def __init__(self, secret: str, expire_s: int) -> None:
-        self._key = secret.encode()
-        self.expire_s = expire_s
-
-    def _sign(self, signing_input: str) -> str:
-        return _b64(hmac.new(self._key, signing_input.encode(), hashlib.sha256).digest())
-
-    def encode(self, claims: dict[str, Any], now: float | None = None) -> str:
-        iat = int(now if now is not None else time.time())
-        body = {**claims, "iat": iat, "exp": iat + self.expire_s}
-        head = _b64(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode())
-        payload = _b64(json.dumps(body, separators=(",", ":")).encode())
-        return f"{head}.{payload}.{self._sign(f'{head}.{payload}')}"
-
-    def decode(self, token: str, now: float | None = None) -> dict[str, Any]:
-        invalid = AuthenticationError("Sesión inválida o expirada")
+    def subject(self, token: str) -> UUID:
         try:
-            head, payload, signature = token.split(".")
-            if not hmac.compare_digest(signature, self._sign(f"{head}.{payload}")):
-                raise invalid
-            if json.loads(_unb64(head)).get("alg") != "HS256":
-                raise invalid
-            claims = json.loads(_unb64(payload))
-        except (ValueError, json.JSONDecodeError) as exc:
-            raise invalid from exc
-        if claims.get("exp", 0) <= (now if now is not None else time.time()):
-            raise invalid
-        return claims
+            claims = jwt.decode(
+                token, self._secret, algorithms=[ALGORITHM], options={"require": ["sub", "exp"]}
+            )
+            return UUID(claims["sub"])
+        except jwt.ExpiredSignatureError as exc:
+            raise UnauthorizedError("Tu sesión venció; vuelve a iniciar sesión") from exc
+        except (jwt.InvalidTokenError, ValueError) as exc:
+            raise UnauthorizedError("Sesión no válida; vuelve a iniciar sesión") from exc

@@ -15,11 +15,12 @@ from app.domain.entities import (
     CentrifugeCycle,
     Reading,
     Sensor,
-    SkimmerCollection,
     TreatmentBatch,
     WasteCollection,
     utcnow,
 )
+from app.domain.field_ops import SkimmerCollection
+from app.domain.telemetry import DeviceTelemetry
 from app.domain.treatment import compare_treatment
 
 
@@ -30,6 +31,9 @@ class EventType(StrEnum):
     BATCH_COMPLETED = "batch_completed"
     WASTE_COLLECTED = "waste_collected"
     ALERT = "alert"
+    WORK_ORDER_ASSIGNED = "work_order_assigned"
+    CITIZEN_REPORT_CREATED = "citizen_report_created"
+    DEVICE_TELEMETRY = "device_telemetry"
     SKIMMER_COLLECTED = "skimmer_collected"
 
 
@@ -109,6 +113,22 @@ def waste_event(waste: WasteCollection) -> Event:
 
 def alert_event(alert: Alert) -> Event:
     return Event(EventType.ALERT, alert.station_id, _payload(alert))
+
+
+def work_order_assigned_event(order: dict[str, Any], station_id: UUID | None) -> Event:
+    """`order` ya serializado (con station_name/assigned_name); sin fotos de evidencia."""
+    data = jsonable(order) | {"evidence": [{**e, "photo": None} for e in order.get("evidence", [])]}
+    return Event(EventType.WORK_ORDER_ASSIGNED, station_id, data)
+
+
+def citizen_report_created_event(report: dict[str, Any], station_id: UUID | None) -> Event:
+    """Sin la foto: el front vuelve a pedir el listado para mostrarla."""
+    return Event(EventType.CITIZEN_REPORT_CREATED, station_id, jsonable(report) | {"photo": None})
+
+
+def device_telemetry_event(telemetry: DeviceTelemetry, code: str) -> Event:
+    data = _payload(telemetry, "created_at") | {"code": code}
+    return Event(EventType.DEVICE_TELEMETRY, telemetry.station_id, data)
 
 
 def skimmer_event(collection: SkimmerCollection) -> Event:
