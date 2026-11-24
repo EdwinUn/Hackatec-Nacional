@@ -68,6 +68,7 @@ import { ROLE_META } from '../shared/utils/ops.util';
             <small>{{ statusText() }}</small>
           </div>
           <a routerLink="/operaciones/bandeja"><i class="pi pi-inbox" aria-hidden="true"></i> Mi bandeja</a>
+          <a routerLink="/boyas"><i class="pi pi-th-large" aria-hidden="true"></i> Boyas skimmer</a>
           @if (auth.isManager()) {
             <a routerLink="/operaciones/reportes"><i class="pi pi-megaphone" aria-hidden="true"></i> Reportes ciudadanos</a>
             <a routerLink="/operaciones/ordenes"><i class="pi pi-clipboard" aria-hidden="true"></i> Órdenes de trabajo</a>

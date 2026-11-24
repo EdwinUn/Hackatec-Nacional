@@ -25,6 +25,8 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:4200"
     ingest_api_key: SecretStr = SecretStr(DEFAULT_INGEST_KEY)
+    # Llave opcional de los nodos IoT (header X-Device-Key de POST /telemetry/iot).
+    device_key: SecretStr | None = None
     # Sesiones del personal (login): JWT HS256.
     jwt_secret: SecretStr = SecretStr(DEFAULT_JWT_SECRET)
     jwt_expires_min: int = Field(default=720, ge=1)

@@ -115,3 +115,12 @@
 .kv { margin: 0; display: grid; gap: .45rem; div { display: flex; flex-direction: column; padding: .5rem .7rem; border-radius: 10px; background: rgb(255 255 255 / .08); } dt { font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; color: #9fc2b3; } dd { margin: 0; font-size: .88rem; overflow-wrap: anywhere; } }
 .src { font-size: .72rem; }
 @media (min-width: 768px) and (pointer: fine), (min-width: 1401px) { .dash:not(.m-open) { display: none; } }
+
+.iot { position: absolute; z-index: 590; top: calc(4.1rem + env(safe-area-inset-top)); left: .75rem; max-width: calc(100% - 1.5rem); flex-direction: column; align-items: flex-start; gap: .4rem; transition: opacity .2s; &.hide { opacity: 0; pointer-events: none; } }
+.iot-pill { display: inline-flex; align-items: center; gap: .5rem; height: 34px; padding: 0 .8rem; border: 0; border-radius: 999px; background: #1b263b; color: #fff; font: inherit; font-size: .78rem; font-weight: 700; box-shadow: 0 4px 14px rgb(27 38 59 / .3); cursor: pointer; .pulse { width: .55rem; height: .55rem; border-radius: 50%; background: #94a3b8; } &.live .pulse { background: #00e0b0; animation: iotping 1.6s infinite; } .chev { font-size: .8rem; transition: transform .25s; &.up { transform: rotate(180deg); } } }
+@keyframes iotping { 70% { box-shadow: 0 0 0 7px rgb(0 224 176 / 0); } 100% { box-shadow: 0 0 0 0 rgb(0 224 176 / 0); } }
+.iot-card { width: min(320px, calc(100vw - 1.5rem)); padding: .8rem; border-radius: 18px; background: #fff; box-shadow: 0 8px 24px rgb(27 38 59 / .25); color: #1b263b; animation: iotin .25s cubic-bezier(.22, 1, .36, 1); }
+@keyframes iotin { from { opacity: 0; transform: translateY(-6px); } }
+.iot-h { margin: 0 0 .5rem; font-size: .82rem; }
+.iot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; &.stale b { color: #64748b; } span { display: flex; flex-direction: column; padding: .45rem .6rem; border: 1px solid #eaecf0; border-radius: 12px; } small { font-size: .65rem; letter-spacing: .08em; text-transform: uppercase; color: #64748b; } b { font-size: 1.05rem; font-variant-numeric: tabular-nums; } em { font-style: normal; font-size: .7rem; font-weight: 500; color: #64748b; } }
+.iot-go { display: flex; align-items: center; justify-content: center; gap: .45rem; margin-top: .6rem; padding: .65rem; border-radius: 12px; background: linear-gradient(135deg, #0077b6, #00b4d8); color: #fff; font-size: .85rem; font-weight: 700; text-decoration: none; }

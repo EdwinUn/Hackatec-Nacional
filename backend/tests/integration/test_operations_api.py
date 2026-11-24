@@ -470,3 +470,20 @@ async def test_successful_logins_do_not_count_toward_the_limit(client, staff):
     for _ in range(15):
         r = await client.post(f"{V1}/auth/login", json={"email": "tecnico@demo.mx", "password": "demo123"})
         assert r.status_code == 200
+
+
+async def test_report_keeps_the_ai_analysis_and_rejects_a_huge_one(client):
+    ai = {
+        "category": "peces_muertos",
+        "severity": "critica",
+        "summary": "Peces muertos",
+        "reasons": ["escena 100 %"],
+    }
+    r = await new_report(client, type="dead_fish", ai=ai)
+    assert r.status_code == 201 and r.json()["ai"] == ai
+    listed = (await client.get(f"{V1}/citizen-reports", headers={"X-API-Key": ""})).json()
+    assert listed[0]["ai"]["category"] == "peces_muertos"
+    assert (await client.get(f"{V1}/citizen-reports/by-folio/{r.json()['folio']}")).json()["ai"] == ai
+    assert (await new_report(client)).json()["ai"] is None
+    huge = await new_report(client, ai={"annotated_image": "x" * 250_000})
+    assert huge.status_code == 422

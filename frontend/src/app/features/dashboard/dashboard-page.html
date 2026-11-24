@@ -24,7 +24,7 @@
       @if (s.overview(); as o) { <strong [style.color]="wqi[o.wqi.outlet.category].color">{{ wqiText(o.wqi.outlet) }}</strong><small>{{ wqi[o.wqi.outlet.category].label }} · salida</small> } @else { <strong>—</strong> }
     </div>
     <div class="m-kpi"><span class="lbl">Alertas hoy</span><strong [class.bad]="alerts.open() > 0">{{ alerts.open() }}</strong><small>abiertas</small></div>
-    <div class="m-kpi"><span class="lbl">Boyas skimmer</span><strong [class.bad]="buoyAlerts() > 0">{{ buoyAlerts() }}</strong><small>{{ buoyAlerts() === 1 ? 'con falla (reporte IA)' : 'con falla (reportes IA)' }}</small></div>
+    <div class="m-kpi"><span class="lbl">Boyas skimmer</span><strong [class.bad]="buoyAlerts() > 0">{{ buoyAlerts() }}</strong><small>{{ buoyAlerts() === 1 ? 'con falla (reporte IA)' : 'con falla (reportes IA)' }}@if (liveBuoys() > 0) { · {{ liveBuoys() }} en vivo }</small></div>
   </div>
 
   <!-- KPI row -->

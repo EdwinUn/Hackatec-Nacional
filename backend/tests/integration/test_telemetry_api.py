@@ -93,3 +93,76 @@ async def test_simulator_skips_device_stations(client, container, buoy):
     )
     sink = ServiceSink(container.catalog, container.ingestion, container.operations)
     assert [st.id for st in await sink.topology()] == [UUID(r.json()["id"])]
+
+
+IOT = {
+    "device_id": "B-01",
+    "ph": 6.8,
+    "turbidity": 180,
+    "temperature": 22.5,
+    "flow_rate": 12.5,
+    "river_speed_ms": 0.9,
+    "basket_fill_pct": 37,
+    "battery_pct": 78,
+    "rssi": -61,
+}
+
+
+async def test_iot_endpoint_open_alias_saves_and_streams(client, container, buoy, sensors):
+    # sin X-API-Key ni X-Device-Key; B-01 es el alias de la boya RM-01
+    r = await client.post(f"{V1}/telemetry/iot", json=IOT, headers={"X-API-Key": ""})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["code"] == "RM-01" and body["readings"]["accepted"] == 2 and body["unmapped"] == ["temp_c"]
+    [device] = [e for e in container.broker.published if e.type is EventType.DEVICE_TELEMETRY]
+    d = device.data
+    assert (d["basket_fill_pct"], d["rssi_dbm"], d["flow_rate_lpm"], d["battery_pct"]) == (37, -61, 12.5, 78)
+    assert d["values"] == {"ph": 6.8, "turb_in_ntu": 180.0, "temp_c": 22.5}
+    latest = (await client.get(f"{V1}/devices/RM-01/telemetry/latest")).json()
+    assert latest["basket_fill_pct"] == 37 and latest["values"]["ph"] == 6.8
+
+
+async def test_iot_unknown_device_and_device_key(client, container, buoy):
+    assert (await client.post(f"{V1}/telemetry/iot", json={**IOT, "device_id": "B-99"})).status_code == 404
+    assert (await client.post(f"{V1}/telemetry/iot", json={"ph": 7})).status_code == 422
+
+    from pydantic import SecretStr
+
+    container.settings.device_key = SecretStr("wokwi-key")
+    try:
+        assert (await client.post(f"{V1}/telemetry/iot", json=IOT)).status_code == 200  # dev: opcional
+        bad = await client.post(f"{V1}/telemetry/iot", json=IOT, headers={"X-Device-Key": "otra"})
+        assert bad.status_code == 401
+        ok = await client.post(f"{V1}/telemetry/iot", json=IOT, headers={"X-Device-Key": "wokwi-key"})
+        assert ok.status_code == 200
+    finally:
+        container.settings.device_key = None
+
+
+WOKWI = {  # lo que imprime el firmware de Wokwi por Serial (boya «BM-02»)
+    "boya": "BM-02", "ts": "sin-hora", "ph": 14.0, "temp_c": 22.8, "turb_in_ntu": 1000, "turb_out_ntu": 1000,
+    "eficiencia_pct": 0.0, "bat_v": 4.2, "bat_pct": 0, "gas_v": 0.0,
+    "freno": False, "bomba": False, "alerta": True,
+}  # fmt: skip
+
+
+async def test_wokwi_message_with_bm_02_reaches_boat_rm_02(client, container, station, sensors):
+    await client.patch(f"{V1}/stations/{station['id']}", json={"code": "RM-02"})
+    # por HTTP genérico (sin código en la ruta) y por la ruta del dispositivo con el alias
+    r = await client.post(f"{V1}/telemetry/iot", json=WOKWI)
+    assert r.status_code == 200, r.text
+    assert r.json()["code"] == "RM-02" and r.json()["readings"]["accepted"] == 2
+    r2 = await client.post(f"{V1}/devices/B-02/telemetry", json=WOKWI)
+    assert r2.status_code == 200 and r2.json()["code"] == "RM-02"
+    events = [e.data for e in container.broker.published if e.type is EventType.DEVICE_TELEMETRY]
+    assert len(events) == 2
+    d = events[0]
+    assert d["code"] == "RM-02" and d["alarm_on"] is True and d["battery_pct"] == 0 and d["gas_v"] == 0.0
+    assert d["device_efficiency_pct"] == 0.0
+    assert d["values"] == {"ph": 14.0, "temp_c": 22.8, "turb_in_ntu": 1000.0, "turb_out_ntu": 1000.0}
+    latest = (await client.get(f"{V1}/devices/BM-02/telemetry/latest")).json()
+    assert latest["alarm_on"] is True and latest["values"]["ph"] == 14.0
+
+
+async def test_iot_needs_device_id_or_boya(client, buoy):
+    assert (await client.post(f"{V1}/telemetry/iot", json={"ph": 7})).status_code == 422

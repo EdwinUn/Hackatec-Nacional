@@ -20,6 +20,7 @@ from app.adapters.inbound.http.routers import (
     field_ops,
     health,
     ingest,
+    telemetry,
     users,
     vision,
     work_orders,
@@ -111,6 +112,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
     for module in (
         ingest,
         devices,
+        telemetry,
         catalog,
         alerts,
         analytics,

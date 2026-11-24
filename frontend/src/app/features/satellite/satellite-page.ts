@@ -13,6 +13,8 @@ import { BuoysService } from '../../core/services/buoys.service';
 import { FiltersService } from '../../core/services/filters.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
 import { LayoutService } from '../../core/services/layout.service';
+import { TelemetryService } from '../../core/services/telemetry.service';
+import { deviceCodeFor } from '../../core/models/telemetry.models';
 import { AuthService } from '../../core/auth/auth.service';
 import { SkimmerSurvey } from '../operator/skimmer-survey';
 import { Pill } from '../../shared/components/pill';
@@ -279,6 +281,19 @@ export class SatellitePage {
   private readonly live = inject(LiveStreamService);
   private readonly ops = inject(OpsApi);
   protected readonly auth = inject(AuthService);
+  private readonly iot = inject(TelemetryService);
+  protected readonly iotOpen = signal(false);
+  /** The buoy that is sending (the most recent packet wins), else the first one. */
+  protected readonly iotCode = computed(() => {
+    const all = Object.entries(this.iot.packets()).sort((a, b) => b[1].receivedAt - a[1].receivedAt);
+    return all[0]?.[0] ?? 'RM-01';
+  });
+  protected readonly iotPacket = computed(() => this.iot.packets()[this.iotCode()] ?? null);
+  protected readonly iotLive = computed(() => this.iot.isLive(this.iotCode())());
+  protected readonly iotBuoy = computed(() => this.buoys().find((b) => deviceCodeFor(b.code) === this.iotCode()) ?? null);
+  protected num(v: number | null | undefined, d: number): string {
+    return v === null || v === undefined || !Number.isFinite(v) ? '—' : v.toLocaleString('es-MX', { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
   private readonly layout = inject(LayoutService);
   /** Skimmer emptying survey (brigade only), opened from the selected station's card. */
   protected readonly surveyOpen = signal(false);
@@ -438,6 +453,7 @@ export class SatellitePage {
       });
     });
     // The floating navbar slides away while a drawer/sheet is open and comes back when it closes.
+    effect(() => this.buoys().forEach((b) => this.iot.ensureLoaded(deviceCodeFor(b.code))));
     effect(() => this.layout.navHidden.set(this.stationOpen() || this.detail() !== null || this.reportsOpen()));
     destroyRef.onDestroy(() => {
       this.layout.navHidden.set(false);

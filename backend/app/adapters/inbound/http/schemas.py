@@ -111,6 +111,11 @@ class DeviceTelemetryOut(Out):
     brake_on: bool | None
     alarm_on: bool | None
     device_efficiency_pct: float | None
+    flow_rate_lpm: float | None = None
+    basket_fill_pct: float | None = None
+    rssi_dbm: float | None = None
+    gas_v: float | None = None
+    values: dict[str, float] | None = Field(default=None, description="Calidad del agua de ese envío")
 
 
 class TelemetryResultOut(Out):

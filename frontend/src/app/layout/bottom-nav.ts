@@ -26,6 +26,7 @@ import { AlertCounterService } from '../core/services/alert-counter.service';
     <nav aria-label="Navegación principal" [class.hidden]="layout.navHidden()" [attr.aria-hidden]="layout.navHidden()">
       <a routerLink="/resumen" routerLinkActive="active" aria-label="Inicio"><i class="pi pi-objects-column" aria-hidden="true"></i><span>Inicio</span></a>
       <a routerLink="/mapa" routerLinkActive="active" aria-label="Mapa"><i class="pi pi-map" aria-hidden="true"></i><span>Mapa</span></a>
+      <a routerLink="/boyas" routerLinkActive="active" aria-label="Boyas"><i class="pi pi-compass" aria-hidden="true"></i><span>Boyas</span></a>
       <a routerLink="/reportar" routerLinkActive="active" aria-label="Reportes IA"><i class="pi pi-camera" aria-hidden="true"></i><span>Reportes IA</span></a>
       <a routerLink="/alertas" routerLinkActive="active" aria-label="Alertas">
         <i class="pi pi-bell" aria-hidden="true"></i><span>Alertas</span>
