@@ -28,7 +28,7 @@ TEST_DB_URL = os.getenv("TEST_DATABASE_URL", "postgresql+asyncpg://hackatec:hack
 API_KEY = "test-key"
 BACKEND = Path(__file__).resolve().parents[2]
 TABLES = (
-    "work_orders, citizen_reports, users, "
+    "skimmer_collections, tasks, work_orders, citizen_reports, users, "
     "alerts, alert_rules, readings, treatment_batches, centrifuge_cycles, waste_collections, "
     "sensors, stations"
 )

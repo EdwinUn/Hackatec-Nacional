@@ -145,6 +145,7 @@ export class MockOpsApi extends OpsApi {
         type: body.type,
         description: body.description.trim(),
         photo: body.photo,
+        ai: body.ai ?? null,
         latitude: body.latitude,
         longitude: body.longitude,
         accuracy: body.accuracy ?? null,

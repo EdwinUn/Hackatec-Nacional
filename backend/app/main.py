@@ -17,9 +17,11 @@ from app.adapters.inbound.http.routers import (
     catalog,
     citizen_reports,
     devices,
+    field_ops,
     health,
     ingest,
     users,
+    vision,
     work_orders,
 )
 from app.adapters.inbound.websocket import endpoint as ws_endpoint
@@ -36,6 +38,9 @@ API del prototipo de monitoreo y limpieza de agua de ríos (Hackatec Nacional 20
 - **Dispositivos**: telemetría plana de la boya ESP32 por HTTP o MQTT (`riomonitor/{code}/telemetria`).
 - **Dashboard**: KPIs, series de pH, salud de sensores, centrífuga, recuperación de agua, basura,
   proyección de pH y mapa de puntos críticos.
+- **Operaciones** (`Bearer`): personal, reportes ciudadanos, órdenes de trabajo, bandeja del operador
+  (`/tasks`) y bitácora de boyas skimmer (`/skimmers`).
+- **Visión artificial**: `POST /api/v1/vision/analyze` analiza las fotos de los reportes ciudadanos.
 - **Tiempo real**: `WS /ws/live?station_id=` (ver `API.md`).
 
 ⚠️ Umbrales, WQI y proyección son **valores de prototipo configurables**, no criterios validados.
@@ -114,6 +119,8 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         users,
         citizen_reports,
         work_orders,
+        field_ops,
+        vision,
     ):
         v1.include_router(module.router)
     app.include_router(v1)

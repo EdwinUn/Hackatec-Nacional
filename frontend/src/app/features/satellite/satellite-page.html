@@ -1,8 +1,90 @@
 <div class="sat">
   <div #map class="map" role="application" aria-label="Mapa satelital de la Cuenca del Alto Atoyac"></div>
 
+  <!-- Phone: floating capsule + layer menu -->
+  <div class="m-only capsule" role="toolbar" aria-label="Capas del mapa">
+    <button type="button" class="cap-btn" [attr.aria-expanded]="menuOpen()" aria-controls="layer-menu" (click)="menuOpen.set(!menuOpen())">
+      <i [class]="menuOpen() ? 'pi pi-times' : 'pi pi-sliders-h'" aria-hidden="true"></i>
+      <span>Capas</span>
+    </button>
+    <span class="cap-info"><strong>{{ list().length }}</strong> estaciones · <strong [class.bad]="totals().open > 0">{{ totals().open }}</strong> alertas</span>
+    <button type="button" class="cap-btn icon" aria-label="Centrar cuenca" (click)="resetView()"><i class="pi pi-compass" aria-hidden="true"></i></button>
+  </div>
+  @if (menuOpen()) {
+    <div class="m-only sheet" id="layer-menu" role="dialog" aria-label="Menú del mapa">
+      <section>
+        <h3>Estación</h3>
+        <div class="chips">
+          @for (h of list(); track h.station_id) {
+            <button type="button" class="chip" [class.on]="h.station_id === selectedId()" (click)="pickStation(h.station_id)">{{ shortName(h.name) }}</button>
+          }
+        </div>
+      </section>
+      <section>
+        <h3>Capas</h3>
+        <label class="row"><input type="checkbox" [checked]="showBuoys()" (change)="showBuoys.set($any($event.target).checked)" /><span>Boyas skimmer <small>fallas por IA</small></span><b>{{ buoyReports().length }}</b></label>
+        <label class="row"><input type="checkbox" [checked]="showBuoyUnits()" (change)="showBuoyUnits.set($any($event.target).checked)" /><span>Boyas Río Monitor <small>modelo 3D</small></span><b>{{ buoys().length }}</b></label>
+        <label class="row"><input type="checkbox" [checked]="showKeyPoints()" (change)="showKeyPoints.set($any($event.target).checked)" /><span>Puntos de descarga y monitoreo</span></label>
+        <label class="row"><input type="checkbox" [checked]="showReports()" (change)="showReports.set($any($event.target).checked)" /><span>Reportes ciudadanos IA</span><b>{{ otherReports().length }}</b></label>
+        <label class="row"><input type="checkbox" [checked]="showStations()" (change)="showStations.set($any($event.target).checked)" /><span>Calidad de agua <small>estaciones</small></span><b>{{ list().length }}</b></label>
+      </section>
+      <section>
+        <h3>Vista</h3>
+        <div class="chips">
+          <button type="button" class="chip" (click)="switchMode()"><i class="pi pi-clone" aria-hidden="true"></i> {{ mode3d() ? 'Pasar a 2D' : 'Pasar a 3D' }}</button>
+          <button type="button" class="chip" (click)="resetView(); menuOpen.set(false)"><i class="pi pi-compass" aria-hidden="true"></i> Centrar cuenca</button>
+          <button type="button" class="chip" (click)="menuOpen.set(false)">Cerrar menú</button>
+        </div>
+      </section>
+    </div>
+  }
+
+  <!-- Phone: dedicated strip under the map (above the floating navbar) holding both pills -->
+  <div class="m-only dock" [class.hide]="reportsOpen()">
+    @if (selected(); as h) {
+    <div class="station-fab">
+      <button type="button" class="open" (click)="toggleStation()" aria-controls="station-card" [attr.aria-expanded]="stationOpen()">
+        <span class="dot" [style.background]="wqi[h.wqi.category].color"></span>
+        <span class="nm">{{ shortName(h.name) }} · {{ wqiText(h.wqi) }}</span>
+        <i class="pi pi-angle-up chev" [class.up]="stationOpen()" aria-hidden="true"></i>
+      </button>
+      <button type="button" class="x" (click)="deselect()" aria-label="Deseleccionar estación"><i class="pi pi-times" aria-hidden="true"></i></button>
+    </div>
+    }
+    <button type="button" class="reports-fab" (click)="toggleReports()" aria-controls="reports-sheet" [attr.aria-expanded]="reportsOpen()">
+    <i class="pi pi-megaphone" aria-hidden="true"></i> Reportes IA <b>{{ activeReports().length }}</b> <i class="pi pi-angle-up chev" [class.up]="reportsOpen()" aria-hidden="true"></i>
+  </button>
+  </div>
+
+  <!-- Phone: citizen-reports / AI sheet that expands upwards -->
+  <section class="m-only reports-sheet" id="reports-sheet" [class.open]="reportsOpen()" [attr.aria-hidden]="!reportsOpen()" aria-label="Reportes ciudadanos e IA">
+    <header>
+      <h2>Reportes ciudadanos · IA <small>{{ activeReports().length }} activos</small></h2>
+      <button type="button" class="collapse" (click)="toggleReports()" aria-label="Contraer reportes"><i class="pi pi-angle-down" aria-hidden="true"></i> Contraer</button>
+    </header>
+    <ul>
+      @for (r of activeReports(); track r.id) {
+        <li>
+          <button type="button" (click)="focusReport(r)" [tabindex]="reportsOpen() ? 0 : -1">
+            @if (r.photo) { <img [src]="r.photo" alt="" /> } @else { <span class="ph"><i [class]="typeMeta[r.type].icon" aria-hidden="true"></i></span> }
+            <span class="txt">
+              <strong>{{ typeMeta[r.type].label }}</strong>
+              <small>{{ r.folio }} · {{ ago(r.created_at) }} · {{ statusMeta[r.status].label }}</small>
+              @if (r.ai; as a) {
+                <span class="ai" [style.color]="visionSev[a.severity].color" [style.background]="visionSev[a.severity].bg"><i class="pi pi-sparkles" aria-hidden="true"></i> {{ visionCat[a.category].label }} · {{ visionSev[a.severity].label }}</span>
+              }
+              <span class="desc">{{ r.description }}</span>
+            </span>
+          </button>
+        </li>
+      } @empty {
+        <li class="none">No hay reportes activos.</li>
+      }
+    </ul>
+  </section>
+
   <!-- Title + legend -->
-  <div class="glass hud">
+  <div class="glass hud d-only">
     <div class="hud-title"><i class="pi pi-globe" aria-hidden="true"></i> Cuenca del Alto Atoyac</div>
     <div class="hud-sub">Puebla · {{ list().length }} estaciones · {{ totals().open }} alertas abiertas ({{ totals().critical }} críticas)</div>
     <ul class="legend" aria-label="Leyenda de WQI">
@@ -11,6 +93,7 @@
       }
     </ul>
     <label class="layer-toggle"><input type="checkbox" [checked]="showReports()" (change)="showReports.set($any($event.target).checked)" /> <i class="pi pi-megaphone" aria-hidden="true"></i> Reportes ciudadanos <strong>{{ activeReports().length }}</strong></label>
+    <label class="layer-toggle"><input type="checkbox" [checked]="showBuoyUnits()" (change)="showBuoyUnits.set($any($event.target).checked)" /> <i class="pi pi-compass" aria-hidden="true"></i> Boyas Río Monitor <strong>{{ buoys().length }}</strong></label>
     @if (ranking().length) {
       <div class="rank">
         <div class="rank-title"><i class="pi pi-sort-amount-down" aria-hidden="true"></i> Ranking de criticidad</div>
@@ -38,13 +121,13 @@
 
   <!-- Station panel -->
   @if (selected(); as h) {
-    <aside class="glass panel" aria-label="Detalle de la estación">
+    <aside class="glass panel" id="station-card" [class.m-open]="stationOpen()" aria-label="Detalle de la estación">
       <header>
         <div>
           <h2>{{ h.name }}</h2>
           <p class="coords"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ coords(h.latitude, h.longitude) }}</p>
         </div>
-        <button type="button" class="x" aria-label="Cerrar panel" (click)="selectedId.set(null)"><i class="pi pi-times"></i></button>
+        <button type="button" class="x" aria-label="Cerrar panel" (click)="closeStation()"><i class="pi pi-times"></i></button>
       </header>
 
       <div class="wqi" [style.border-color]="wqi[h.wqi.category].color">
@@ -91,9 +174,63 @@
           </li>
         }
       </ul>
+      @if (auth.isLoggedIn()) {
+        <button type="button" class="reset survey-btn" (click)="surveyOpen.set(true)"><i class="pi pi-inbox" aria-hidden="true"></i> Registrar vaciado de boya</button>
+      }
       <a class="link" routerLink="/alertas">Ver alertas de la estación <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
     </aside>
   } @else if (!hotspots.error()) {
     <div class="glass hint-chip">Selecciona una estación en el mapa</div>
   }
+<!-- Side drawer for a tapped citizen report / key point (replaces the map popups) -->
+<aside class="glass panel dash" [class.m-open]="detail() !== null" [attr.aria-hidden]="detail() === null" aria-label="Detalle del punto">
+  @if (detail(); as d) {
+    @if (d.kind === 'report') {
+      @let r = d.r;
+      <header>
+        <div>
+          <h2>{{ typeMeta[r.type].label }}</h2>
+          <p class="coords"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ coords(r.latitude, r.longitude) }}</p>
+        </div>
+        <button type="button" class="x" aria-label="Cerrar detalle" (click)="detail.set(null)"><i class="pi pi-times"></i></button>
+      </header>
+      <div class="chips-row">
+        <app-pill [label]="statusMeta[r.status].label" [color]="statusMeta[r.status].color" [bg]="statusMeta[r.status].bg" />
+        <span class="muted">{{ r.folio }} · {{ ago(r.created_at) }}</span>
+      </div>
+      @if (r.photo) { <img class="dash-img" [src]="r.ai?.annotated_image || r.photo" alt="Foto del reporte" /> }
+      @if (r.description) { <p class="dash-text">{{ r.description }}</p> }
+      @if (r.ai; as a) {
+        <div class="crit" [style.border-color]="visionSev[a.severity].color">
+          <div class="crit-head">
+            <app-pill [label]="visionSev[a.severity].label" [color]="visionSev[a.severity].color" [bg]="visionSev[a.severity].bg" />
+            <strong><i class="pi pi-sparkles" aria-hidden="true"></i> {{ visionCat[a.category].label }}</strong>
+          </div>
+          <p class="dash-text">{{ a.summary }}</p>
+          @if (a.reasons.length) { <ul class="why">@for (x of a.reasons; track x) { <li>{{ x }}</li> }</ul> }
+        </div>
+      }
+    } @else {
+      @let p = d.p;
+      <header>
+        <div>
+          <h2>{{ p['nombre'] }}</h2>
+          <p class="coords"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ coords(d.lat, d.lng) }}</p>
+        </div>
+        <button type="button" class="x" aria-label="Cerrar detalle" (click)="detail.set(null)"><i class="pi pi-times"></i></button>
+      </header>
+      @if (p['tramo_critico_documentado'] === true) { <div class="crit" style="border-color:#e5484d"><strong>Tramo crítico documentado</strong></div> }
+      <dl class="kv">
+        <div><dt>Río</dt><dd>{{ p['rio'] ?? '—' }}</dd></div>
+        <div><dt>Zona</dt><dd>{{ zoneLabels[$any(p['zona'])] ?? p['zona'] ?? '—' }}</dd></div>
+        <div><dt>Tipo</dt><dd>{{ $any(p['tipo'] ?? '').replace('_', ' ') || '—' }}</dd></div>
+        <div><dt>Municipio</dt><dd>{{ p['municipio'] ?? '—' }}</dd></div>
+        <div><dt>Rol</dt><dd>{{ p['rol'] ?? '—' }}</dd></div>
+      </dl>
+      <p class="muted src">Fuente: CONAGUA 2025 · punto de referencia, no es una estación de esta app.</p>
+    }
+  }
+</aside>
 </div>
+
+<app-skimmer-survey [(visible)]="surveyOpen" [stationId]="selectedId()" />

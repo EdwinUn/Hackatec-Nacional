@@ -17,8 +17,8 @@ Actualiza este archivo **antes** o **junto con** cualquier cambio en los endpoin
 | --- | --- |
 | Ingesta y escrituras de catálogo/reglas (`POST`/`PATCH`) | Header `X-API-Key: <INGEST_API_KEY>` |
 | `PATCH /stations/{id}`, `PATCH /sensors/{id}`, `PATCH /alert-rules/{id}`, `POST /waste-collections` | `X-API-Key` **o** `Authorization: Bearer <token>` de un usuario activo del personal |
-| Módulo de operaciones (`/users`, `/work-orders`, `PATCH /citizen-reports/{id}`) | `Authorization: Bearer <token>` (ver «Operaciones»). Token vencido o inválido → 401; rol insuficiente → 403 |
-| `POST/GET /citizen-reports`, `GET /citizen-reports/by-folio/{folio}` | Públicos (ciudadanía sin cuenta) |
+| Módulo de operaciones (`/users`, `/work-orders`, `PATCH /citizen-reports/{id}`, `/tasks`, `POST /skimmers/recoleccion`, `/auth/me`) | `Authorization: Bearer <token>` (ver «Operaciones»). Token vencido o inválido → 401; rol insuficiente → 403 |
+| `POST/GET /citizen-reports`, `GET /citizen-reports/by-folio/{folio}`, `POST /vision/analyze` | Públicos (ciudadanía sin cuenta) |
 | Lecturas (`GET`) y `PATCH /alerts/{id}` | Abiertas (no hay usuarios finales todavía) |
 | WebSocket | Abierto con `ENVIRONMENT=dev`; si no, `?api_key=<INGEST_API_KEY>` |
 
@@ -42,6 +42,7 @@ Actualiza este archivo **antes** o **junto con** cualquier cambio en los endpoin
 | 413 | `payload_too_large` | El cuerpo de la petición supera 2 MB (`MAX_BODY_KB`) |
 | 429 | `rate_limited` | Demasiados reportes ciudadanos desde la misma IP, o demasiados intentos de login |
 | 500 | `internal_error` | Error inesperado (queda en el log) |
+| 503 | `vision_unavailable` | La visión artificial no está disponible (falta `uv sync --extra vision`, el modelo no cargó o está desactivada) |
 
 ### Paginación
 
@@ -70,6 +71,15 @@ Usa el sufijo `Z` (`2026-11-23T18:00:00Z`). Si mandas un offset como `-06:00` o 
 | `severity` | `info`, `warning`, `critical` |
 | `status` (alerta) | `open`, `acknowledged`, `resolved` |
 | `kind` (regla) | `reading_range`, `sensor_offline`, `centrifuge_vibration`, `treatment_efficiency` |
+| `category` (visión) | `peces_muertos`, `boya_defectuosa`, `boya_saturada`, `acumulacion_basura`, `normal` |
+| `severity` (visión) | `critica`, `alta`, `media`, `baja` (¡en español, distinto de `severity` de alertas!) |
+| `buoy.status` (visión) | `no_detectada`, `integra`, `saturada`, `defectuosa` |
+| `kind` (tarea) | `report`, `repair`, `skimmer_collection`, `maintenance` |
+| `priority` (tarea) | `normal`, `urgent` |
+| `status` (tarea) | `pending`, `in_progress`, `done` |
+| `view` (bandeja) | `asignadas`, `reparaciones_pendientes`, `urgentes`, `listos` |
+| `buoy_condition` | `ok`, `danada`, `saturada`, `faltan_piezas` |
+| material (encuesta skimmer) | `plastico`, `organico`, `vidrio`, `otros`, `metal` → `waste_type` `plastic`, `organic`, `glass`, `other`, `metal` |
 
 Unidades por defecto: pH `pH`, turbidez `NTU`, temperatura `°C`, oxígeno disuelto `mg/L`, conductividad `µS/cm`, SDT `mg/L`.
 
@@ -569,6 +579,7 @@ Roles: `technician` (técnico de campo), `supervisor`, `admin`. La ciudadanía *
 - **Errores:** 401 `invalid_credentials`, también si el correo no existe; 403 `inactive` si la cuenta está desactivada; 429 `rate_limited` tras 10 intentos en 10 min por IP o por correo. El correo no distingue mayúsculas.
 - **Token:** JWT HS256 con claims `sub`, `role` y `exp`, válido 12 h (`JWT_EXPIRES_MIN`). Se envía como `Authorization: Bearer <token>`.
 - **Desactivación:** si un usuario se desactiva, su token deja de servir (401).
+- **`GET /api/v1/auth/me`:** devuelve el `User` dueño del token.
 
 ### Usuarios (solo `admin`)
 
@@ -670,6 +681,44 @@ Roles: `technician` (técnico de campo), `supervisor`, `admin`. La ciudadanía *
 
   La cascada se aplica cuando la orden cambia de estado (y al crearla). Guardar notas, checklist o evidencia no la dispara, así no pisa la moderación manual del supervisor.
 
+### Bandeja del operador (tareas)
+
+| Método | Ruta | Notas |
+| --- | --- | --- |
+| GET | `/tasks?view=&limit=&offset=` | `view` ∈ `asignadas` (mías sin cerrar), `reparaciones_pendientes`, `urgentes`, `listos` (resueltas). Responde la paginación estándar **más** `counts: {asignadas, reparaciones_pendientes, urgentes, listos}` |
+| GET | `/tasks/{id}` | Detalle |
+| POST | `/tasks` | Solo `supervisor`/`admin`: `{title, kind, description?, priority?, assigned_to?, station_id?, buoy_code?}` → 201 |
+| PATCH | `/tasks/{id}` | Atender: `{"status":"in_progress"}` (se autoasigna si no tenía dueño). Resolver: `{"status":"done","closing_note":"…"}` (nota ≥ 3 caracteres, si no 422). También `priority` y `assigned_to` (un técnico solo puede asignarse a sí mismo). Una tarea resuelta no cambia: 409 |
+
+`Task`: `{id, title, description, kind, priority, status, assigned_to, station_id, buoy_code, closing_note, resolved_at, resolved_by, created_at, updated_at}`.
+
+### Bitácora de recolección de boyas skimmer
+
+#### `POST /api/v1/skimmers/recoleccion` → 201 (requiere sesión)
+
+```json
+{ "station_id": "6f1c…", "buoy_code": "SK-01", "buoy_condition": "saturada",
+  "plastico": { "kg": 2.5, "piezas": 40 }, "organico": { "kg": 1.0, "piezas": 12 },
+  "vidrio": { "kg": 0, "piezas": 0 }, "otros": { "kg": 0, "piezas": 0 }, "metal": { "kg": 0.5, "piezas": 3 },
+  "notes": "Cesta casi llena", "task_id": "…", "ts": "2026-11-24T18:30:00Z" }
+```
+
+Los cinco materiales son opcionales (default 0), pero debe haber al menos un peso o una pieza (422 `invalid_data`).
+`task_id` (opcional) cierra sola la tarea de vaciado. Respuesta: la recolección con `materials`, `total_kg`, `total_pieces`, `operator_name`.
+Efecto: además de la bitácora se registra una `waste_collection` por material (alimenta `GET /analytics/waste` y la tarjeta
+«Clasificación de basura») y se emiten por WebSocket un `waste_collected` por material y un `skimmer_collected`.
+
+`GET /skimmers/recoleccion?station_id=&from=&to=` lista la bitácora (paginada, más reciente primero).
+
+#### `GET /api/v1/skimmers/clasificacion-basura?station_id=&from=&to=` (abierto)
+
+```json
+{ "total_kg": 4.0, "total_piezas": 55, "recolecciones": 1, "ultima": "2026-11-24T18:30:00Z",
+  "por_material": [ { "material": "plastico", "waste_type": "plastic", "kg": 2.5, "piezas": 40, "pct": 62.5 } ] }
+```
+
+Acumulado de todas las recolecciones (o del rango), ordenado por kg.
+
 ### Eventos WebSocket nuevos
 
 Llegan con el mismo sobre `{ type, station_id, ts, data }`:
@@ -679,12 +728,66 @@ Llegan con el mismo sobre `{ type, station_id, ts, data }`:
 | `work_order_assigned` | Se crea una orden con técnico o se asigna/reasigna | La `WorkOrder`, con `evidence[].photo = null` |
 | `citizen_report_created` | Se crea un reporte ciudadano | El `CitizenReport`, con `photo = null` (pedir el listado para verla) |
 | `device_telemetry` | La boya envía telemetría (HTTP o MQTT) | `DeviceTelemetryOut` (sin `created_at`) + `code` |
+| `skimmer_collected` | Se registra el vaciado de una boya skimmer | `{id, station_id, ts, buoy_code, buoy_condition, materials, total_kg, total_pieces, operator_id, operator_name, notes, task_id}` |
 
 Los eventos llegan a todos los clientes conectados (prototipo); el front filtra por `assigned_to`.
 
 ### Cuentas demo
 
-Las crea `make seed`, solo con `ENVIRONMENT` de desarrollo: `tecnico@demo.mx`, `tecnico2@demo.mx` (technician), `supervisor@demo.mx` y `admin@demo.mx`. Contraseña: `demo123`.
+Las crea `make seed`, solo con `ENVIRONMENT` de desarrollo: `tecnico@demo.mx`, `tecnico2@demo.mx` (technician), `supervisor@demo.mx` y `admin@demo.mx`. Contraseña: `demo123`. El seed también crea cinco tareas de ejemplo en la bandeja de `tecnico@demo.mx`.
+
+---
+
+## Visión artificial (fotos de reportes ciudadanos)
+
+> ⚠️ Modelo zero-shot y reglas de color **de prototipo**, sin validar con fotos reales de campo. Úsalo como apoyo a la revisión humana, no como diagnóstico. Ver `backend/README.md` § Visión artificial.
+
+### `POST /api/v1/vision/analyze`
+
+Analiza **una foto** y devuelve qué muestra. **Abierto** (sin `X-API-Key`): los ciudadanos no tienen cuenta. Requiere `uv sync --extra vision` en el backend; sin él responde `503 vision_unavailable`.
+
+**Request** — `multipart/form-data` con el campo `file` (JPEG, PNG o WebP, máx. `VISION_MAX_IMAGE_MB` = 2 MB; el cuerpo completo también pasa por `MAX_BODY_KB`):
+
+```bash
+curl -X POST http://localhost:8000/api/v1/vision/analyze -F "file=@foto.jpg;type=image/jpeg"
+```
+
+**Respuesta 200**
+
+```json
+{
+  "category": "peces_muertos",
+  "severity": "critica",
+  "summary": "Peces muertos detectados: alerta ambiental crítica.",
+  "reasons": ["El clasificador de escena ve peces muertos en el agua (100 %)."],
+  "detections": [
+    { "label": "dead fish", "label_es": "Pez muerto", "confidence": 0.62, "bbox": [10, 20, 200, 120] }
+  ],
+  "buoy": {
+    "status": "no_detectada", "ring_found": false, "barrier_count": 0, "barrier_fragments": 0,
+    "barrier_balance": 0.0, "cage_saturation": null
+  },
+  "scene": [
+    { "label": "peces_muertos", "label_es": "Peces muertos", "probability": 1.0 },
+    { "label": "pez_vivo", "label_es": "Pez vivo", "probability": 0.0 }
+  ],
+  "annotated_image": "data:image/jpeg;base64,/9j/4AAQ…",
+  "image": { "width": 862, "height": 1280 },
+  "model": "yolov8s-worldv2",
+  "elapsed_ms": 312.4,
+  "note": "Resultado de un modelo zero-shot (YOLO-World) y reglas de color de prototipo…"
+}
+```
+
+- `category` / `severity`: ver Enumeraciones. Prioridad: `peces_muertos` (siempre `critica`) > `boya_defectuosa` (`alta`; `critica` si además la cesta está saturada) > `boya_saturada` (`alta` si la cesta está cubierta ≥ 50 %, si no `media`) > `acumulacion_basura` (`baja`/`media`/`alta` por nº de objetos y % de la imagen) > `normal` (`baja`).
+- `detections[].bbox` = `[x1, y1, x2, y2]` en píxeles de la imagen **analizada** (`image`): la foto se reduce a un máximo de 1280 px por lado, así que el cliente debe usar `image.width/height` para escalar las cajas, o mostrar directamente `annotated_image`.
+- `annotated_image` es un *data URL* JPEG con las cajas, las regiones de color de la boya, un banner con la categoría/severidad y la escena dominante. Se puede asignar tal cual a `<img [src]>`.
+- `buoy`: verificación HSV (OpenCV) de la boya skimmer — anillo amarillo, barreras naranjas en «V» (esperadas: 2) y saturación de la cesta de malla (0–1, `null` si no se ve la cesta).
+- `scene`: clasificador de escena CLIP (probabilidades que suman 1, de mayor a menor); `null` si está desactivado (`VISION_SCENE_ENABLED=false`).
+
+**Errores:** `422 invalid_data` si el archivo está vacío, supera el máximo o no es una imagen legible; `422 validation_error` si falta `file`; `503 vision_unavailable` (ver tabla de errores).
+
+La inferencia corre en CPU (~0.3 s por foto tras la primera; la primera tras arrancar tarda más) y se atiende de **una foto a la vez**, así que varias peticiones simultáneas se encolan.
 
 ---
 

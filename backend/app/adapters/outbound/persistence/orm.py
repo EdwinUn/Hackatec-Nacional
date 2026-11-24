@@ -10,6 +10,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.domain.enums import (
     AlertStatus,
+    BuoyCondition,
     CycleStatus,
     RuleKind,
     SensorLocation,
@@ -17,6 +18,9 @@ from app.domain.enums import (
     SensorType,
     Severity,
     StationStatus,
+    TaskKind,
+    TaskPriority,
+    TaskStatus,
     WasteType,
 )
 from app.domain.operations import Priority, ReportStatus, ReportType, Role, WorkOrderStatus, WorkOrderType
@@ -286,3 +290,41 @@ class WorkOrderRow(TimestampMixin, Base):
     verified_at: Mapped[datetime | None] = mapped_column(TZ)
 
     __table_args__ = (sa.Index("ix_work_orders_assigned_to_status", "assigned_to", "status"),)
+
+
+# ── Bandeja del operador y bitácora de boyas skimmer ─────────────────────────
+class TaskRow(TimestampMixin, Base):
+    __tablename__ = "tasks"
+    title: Mapped[str] = mapped_column(sa.String(200))
+    kind: Mapped[TaskKind] = mapped_column(enum_col(TaskKind))
+    description: Mapped[str] = mapped_column(sa.Text, server_default="")
+    priority: Mapped[TaskPriority] = mapped_column(enum_col(TaskPriority))
+    status: Mapped[TaskStatus] = mapped_column(enum_col(TaskStatus))
+    assigned_to: Mapped[UUID | None] = mapped_column(sa.ForeignKey("users.id", ondelete="SET NULL"))
+    station_id: Mapped[UUID | None] = mapped_column(sa.ForeignKey("stations.id", ondelete="SET NULL"))
+    buoy_code: Mapped[str | None] = mapped_column(sa.String(60))
+    closing_note: Mapped[str | None] = mapped_column(sa.Text)
+    resolved_at: Mapped[datetime | None] = mapped_column(TZ)
+    resolved_by: Mapped[UUID | None] = mapped_column(sa.ForeignKey("users.id", ondelete="SET NULL"))
+
+    __table_args__ = (
+        sa.Index("ix_tasks_status_priority", "status", "priority"),
+        sa.Index("ix_tasks_assigned_to_status", "assigned_to", "status"),
+    )
+
+
+class SkimmerCollectionRow(TimestampMixin, Base):
+    __tablename__ = "skimmer_collections"
+    station_id: Mapped[UUID] = mapped_column(sa.ForeignKey("stations.id", ondelete="CASCADE"))
+    ts: Mapped[datetime] = mapped_column(TZ)
+    buoy_code: Mapped[str] = mapped_column(sa.String(60))
+    buoy_condition: Mapped[BuoyCondition] = mapped_column(enum_col(BuoyCondition))
+    materials: Mapped[dict] = mapped_column(JSONB)
+    total_kg: Mapped[float]
+    total_pieces: Mapped[int]
+    operator_id: Mapped[UUID | None] = mapped_column(sa.ForeignKey("users.id", ondelete="SET NULL"))
+    operator_name: Mapped[str | None] = mapped_column(sa.String(120))
+    notes: Mapped[str | None] = mapped_column(sa.Text)
+    task_id: Mapped[UUID | None] = mapped_column(sa.ForeignKey("tasks.id", ondelete="SET NULL"))
+
+    __table_args__ = (sa.Index("ix_skimmer_collections_station_id_ts", "station_id", "ts"),)

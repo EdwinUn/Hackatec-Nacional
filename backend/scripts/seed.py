@@ -86,7 +86,7 @@ DEMO_USERS = [
 ]
 
 TABLES = (
-    "work_orders, citizen_reports, users, "
+    "skimmer_collections, tasks, work_orders, citizen_reports, users, "
     "alerts, alert_rules, readings, treatment_batches, centrifuge_cycles, waste_collections, "
     "sensors, stations"
 )
@@ -130,6 +130,8 @@ async def seed(container: Container, reset: bool = False) -> None:
     if container.settings.is_dev:
         users = await container.staff.ensure_demo_users(DEMO_USERS)
         print(f"✓ {users} cuentas demo (contraseña demo123)" if users else "· cuentas demo ya existen")
+        tasks = await container.field_ops.ensure_demo_tasks("tecnico@demo.mx")
+        print(f"✓ {tasks} tareas demo en la bandeja del operador" if tasks else "· tareas demo ya existen")
 
 
 async def main() -> None:

@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'mx.tecnm.riomonitor',
-  appName: 'RioMonitor',
+  appName: 'Atl-Monitor',
   webDir: 'dist/ecosentinel/browser',
   server: {
     // The API runs over plain HTTP/WS on the LAN (hotspot): serve the app from http://localhost

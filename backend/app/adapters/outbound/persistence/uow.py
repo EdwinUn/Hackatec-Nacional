@@ -12,7 +12,9 @@ from app.adapters.outbound.persistence.repositories import (
     SqlDeviceTelemetryRepository,
     SqlReadingRepository,
     SqlSensorRepository,
+    SqlSkimmerRepository,
     SqlStationRepository,
+    SqlTaskRepository,
     SqlUserRepository,
     SqlWasteRepository,
     SqlWorkOrderRepository,
@@ -44,6 +46,8 @@ class SqlUnitOfWork:
         self.users = SqlUserRepository(self.session)
         self.reports = SqlCitizenReportRepository(self.session)
         self.work_orders = SqlWorkOrderRepository(self.session)
+        self.tasks = SqlTaskRepository(self.session)
+        self.skimmers = SqlSkimmerRepository(self.session)
         return self
 
     async def __aexit__(self, *exc: object) -> None:

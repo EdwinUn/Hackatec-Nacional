@@ -96,7 +96,61 @@ Plantilla completa en [`../.env.example`](../.env.example). Se leen de `backend/
 | `SIMULATION_ENABLED` | `false` | Simulador en vivo dentro de la API (sin script aparte) |
 | `SIMULATION_INTERVAL_S` / `SIMULATION_SEED` | `5` / `42` | Ritmo y semilla del simulador |
 | `MAX_READINGS_PER_REQUEST` / `MAX_RANGE_DAYS` / `MAX_BUCKETS` | `1000` / `90` / `5000` | Límites de consultas |
+| `VISION_ENABLED` | `true` | Activa `POST /api/v1/vision/analyze` (requiere `uv sync --extra vision`) |
+| `VISION_MODEL` / `VISION_MODELS_DIR` | `yolov8s-worldv2.pt` / `models` | Pesos de YOLO-World; se descargan solos la primera vez (~25 MB) |
+| `VISION_CONF` / `VISION_IMGSZ` | `0.15` / `640` | Umbral del detector y resolución de inferencia |
+| `VISION_MAX_IMAGE_MB` | `2` | Tamaño máximo de la foto (la petición completa también pasa por `MAX_BODY_KB`) |
+| `VISION_SCENE_ENABLED` | `true` | Clasificador de escena CLIP que complementa al detector |
+| `VISION_PRELOAD` | `false` | Cargar los modelos al arrancar (~12 s, ~1.5 GB de RAM) en vez de en la primera foto |
 | `WEB_CONCURRENCY` | `2` | Workers de uvicorn en Docker |
+
+## Visión artificial (fotos de reportes ciudadanos)
+
+`POST /api/v1/vision/analyze` (ver [`../API.md`](../API.md)) analiza la foto de un reporte y devuelve categoría
+(`peces_muertos`, `boya_defectuosa`, `boya_saturada`, `acumulacion_basura`, `normal`), severidad, detecciones con
+confianza y la imagen anotada.
+
+```bash
+uv sync --extra vision        # ultralytics + PyTorch (solo CPU en Linux) + OpenCV headless + CLIP (~1.7 GB)
+make dev                      # los pesos de YOLO-World se descargan solos la primera vez
+```
+
+Sin el extra, la API arranca igual y el endpoint responde `503 vision_unavailable`. La foto se limita a `VISION_MAX_IMAGE_MB` (2 MB) y la petición completa a `MAX_BODY_KB`; si subes uno, sube el otro.
+
+**Cómo funciona** (tres señales que se combinan en reglas puras del dominio, `app/domain/vision.py`):
+
+1. **YOLO-World** (`yolov8s-worldv2.pt`, zero-shot) con los prompts `dead fish`, `floating trash`, `plastic bottle`,
+   `plastic waste`, `floating buoy`, `orange floating barrier`, `wire mesh cage` → cajas con confianza.
+2. **Verificación HSV (OpenCV)** de la boya skimmer: anillo amarillo, barreras naranjas en «V» (se parte la máscara por
+   el eje de la boya; esperadas 2) y fragmentos sueltos → íntegra / defectuosa. La cesta se considera saturada cuando
+   los residuos detectados cubren ≥ 25 % de su área (≥ 50 % → severidad alta).
+3. **Clasificador de escena CLIP** (ViT-B/32, mismos pesos que usa YOLO-World): probabilidad de «peces muertos», «pez
+   vivo», «basura», «boya»… Es una **adición** a lo pedido originalmente, ver abajo por qué.
+
+Estructura: reglas en `app/domain/vision.py` (sin torch/OpenCV, con pruebas en `tests/unit/test_vision.py`), puerto
+`VisionEngine` en `ports.py`, caso de uso `application/services/vision.py` y adaptadores en
+`adapters/outbound/vision/` (`yolo_world.py`, `buoy_color.py`, `clip_scene.py`, `annotator.py`, `engine.py`). Los
+adaptadores importan `ultralytics`/`cv2` de forma diferida. La inferencia corre en un hilo (no bloquea el event loop) y
+se atiende de a una foto.
+
+### ⚠️ Qué tan fiable es (valores de prototipo)
+
+Se probó con **muy pocas fotos** (5 reales de Wikimedia Commons + 4 boyas dibujadas a mano), así que son indicios, no
+métricas:
+
+| Señal | Resultado observado |
+| --- | --- |
+| YOLO-World `s` con los 7 prompts | **No detectó** ninguna de las 2 mortandades de peces ni la botella flotando (confianza 0.03–0.07 frente al umbral 0.25), pero sí dio 0.46–0.66 a un casco de barco / a un calamar *vivo* como `dead fish`. Un modelo más grande (`x`) o más resolución (1280 px) **no lo arregló**. |
+| CLIP (escena) | Acertó las 2 mortandades (0.98, 1.00), la botella (`basura` 0.69) y descartó el calamar vivo (`pez_vivo` 0.89). Dio 0.84 a la foto de un casco con basura: queda justo bajo el umbral de 0.90. |
+| HSV de la boya | Distingue boya íntegra / una barrera / sin barreras / barrera despedazada **en imágenes sintéticas**. No se ha probado con fotos reales de la boya; el color depende mucho de la luz. |
+| Cesta saturada | La lógica está probada (pruebas unitarias), pero depende de que YOLO-World localice la cesta y los residuos, y con estos prompts casi no lo hace. |
+
+Por eso CLIP arbitra «vivo vs. muerto» (el detector no puede) y confirma peces muertos o basura cuando no hay cajas.
+Los umbrales (`VisionPolicy`: 0.90 peces, 0.60 basura, 0.50 boya, 25 %/50 % cesta, 3/8 objetos…) son de prototipo.
+
+**Para mejorar de verdad:** juntar fotos reales de la boya y del río (con peces muertos, basura y cesta llena/vacía),
+medir precisión/recall con ellas y, si hace falta, ajustar `VisionPolicy` o afinar un detector (`ia/` está fuera de
+alcance por ahora, decisión del equipo).
 
 ## Arquitectura (hexagonal pragmática)
 
@@ -157,6 +211,8 @@ Todas las tablas usan `id` UUID y fechas `timestamptz` en UTC. Todas tienen `cre
 | `device_telemetry` | station_id, ts, seq, battery_v/pct, river_speed_ms, generator_w/v, pump_on, brake_on, alarm_on, device_efficiency_pct | (station_id, ts DESC) |
 | `waste_collections` | station_id, ts, weight_kg, items_count, waste_type, collector_id | (station_id, ts) |
 | `alert_rules` | name, kind, severity, parameter, location, station_id (null = todas), min_value, max_value, enabled, description | station_id |
+| `tasks` | title, kind, description, priority, status, assigned_to → users, station_id, buoy_code, closing_note, resolved_at, resolved_by → users | (status, priority) · (assigned_to, status) |
+| `skimmer_collections` | station_id, ts, buoy_code, buoy_condition, materials (JSONB por material: kg y piezas), total_kg, total_pieces, operator_id → users, operator_name, notes, task_id → tasks | (station_id, ts) |
 | `alerts` | rule_id, station_id, sensor_id, subject_key, kind, parameter, severity, status, message, trigger_value, thresholds, first/last_triggered_at, occurrences, last_notified_at, acknowledged_at, resolved_at, note | **único parcial (rule_id, subject_key) WHERE status IN (open, acknowledged)** · (station_id, status) · last_triggered_at |
 
 ## Reglas del dominio (valores de prototipo, configurables)
@@ -293,6 +349,7 @@ websocat "ws://localhost:8000/ws/live?station_id=$STATION"
   - tope de 2 MB por petición;
   - sin `NaN`/`Infinity`;
   - el límite de Redis es atómico.
+- **Bandeja del operador y boyas skimmer:** `/tasks` es una bandeja ligera (sin checklist ni evidencias, a diferencia de las órdenes de trabajo) con pestañas `asignadas`, `reparaciones_pendientes`, `urgentes` y `listos`. `POST /skimmers/recoleccion` guarda el pesaje por material y además registra una `waste_collection` por material, así que la tarjeta «Clasificación de basura» del dashboard la ve sin consultas nuevas. Reglas en [`domain/field_ops.py`](app/domain/field_ops.py) y caso de uso `field_ops.py`; usan las mismas cuentas y roles de `staff.py`.
 - **Efectos sobre estaciones, sensores y basura:** los sigue disparando el front. Esos 4 endpoints aceptan la `X-API-Key` o el Bearer del personal, para que la llave de ingesta no viaje en el teléfono.
 
 ## Próximos pasos sugeridos

@@ -19,6 +19,7 @@ from app.domain.errors import (
     NotFoundError,
     RateLimitedError,
     UnauthorizedError,
+    VisionUnavailableError,
 )
 
 log = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ STATUS: dict[type[DomainError], int] = {
     UnauthorizedError: 401,
     ForbiddenError: 403,
     RateLimitedError: 429,
+    VisionUnavailableError: 503,
 }
 HTTP_CODES = {
     400: "bad_request",

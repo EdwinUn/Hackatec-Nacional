@@ -47,3 +47,9 @@ class InactiveAccountError(ForbiddenError):
 
 class RateLimitedError(DomainError):
     code = "rate_limited"
+
+
+class VisionUnavailableError(DomainError):
+    """La visión artificial no está disponible (falta el extra `vision` o el modelo)."""
+
+    code = "vision_unavailable"

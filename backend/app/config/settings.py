@@ -57,6 +57,17 @@ class Settings(BaseSettings):
     # Vacío = suscripción normal (solo con WEB_CONCURRENCY=1).
     mqtt_shared_group: str = "rio-api"
 
+    # Visión artificial de los reportes ciudadanos (requiere `uv sync --extra vision`).
+    vision_enabled: bool = True
+    vision_model: str = "yolov8s-worldv2.pt"
+    vision_models_dir: str = "models"
+    vision_conf: float = Field(default=0.15, gt=0, le=1)  # umbral del detector; el dominio filtra de nuevo
+    vision_imgsz: int = Field(default=640, ge=160, le=1280)
+    # Tope de la foto. La petición completa también pasa por MAX_BODY_KB: súbelo si subes este.
+    vision_max_image_mb: int = Field(default=2, ge=1, le=50)
+    vision_scene_enabled: bool = True  # clasificador de escena CLIP (complementa al detector)
+    vision_preload: bool = False  # cargar el modelo al arrancar en vez de en la primera foto
+
     simulation_enabled: bool = False
     simulation_interval_s: float = Field(default=5, gt=0)
     simulation_seed: int | None = None

@@ -7,7 +7,9 @@ import { Message } from 'primeng/message';
 import { Password } from 'primeng/password';
 import { AuthService } from '../../core/auth/auth.service';
 import { APP_CONFIG } from '../../core/config/app-config';
+import { REAL_DEMO_PASSWORD, REAL_DEMO_USERS } from '../../core/auth/demo-accounts';
 import { DEMO_PASSWORD, DEMO_USERS } from '../../core/mock/mock-ops-api';
+import { environment } from '../../../environments/environment';
 
 @Component({
   selector: 'app-login-page',
@@ -47,7 +49,7 @@ import { DEMO_PASSWORD, DEMO_USERS } from '../../core/mock/mock-ops-api';
         <p-button type="submit" label="Entrar" icon="pi pi-sign-in" [loading]="loading()" [disabled]="!email || !password" styleClass="w-full" [fluid]="true" />
       </form>
 
-      @if (opsMocks) {
+      @if (showDemo) {
         <section class="demo" aria-label="Cuentas de demostración">
           <p class="muted"><i class="pi pi-info-circle"></i> Prototipo: cuentas de demostración (contraseña <code>{{ demoPassword }}</code>).</p>
           <div class="row">
@@ -65,9 +67,11 @@ import { DEMO_PASSWORD, DEMO_USERS } from '../../core/mock/mock-ops-api';
 export class LoginPage {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
-  protected readonly opsMocks = inject(APP_CONFIG).opsMocks;
-  protected readonly demoUsers = DEMO_USERS;
-  protected readonly demoPassword = DEMO_PASSWORD;
+  /** Demo accounts: always with the mock, and in non-production builds (the backend seed creates them in dev). */
+  protected readonly showDemo = inject(APP_CONFIG).opsMocks || !environment.production;
+  private readonly realAuth = !inject(APP_CONFIG).useMocks;
+  protected readonly demoUsers = this.realAuth ? REAL_DEMO_USERS : DEMO_USERS;
+  protected readonly demoPassword = this.realAuth ? REAL_DEMO_PASSWORD : DEMO_PASSWORD;
 
   /** `?next=` set by the guards. */
   readonly next = input<string | undefined>();
@@ -79,7 +83,7 @@ export class LoginPage {
 
   protected fill(email: string): void {
     this.email = email;
-    this.password = DEMO_PASSWORD;
+    this.password = this.demoPassword;
     this.submit();
   }
 

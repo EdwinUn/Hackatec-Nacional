@@ -38,7 +38,8 @@
           <div class="rm-card stack">
             <h2 class="rm-card-title"><i class="pi pi-megaphone"></i> Reporte ciudadano {{ r.folio }}</h2>
             <p class="m0"><i [class]="reportMeta[r.type].icon" [style.color]="reportMeta[r.type].color"></i> <strong>{{ reportMeta[r.type].label }}</strong> · <span class="muted">{{ ago(r.created_at) }}</span></p>
-            @if (r.photo) { <img class="photo" [src]="r.photo" alt="Foto enviada por el ciudadano" /> }
+            @if (r.ai) { <app-ai-analysis [analysis]="r.ai" [original]="r.photo" /> }
+            @else if (r.photo) { <img class="photo" [src]="r.photo" alt="Foto enviada por el ciudadano" /> }
             @if (r.description) { <p class="m0">"{{ r.description }}"</p> }
           </div>
         }

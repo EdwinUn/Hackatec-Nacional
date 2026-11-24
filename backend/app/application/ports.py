@@ -25,7 +25,9 @@ from app.domain.enums import (
     SensorType,
     Severity,
     StationStatus,
+    TaskView,
 )
+from app.domain.field_ops import SkimmerCollection, Task
 from app.domain.operations import (
     CitizenReport,
     User,
@@ -34,6 +36,7 @@ from app.domain.operations import (
     WorkOrderType,
 )
 from app.domain.telemetry import DeviceTelemetry
+from app.domain.vision import Assessment, BuoyInspection, Detection
 
 Page = tuple[list[Any], int]  # (items, total)
 
@@ -175,6 +178,33 @@ class WorkOrderRepository(Protocol):
     async def next_folio(self) -> int: ...
 
 
+class TaskRepository(Protocol):
+    async def get(self, task_id: UUID) -> Task | None: ...
+    async def add(self, task: Task) -> None: ...
+    async def save(self, task: Task) -> None: ...
+    async def count(self) -> int: ...
+    async def list(
+        self, *, view: TaskView | None, user_id: UUID | None, limit: int, offset: int
+    ) -> tuple[list[Task], int]: ...
+    async def counts(self, user_id: UUID | None) -> dict[TaskView, int]: ...
+
+
+class SkimmerRepository(Protocol):
+    async def add(self, collection: SkimmerCollection) -> None: ...
+    async def list(
+        self,
+        *,
+        station_id: UUID | None,
+        start: datetime | None,
+        end: datetime | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[SkimmerCollection], int]: ...
+    async def all_in(
+        self, *, station_id: UUID | None, start: datetime | None, end: datetime | None
+    ) -> Sequence[SkimmerCollection]: ...
+
+
 class UnitOfWork(Protocol):
     stations: StationRepository
     sensors: SensorRepository
@@ -188,6 +218,8 @@ class UnitOfWork(Protocol):
     users: UserRepository
     reports: CitizenReportRepository
     work_orders: WorkOrderRepository
+    tasks: TaskRepository
+    skimmers: SkimmerRepository
 
     async def __aenter__(self) -> Self: ...
     async def __aexit__(self, *exc: object) -> None: ...
@@ -295,3 +327,29 @@ class RateLimiter(Protocol):
 
 class HealthProbe(Protocol):
     async def check(self) -> dict[str, str]: ...
+
+
+class VisionEngine(Protocol):
+    """Motor de visión artificial (YOLO-World + verificación HSV + dibujado).
+
+    La imagen decodificada es opaca para la aplicación (`Any`): solo la entiende el adaptador.
+    Si falta el extra `vision` o el modelo, los métodos lanzan `VisionUnavailableError`;
+    si los bytes no son una imagen, `decode` lanza `ValueError`.
+    """
+
+    def decode(self, data: bytes) -> Any: ...
+    def image_size(self, image: Any) -> tuple[int, int]:
+        """(ancho, alto) en píxeles."""
+        ...
+
+    def detect(self, image: Any) -> list[Detection]: ...
+    def inspect_buoy(self, image: Any, detections: list[Detection]) -> BuoyInspection: ...
+    def classify_scene(self, image: Any) -> dict[str, float] | None:
+        """Probabilidad de cada escena (peces muertos, basura…); None si no hay clasificador."""
+        ...
+
+    def annotate(
+        self, image: Any, detections: list[Detection], inspection: BuoyInspection, assessment: Assessment
+    ) -> bytes:
+        """JPEG con las cajas de detección y las regiones de color dibujadas."""
+        ...

@@ -263,3 +263,16 @@ El front muestra estas cuentas en la pantalla de login solo cuando usa el mock; 
 - **CORS:** además de `http://localhost:4200`, la app Android (Capacitor) sirve desde `http://localhost`. Agregarlo a `CORS_ORIGINS` en `backend/.env` (el valor por defecto de `backend/app/config/settings.py` solo permite el 4200).
 - **`.env.example`:** agregar `JWT_SECRET` y `JWT_EXPIRES_MIN`.
 - **`API.md`:** Back incorpora las secciones 1 a 6 en su PR; el resto de este documento es guía de implementación.
+
+---
+
+## Análisis con IA de la foto del reporte
+
+La foto se analiza **antes** de enviar el reporte con `POST /api/v1/vision/analyze` (ya implementado y documentado en `API.md` § Visión artificial; es abierto, sin cuenta). El front guarda el resultado dentro del reporte, en el campo opcional **`ai`** de `CitizenReport` / `NewCitizenReport` (mismo esquema que la respuesta de `/vision/analyze`: `category`, `severity`, `summary`, `reasons`, `detections`, `buoy`, `scene`, `annotated_image`, …).
+
+Propuesta para Back, si decide persistirlo:
+
+- `POST /citizen-reports` acepta `ai` (opcional) y lo devuelve en `GET /citizen-reports` y `GET /citizen-reports/by-folio/{folio}`.
+- **No confiar en el `ai` que manda el cliente** para decidir prioridades: lo ideal es que el backend vuelva a analizar la foto que recibe (o guarde un hash y valide).
+- `annotated_image` pesa ~300 KB en base64; el front lo reduce a ~50 KB antes de enviarlo. En producción conviene guardarla como archivo y devolver una URL.
+- El front muestra el resultado al crear el reporte (con la imagen anotada), al consultar el folio y en la bandeja/tareas del personal.

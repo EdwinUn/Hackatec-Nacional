@@ -1,17 +1,23 @@
 import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import type { ExpressionSpecification, IControl, Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
 import { RioApi } from '../../core/api/rio-api';
 import { OpsApi } from '../../core/api/ops-api';
 import { REPORT_STATUS_META, REPORT_TYPE_META } from '../../shared/utils/ops.util';
 import { CriticalPoint, Hotspot, SensorHealth, SensorPosition } from '../../core/models/rio.models';
 import { CitizenReport } from '../../core/models/ops.models';
+import { BUOY_STATUS_META, Buoy } from '../../core/models/buoy.models';
+import { BuoysService } from '../../core/services/buoys.service';
 import { FiltersService } from '../../core/services/filters.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
+import { LayoutService } from '../../core/services/layout.service';
+import { AuthService } from '../../core/auth/auth.service';
+import { SkimmerSurvey } from '../operator/skimmer-survey';
 import { Pill } from '../../shared/components/pill';
 import { valueOrUndefined } from '../../shared/utils/resource.util';
+import { VISION_CATEGORY_META, VISION_SEVERITY_META } from '../../shared/utils/vision.util';
 import { formatCoords, timeAgo } from '../../shared/utils/format.util';
 import { typeLabel } from '../../core/api/labels';
 import { CRITICALITY_META, SENSOR_STATUS_META, WQI_META, wqiText } from '../../shared/utils/wqi.util';
@@ -168,62 +174,25 @@ function basinStyle(): StyleSpecification {
   };
 }
 
-/** Popup body for a citizen report. */
-function reportContent(r: CitizenReport, typeLabel: string, statusLabel: string): HTMLElement {
+/** Popup body for a buoy, with a button that opens its 3D model (built as DOM). */
+function buoyContent(b: Buoy, onOpen: () => void): HTMLElement {
   const el = document.createElement('div');
+  el.className = 'buoy-popup';
   el.style.cssText = 'font-size: 12px; line-height: 1.35';
   const title = document.createElement('strong');
-  title.textContent = typeLabel;
+  title.textContent = `${b.name} · ${b.code}`;
   const meta = document.createElement('small');
   meta.style.display = 'block';
-  meta.textContent = `${r.folio} · ${statusLabel} · ${timeAgo(r.created_at)}`;
-  el.append(title, meta);
-  if (r.description) {
-    const p = document.createElement('p');
-    p.style.margin = '.35rem 0 0';
-    p.textContent = r.description;
-    el.appendChild(p);
-  }
-  if (r.photo && /^(data:image\/|https?:\/\/)/.test(r.photo)) {
-    const img = document.createElement('img');
-    img.src = r.photo;
-    img.alt = '';
-    img.style.cssText = 'width: 180px; height: 110px; object-fit: cover; border-radius: 6px; display: block; margin-top: .4rem';
-    el.appendChild(img);
-  }
-  return el;
-}
-
-/** Popup body for a key point (built as DOM: the GeoJSON text is never parsed as HTML). */
-function keyPointContent(p: Record<string, unknown>): HTMLElement {
-  const el = document.createElement('div');
-  el.style.cssText = 'font-size: 12px; line-height: 1.35; max-width: 240px';
-  const zone = KEY_POINT_ZONES.find((z) => z.zona === String(p['zona']));
-  const rows: [string, unknown][] = [
-    ['Río', p['rio']],
-    ['Zona', zone?.label ?? p['zona']],
-    ['Tipo', String(p['tipo'] ?? '').replace('_', ' ')],
-    ['Municipio', p['municipio']],
-    ['Rol', p['rol']],
-  ];
-  const title = document.createElement('strong');
-  title.textContent = String(p['nombre'] ?? '');
-  el.appendChild(title);
-  for (const [label, value] of rows) {
-    const row = document.createElement('div');
-    row.textContent = `${label}: ${value ?? '—'}`;
-    el.appendChild(row);
-  }
-  if (p['tramo_critico_documentado'] === true) {
-    const crit = document.createElement('div');
-    crit.style.cssText = 'margin-top: 2px; font-weight: 600; color: #b91c1c';
-    crit.textContent = 'Tramo crítico documentado';
-    el.appendChild(crit);
-  }
-  const src = document.createElement('div');
-  src.style.cssText = 'margin-top: 4px; color: #64748b; font-size: 11px';
-  src.textContent = 'Fuente: CONAGUA 2025 · punto de referencia, no es una estación de esta app';
-  el.appendChild(src);
+  meta.textContent = `${b.river} · ${BUOY_STATUS_META[b.status].label}`;
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'open';
+  const icon = document.createElement('i');
+  icon.className = 'pi pi-box';
+  icon.setAttribute('aria-hidden', 'true');
+  open.append(icon, 'Ver en 3D');
+  open.addEventListener('click', onOpen);
+  el.append(title, meta, open);
   return el;
 }
 
@@ -299,7 +268,7 @@ class TerrainToggle implements IControl {
 
 @Component({
   selector: 'app-satellite-page',
-  imports: [DecimalPipe, RouterLink, Pill],
+  imports: [DecimalPipe, RouterLink, Pill, SkimmerSurvey],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './satellite-page.html',
   styleUrl: './satellite-page.scss',
@@ -309,6 +278,11 @@ export class SatellitePage {
   private readonly filters = inject(FiltersService);
   private readonly live = inject(LiveStreamService);
   private readonly ops = inject(OpsApi);
+  protected readonly auth = inject(AuthService);
+  private readonly layout = inject(LayoutService);
+  /** Skimmer emptying survey (brigade only), opened from the selected station's card. */
+  protected readonly surveyOpen = signal(false);
+  private readonly router = inject(Router);
 
   protected readonly wqi = WQI_META;
   protected readonly levelMeta = CRITICALITY_META;
@@ -326,6 +300,7 @@ export class SatellitePage {
   private map?: MlMap;
   private readonly markers = new Map<string, { marker: Marker; el: HTMLButtonElement }>();
   private reportMarkers: Marker[] = [];
+  private buoyMarkers: Marker[] = [];
   private is3d = true;
   private readonly ready = signal(false);
 
@@ -338,7 +313,30 @@ export class SatellitePage {
 
   /** Citizen reports still being attended (layer toggled from the HUD). */
   protected readonly showReports = signal(true);
+  // Phone layer menu (floating capsule): each layer can be hidden to see the bare map.
+  protected readonly menuOpen = signal(false);
+  /** Citizen-reports sheet: collapsed = only the floating button; expanded = most of the screen. */
+  protected readonly reportsOpen = signal(false);
+  /** Station detail card (phone): collapsed to a pill until tapped. Never open together with the reports sheet. */
+  protected readonly stationOpen = signal(false);
+  /** Side drawer for a tapped citizen report or key point (the station keeps its own card). */
+  protected readonly detail = signal<{ kind: 'report'; r: CitizenReport } | { kind: 'point'; p: Record<string, unknown>; lng: number; lat: number } | null>(null);
+  protected readonly zoneLabels = Object.fromEntries(KEY_POINT_ZONES.map((z) => [z.zona, z.label])) as Record<string, string>;
+  protected readonly typeMeta = REPORT_TYPE_META;
+  protected readonly statusMeta = REPORT_STATUS_META;
+  protected readonly visionCat = VISION_CATEGORY_META;
+  protected readonly visionSev = VISION_SEVERITY_META;
+  protected readonly showStations = signal(true);
+  protected readonly showKeyPoints = signal(true);
+  protected readonly showBuoys = signal(true);
+  protected readonly mode3d = signal(true);
+  private static isBuoy = (r: { ai?: { category?: string } | null }) => r.ai?.category === 'boya_defectuosa' || r.ai?.category === 'boya_saturada';
+  protected readonly buoyReports = computed(() => this.activeReports().filter(SatellitePage.isBuoy));
+  protected readonly otherReports = computed(() => this.activeReports().filter((r) => !SatellitePage.isBuoy(r)));
   private readonly reportsRes = rxResource({ params: () => this.filters.tick(), stream: () => this.ops.citizenReports() });
+  /** Río Monitor buoys (frontend mocks); each popup opens the 3D model. */
+  protected readonly buoys = inject(BuoysService).buoys;
+  protected readonly showBuoyUnits = signal(true);
   protected readonly activeReports = computed(() => (valueOrUndefined(this.reportsRes) ?? []).filter((r) => r.status !== 'resolved' && r.status !== 'rejected'));
   /** Stations ranked by criticality index (computed by the backend from water quality + alerts). */
   protected readonly criticalRes = rxResource({
@@ -420,15 +418,17 @@ export class SatellitePage {
             tip.remove();
           });
         }
-        map.on('mousemove', 'puntos-clave', (e) => {
-          map.getCanvas().style.cursor = 'pointer';
-          const props = e.features?.[0]?.properties ?? {};
-          tip.setLngLat(e.lngLat).setDOMContent(keyPointContent(props)).addTo(map);
-        });
-        map.on('mouseleave', 'puntos-clave', () => {
-          map.getCanvas().style.cursor = '';
-          tip.remove();
-        });
+        // Key points: no popups; a tap/click opens the side drawer with the point's detail.
+        for (const layer of ['puntos-clave-critico', 'puntos-clave']) {
+          map.on('mouseenter', layer, () => (map.getCanvas().style.cursor = 'pointer'));
+          map.on('mouseleave', layer, () => (map.getCanvas().style.cursor = ''));
+          map.on('click', layer, (e) => {
+            const f = e.features?.[0];
+            if (!f) return;
+            const [lng, lat] = (f.geometry as unknown as { coordinates: number[] }).coordinates;
+            this.openPoint(f.properties ?? {}, lng, lat);
+          });
+        }
 
         this.map = map;
         const ro = new ResizeObserver(() => map.resize());
@@ -437,7 +437,10 @@ export class SatellitePage {
         this.ready.set(true);
       });
     });
+    // The floating navbar slides away while a drawer/sheet is open and comes back when it closes.
+    effect(() => this.layout.navHidden.set(this.stationOpen() || this.detail() !== null || this.reportsOpen()));
     destroyRef.onDestroy(() => {
+      this.layout.navHidden.set(false);
       destroyed = true;
       this.map?.remove();
     });
@@ -482,11 +485,10 @@ export class SatellitePage {
     // Citizen reports: small icon pins coloured by type, with a popup (built as DOM, never parsed as HTML).
     effect(() => {
       if (!this.ready()) return;
-      const reports = this.showReports() ? this.activeReports() : [];
+      const reports = [...(this.showReports() ? this.otherReports() : []), ...(this.showBuoys() ? this.buoyReports() : [])];
       for (const m of this.reportMarkers) m.remove();
       this.reportMarkers = reports.map((r) => {
         const t = REPORT_TYPE_META[r.type];
-        const st = REPORT_STATUS_META[r.status];
         const el = document.createElement('button');
         el.type = 'button';
         el.className = 'report-pin';
@@ -498,8 +500,45 @@ export class SatellitePage {
         icon.className = t.icon;
         dot.appendChild(icon);
         el.appendChild(dot);
-        const popup = new this.ml.Popup({ offset: 16, maxWidth: '220px' }).setDOMContent(reportContent(r, t.label, st.label));
-        return new this.ml.Marker({ element: el }).setLngLat([r.longitude, r.latitude]).setPopup(popup).addTo(this.map!);
+        el.onclick = () => this.openReport(r);
+        return new this.ml.Marker({ element: el }).setLngLat([r.longitude, r.latitude]).addTo(this.map!);
+      });
+    });
+
+    // Layer menu: stations pins and key-point layers follow their toggles.
+    effect(() => {
+      if (!this.ready()) return;
+      const on = this.showStations();
+      for (const pin of this.markers.values()) pin.el.style.display = on ? '' : 'none';
+    });
+    effect(() => {
+      if (!this.ready()) return;
+      const v = this.showKeyPoints() ? 'visible' : 'none';
+      for (const id of KEY_POINT_LAYERS) this.map?.setLayoutProperty(id, 'visibility', v);
+    });
+
+    // Buoys: square pin with its name; the popup links to /boyas/:id (3D model).
+    effect(() => {
+      if (!this.ready()) return;
+      const buoys = this.showBuoyUnits() ? this.buoys() : [];
+      for (const m of this.buoyMarkers) m.remove();
+      this.buoyMarkers = buoys.map((b) => {
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'buoy-pin';
+        el.title = `${b.name} · ${b.river}`;
+        el.setAttribute('aria-label', `${b.name}: ver detalles`);
+        const icon = document.createElement('span');
+        icon.className = 'icon';
+        const i = document.createElement('i');
+        i.className = 'pi pi-compass';
+        icon.appendChild(i);
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = b.name;
+        el.append(icon, name);
+        const popup = new this.ml.Popup({ offset: 18, maxWidth: '220px' }).setDOMContent(buoyContent(b, () => void this.router.navigate(['/boyas', b.id])));
+        return new this.ml.Marker({ element: el, anchor: 'left', offset: [-14, 0] }).setLngLat([b.longitude, b.latitude]).setPopup(popup).addTo(this.map!);
       });
     });
 
@@ -521,6 +560,8 @@ export class SatellitePage {
   }
 
   protected select(h: Hotspot): void {
+    this.detail.set(null);
+    this.stationOpen.set(true);
     this.liveValues.set({});
     this.selectedId.set(h.station_id);
     this.map?.flyTo({ center: [h.longitude, h.latitude], zoom: Math.max(this.map.getZoom(), 13), duration: 800 });
@@ -534,6 +575,67 @@ export class SatellitePage {
   /** «Río Atoyac — Parque Lineal / Echeverría» → «Río Atoyac». */
   protected shortName(name: string): string {
     return name.split(' — ')[0];
+  }
+
+  protected openReport(r: CitizenReport): void {
+    this.closePanels();
+    this.detail.set({ kind: 'report', r });
+  }
+
+  protected openPoint(p: Record<string, unknown>, lng: number, lat: number): void {
+    this.closePanels();
+    this.detail.set({ kind: 'point', p, lng, lat });
+  }
+
+  private closePanels(): void {
+    this.stationOpen.set(false);
+    this.reportsOpen.set(false);
+    this.menuOpen.set(false);
+  }
+
+  protected toggleReports(): void {
+    this.reportsOpen.update((v) => !v);
+    if (this.reportsOpen()) {
+      this.menuOpen.set(false);
+      this.stationOpen.set(false);
+      this.detail.set(null);
+    }
+  }
+
+  /** Centre the map on a report and fold the sheet so it can be seen. */
+  protected focusReport(r: CitizenReport): void {
+    this.reportsOpen.set(false);
+    this.map?.flyTo({ center: [r.longitude, r.latitude], zoom: Math.max(this.map.getZoom(), 15), duration: 800 });
+  }
+
+  protected toggleStation(): void {
+    this.stationOpen.update((v) => !v);
+    if (this.stationOpen()) {
+      this.reportsOpen.set(false);
+      this.menuOpen.set(false);
+      this.detail.set(null);
+    }
+  }
+
+  /** Phone: fold the card back into its pill; desktop: deselect the station. */
+  protected closeStation(): void {
+    if (window.matchMedia('(max-width: 767px)').matches) this.stationOpen.set(false);
+    else this.selectedId.set(null);
+  }
+
+  protected deselect(): void {
+    this.selectedId.set(null);
+    this.stationOpen.set(false);
+  }
+
+  protected pickStation(id: string): void {
+    this.selectById(id);
+    this.menuOpen.set(false);
+    this.stationOpen.set(false);
+  }
+
+  protected switchMode(): void {
+    this.mode3d.set(this.toggleTerrain());
   }
 
   protected resetView(): void {

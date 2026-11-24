@@ -5,6 +5,7 @@
 /* ── Sidebar ─────────────────────────────────────────── */
 .sidebar { background: var(--rm-forest); color: #cfe3da; display: flex; flex-direction: column; padding: 1rem .75rem; gap: 1rem; overflow: hidden auto; z-index: 30; }
 .brand { display: flex; align-items: center; gap: .65rem; text-decoration: none; color: #fff; padding: .25rem .4rem; }
+.brand .logo img { border-radius: 9px; display: block; }
 .brand .logo { display: grid; place-items: center; flex: none; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.15; strong { font-size: 1.05rem; } small { color: #8fb3a3; font-size: .72rem; } }
 nav { display: flex; flex-direction: column; gap: .2rem; }
@@ -57,16 +58,16 @@ nav { display: flex; flex-direction: column; gap: .2rem; }
 /* ── Mobile ─────────────────────────────────────────── */
 @media (max-width: 767px) {
   .shell, .shell.collapsed { grid-template-columns: 1fr; }
-  .sidebar { position: fixed; inset: 0 auto 0 0; width: 264px; transform: translateX(-100%); transition: transform .2s; }
-  .mobile-open .sidebar { transform: none; box-shadow: 0 0 40px rgb(0 0 0 / .4); }
-  .mobile-open .scrim { display: block; position: fixed; inset: 0; background: rgb(0 0 0 / .4); z-index: 20; }
-  .topbar { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; grid-template-areas: 'menu station station station' 'range range compare refresh'; gap: .4rem .5rem; padding: .5rem .75rem; align-items: center; }
-  .menu-btn { grid-area: menu; }
+  .sidebar, .scrim, .menu-btn, .proto { display: none !important; }
+  .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: 'station station station' 'range compare refresh'; gap: .4rem .5rem; padding: .5rem .75rem; align-items: center; background: transparent; border: 0; }
+  .m-clean .topbar { display: none; }
   .station-select { grid-area: station; min-width: 0; }
   .range-btn { grid-area: range; min-width: 0; :host ::ng-deep .p-button { width: 100%; justify-content: flex-start; } :host ::ng-deep .p-button-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
   .compare { grid-area: compare; margin-left: 0; font-size: .78rem; }
   .refresh { grid-area: refresh; }
   .cmp-full { display: none; } .cmp-short { display: inline; }
-  .proto { font-size: .7rem; padding: .4rem .75rem; }
+  .content { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .shell { height: 100dvh; overflow: hidden; grid-template-rows: minmax(0, 1fr); grid-auto-rows: 0; }
+  .m-map .content { padding-bottom: 0; overflow: hidden; display: flex; flex-direction: column; }
   .range-pop { flex-direction: column; } .presets { border-right: 0; padding: 0 0 .5rem; border-bottom: 1px solid var(--rm-border); }
 }

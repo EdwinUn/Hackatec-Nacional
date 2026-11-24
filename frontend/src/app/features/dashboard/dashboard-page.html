@@ -4,8 +4,31 @@
     <p class="page-sub">Calidad del agua, tratamiento y recuperación en la Cuenca del Alto Atoyac.</p>
   </div>
 
+  <!-- Phone: station / period selector and headline KPIs -->
+  <section class="m-only m-select rm-card" aria-label="Estación y periodo">
+    <div class="m-sel-row">
+      <button type="button" class="circ" aria-label="Estación anterior" (click)="stepStation(-1)"><i class="pi pi-chevron-left"></i></button>
+      <span class="m-pill" aria-live="polite"><i class="pi pi-map-marker" aria-hidden="true"></i>{{ stationName() }}</span>
+      <button type="button" class="circ" aria-label="Estación siguiente" (click)="stepStation(1)"><i class="pi pi-chevron-right"></i></button>
+    </div>
+    <div class="m-periods" role="group" aria-label="Periodo">
+      @for (p of presets; track p) {
+        <button type="button" [class.on]="filters.preset() === p" (click)="filters.setPreset(p)">{{ presetLabel[p] }}</button>
+      }
+    </div>
+  </section>
+
+  <div class="m-only m-kpis">
+    <div class="m-kpi"><span class="lbl">Estaciones activas</span><strong>{{ activeStations() }}</strong><small>de {{ s.overview()?.sensors?.total ?? '—' }} sensores</small></div>
+    <div class="m-kpi"><span class="lbl">Índice WQI</span>
+      @if (s.overview(); as o) { <strong [style.color]="wqi[o.wqi.outlet.category].color">{{ wqiText(o.wqi.outlet) }}</strong><small>{{ wqi[o.wqi.outlet.category].label }} · salida</small> } @else { <strong>—</strong> }
+    </div>
+    <div class="m-kpi"><span class="lbl">Alertas hoy</span><strong [class.bad]="alerts.open() > 0">{{ alerts.open() }}</strong><small>abiertas</small></div>
+    <div class="m-kpi"><span class="lbl">Boyas skimmer</span><strong [class.bad]="buoyAlerts() > 0">{{ buoyAlerts() }}</strong><small>{{ buoyAlerts() === 1 ? 'con falla (reporte IA)' : 'con falla (reportes IA)' }}</small></div>
+  </div>
+
   <!-- KPI row -->
-  <div class="kpis">
+  <div class="kpis d-only">
     @if (s.overview(); as o) {
       <app-kpi-tile label="WQI Río → Salida" icon="pi pi-heart"  [value]="wqiText(o.wqi.river)" [valueTo]="wqiText(o.wqi.outlet)" [valueColor]="wqi[o.wqi.outlet.category].color"  [sparkColor]="wqi[o.wqi.outlet.category].color" [delta]="deltas()?.wqi ?? null" deltaSuffix=" pts" [sub]="'Parámetro crítico: ' + paramLabel(o.wqi.river.dominant_parameter)">
         <div class="pills">
