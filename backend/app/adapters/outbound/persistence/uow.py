@@ -7,11 +7,15 @@ from app.adapters.outbound.persistence.repositories import (
     SqlAlertRepository,
     SqlAlertRuleRepository,
     SqlBatchRepository,
+    SqlCitizenReportRepository,
     SqlCycleRepository,
+    SqlDeviceTelemetryRepository,
     SqlReadingRepository,
     SqlSensorRepository,
     SqlStationRepository,
+    SqlUserRepository,
     SqlWasteRepository,
+    SqlWorkOrderRepository,
 )
 
 
@@ -34,8 +38,12 @@ class SqlUnitOfWork:
         self.cycles = SqlCycleRepository(self.session)
         self.batches = SqlBatchRepository(self.session)
         self.waste = SqlWasteRepository(self.session)
+        self.telemetry = SqlDeviceTelemetryRepository(self.session)
         self.rules = SqlAlertRuleRepository(self.session)
         self.alerts = SqlAlertRepository(self.session, self._renotify_after)
+        self.users = SqlUserRepository(self.session)
+        self.reports = SqlCitizenReportRepository(self.session)
+        self.work_orders = SqlWorkOrderRepository(self.session)
         return self
 
     async def __aexit__(self, *exc: object) -> None:

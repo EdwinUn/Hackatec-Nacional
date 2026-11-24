@@ -14,6 +14,8 @@ FROM python:3.12-slim-bookworm
 RUN useradd --create-home --uid 1000 app
 WORKDIR /app
 COPY --from=builder --chown=app:app /app /app
+# Fotos de reportes/evidencias: el volumen hereda este dueño la primera vez.
+RUN mkdir -p /app/media && chown app:app /app/media
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 USER app
 EXPOSE 8000

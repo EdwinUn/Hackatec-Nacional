@@ -97,6 +97,30 @@ class IngestResultOut(Out):
     alerts_triggered: int
 
 
+class DeviceTelemetryOut(Out):
+    id: UUID
+    station_id: UUID
+    ts: datetime
+    seq: int | None
+    battery_v: float | None
+    battery_pct: float | None
+    river_speed_ms: float | None
+    generator_w: float | None
+    generator_v: float | None
+    pump_on: bool | None
+    brake_on: bool | None
+    alarm_on: bool | None
+    device_efficiency_pct: float | None
+
+
+class TelemetryResultOut(Out):
+    station_id: UUID
+    code: str
+    ts: datetime = Field(description="Instante con el que se guardaron las lecturas")
+    readings: IngestResultOut
+    unmapped: list[str] = Field(description="Campos de calidad sin sensor en la estación (no se guardan)")
+
+
 class HeartbeatIn(BaseModel):
     ts: AwareDatetime | None = Field(default=None, description="Default: hora del servidor")
 
@@ -270,12 +294,14 @@ class StationIn(BaseModel):
     status: StationStatus = StationStatus.ACTIVE
     installed_at: date | None = None
     description: str | None = None
+    code: str | None = Field(default=None, max_length=32, description="Código del dispositivo (ej. RM-01)")
 
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
                 {
                     "name": "Atoyac · Parque Lineal",
+                    "code": "RM-01",
                     "river": "Río Atoyac",
                     "latitude": 19.0185,
                     "longitude": -98.2435,
@@ -287,7 +313,7 @@ class StationIn(BaseModel):
 
 
 class StationPatch(PatchModel):
-    nullable = frozenset({"installed_at", "description"})
+    nullable = frozenset({"installed_at", "description", "code"})
 
     name: str | None = Field(default=None, min_length=1, max_length=120)
     river: str | None = Field(default=None, min_length=1, max_length=120)
@@ -296,6 +322,7 @@ class StationPatch(PatchModel):
     status: StationStatus | None = None
     installed_at: date | None = None
     description: str | None = None
+    code: str | None = Field(default=None, max_length=32, description="Código del dispositivo (ej. RM-01)")
 
 
 class StationOut(Out):
@@ -307,6 +334,7 @@ class StationOut(Out):
     status: StationStatus
     installed_at: date | None
     description: str | None
+    code: str | None
     created_at: datetime
     updated_at: datetime
 

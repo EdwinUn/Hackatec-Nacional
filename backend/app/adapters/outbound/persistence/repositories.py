@@ -12,15 +12,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.outbound.persistence.orm import (
     ACTIVE_ALERT,
+    ORDER_FOLIO_SEQ,
+    REPORT_FOLIO_SEQ,
     AlertRow,
     AlertRuleRow,
     Base,
     BatchRow,
+    CitizenReportRow,
     CycleRow,
+    DeviceTelemetryRow,
     ReadingRow,
     SensorRow,
     StationRow,
+    UserRow,
     WasteRow,
+    WorkOrderRow,
 )
 from app.domain.entities import (
     Alert,
@@ -42,6 +48,8 @@ from app.domain.enums import (
     Severity,
     StationStatus,
 )
+from app.domain.operations import CitizenReport, User, WorkOrder, WorkOrderStatus, WorkOrderType
+from app.domain.telemetry import DeviceTelemetry
 
 
 class SqlRepository[E, M: Base]:
@@ -92,6 +100,10 @@ class SqlStationRepository(SqlRepository[Station, StationRow]):
         if river:
             conds.append(StationRow.river.ilike(f"%{river}%"))
         return await self._page(conds, StationRow.name, limit, offset)
+
+    async def get_by_code(self, code: str) -> Station | None:
+        row = await self.session.scalar(sa.select(StationRow).where(StationRow.code == code))
+        return self.to_entity(row) if row else None
 
 
 class SqlSensorRepository(SqlRepository[Sensor, SensorRow]):
@@ -203,6 +215,17 @@ class SqlWasteRepository(SqlRepository[WasteCollection, WasteRow]):
     entity, model = WasteCollection, WasteRow
 
 
+class SqlDeviceTelemetryRepository(SqlRepository[DeviceTelemetry, DeviceTelemetryRow]):
+    entity, model = DeviceTelemetry, DeviceTelemetryRow
+
+    async def list(self, *, station_id: UUID, since: datetime | None, limit: int) -> list[DeviceTelemetry]:
+        query = sa.select(DeviceTelemetryRow).where(DeviceTelemetryRow.station_id == station_id)
+        if since is not None:
+            query = query.where(DeviceTelemetryRow.ts >= since)
+        rows = await self.session.scalars(query.order_by(DeviceTelemetryRow.ts.desc()).limit(limit))
+        return [self.to_entity(r) for r in rows]
+
+
 class SqlAlertRuleRepository(SqlRepository[AlertRule, AlertRuleRow]):
     entity, model = AlertRule, AlertRuleRow
 
@@ -277,3 +300,58 @@ class SqlAlertRepository(SqlRepository[Alert, AlertRow]):
         if since:
             conds.append(AlertRow.last_triggered_at >= since)
         return await self._page(conds, AlertRow.last_triggered_at.desc(), limit, offset)
+
+
+class SqlUserRepository(SqlRepository[User, UserRow]):
+    entity, model = User, UserRow
+
+    async def get_by_email(self, email: str) -> User | None:
+        row = await self.session.scalar(sa.select(UserRow).where(UserRow.email == email.lower()))
+        return self.to_entity(row) if row else None
+
+    async def list(self) -> list[User]:
+        rows = await self.session.scalars(sa.select(UserRow).order_by(UserRow.name))
+        return [self.to_entity(r) for r in rows]
+
+
+class SqlCitizenReportRepository(SqlRepository[CitizenReport, CitizenReportRow]):
+    entity, model = CitizenReport, CitizenReportRow
+
+    async def get_by_folio(self, folio: str) -> CitizenReport | None:
+        row = await self.session.scalar(
+            sa.select(CitizenReportRow).where(sa.func.upper(CitizenReportRow.folio) == folio.upper())
+        )
+        return self.to_entity(row) if row else None
+
+    async def list(self, limit: int) -> list[CitizenReport]:
+        rows = await self.session.scalars(
+            sa.select(CitizenReportRow).order_by(CitizenReportRow.created_at.desc()).limit(limit)
+        )
+        return [self.to_entity(r) for r in rows]
+
+    async def next_folio(self) -> int:
+        return int(await self.session.scalar(sa.select(REPORT_FOLIO_SEQ.next_value())))
+
+
+class SqlWorkOrderRepository(SqlRepository[WorkOrder, WorkOrderRow]):
+    entity, model = WorkOrder, WorkOrderRow
+
+    async def list(
+        self,
+        *,
+        assigned_to: UUID | None,
+        statuses: Sequence[WorkOrderStatus],
+        type: WorkOrderType | None,
+        limit: int,
+    ) -> list[WorkOrder]:
+        stmt = sa.select(WorkOrderRow).order_by(WorkOrderRow.created_at.desc()).limit(limit)
+        if assigned_to:
+            stmt = stmt.where(WorkOrderRow.assigned_to == assigned_to)
+        if statuses:
+            stmt = stmt.where(WorkOrderRow.status.in_(statuses))
+        if type:
+            stmt = stmt.where(WorkOrderRow.type == type)
+        return [self.to_entity(r) for r in await self.session.scalars(stmt)]
+
+    async def next_folio(self) -> int:
+        return int(await self.session.scalar(sa.select(ORDER_FOLIO_SEQ.next_value())))

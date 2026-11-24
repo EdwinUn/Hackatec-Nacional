@@ -1,5 +1,6 @@
 """Entidades del dominio. Dataclasses puras: sin FastAPI, SQLAlchemy ni Redis."""
 
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from uuid import UUID, uuid4
@@ -49,10 +50,24 @@ class Station(Entity):
     status: StationStatus = StationStatus.ACTIVE
     installed_at: date | None = None
     description: str | None = None
+    # Código del dispositivo físico (ej. "RM-01"): así se identifica la boya en MQTT/telemetría.
+    code: str | None = None
 
     def __post_init__(self) -> None:
         if not -90 <= self.latitude <= 90 or not -180 <= self.longitude <= 180:
             raise InvalidDataError("Coordenadas fuera de rango")
+        if self.code is not None:
+            self.code = normalize_device_code(self.code)
+
+
+DEVICE_CODE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{0,31}$")
+
+
+def normalize_device_code(code: str) -> str:
+    normalized = code.strip().upper()
+    if not DEVICE_CODE.match(normalized):
+        raise InvalidDataError("code: 1–32 caracteres A–Z, 0–9, '-' o '_' (ej. RM-01)")
+    return normalized
 
 
 @dataclass(kw_only=True)

@@ -4,6 +4,7 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_INGEST_KEY = "dev-ingest-key"
+DEFAULT_JWT_SECRET = "dev-jwt-secret-solo-para-desarrollo-local"  # ≥ 32 bytes (HS256)
 DEV_ENVIRONMENTS = frozenset({"dev", "development", "local", "test"})
 
 
@@ -24,6 +25,19 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:4200"
     ingest_api_key: SecretStr = SecretStr(DEFAULT_INGEST_KEY)
+    # Sesiones del personal (login): JWT HS256.
+    jwt_secret: SecretStr = SecretStr(DEFAULT_JWT_SECRET)
+    jwt_expires_min: int = Field(default=720, ge=1)
+    login_rate_limit: int = Field(default=10, ge=1)  # intentos por IP y por correo
+    login_rate_window_min: int = Field(default=10, ge=1)
+    max_body_kb: int = Field(default=2048, ge=64)  # tope del cuerpo de cualquier petición
+
+    # Reportes ciudadanos y fotos (valores de prototipo).
+    media_dir: str = "media"
+    max_photo_kb: int = Field(default=300, ge=10)
+    report_rate_limit: int = Field(default=5, ge=1)
+    report_rate_window_min: int = Field(default=10, ge=1)
+    report_station_radius_km: float = Field(default=8, gt=0)
 
     # Salud de sensores (valores de prototipo, ver README).
     sensor_offline_after_min: int = Field(default=10, ge=1)
@@ -35,6 +49,13 @@ class Settings(BaseSettings):
     alert_renotify_after_min: float = Field(default=15, gt=0)
 
     ws_ping_interval_s: float = Field(default=20, gt=0)
+
+    # Telemetría de las boyas por MQTT. Vacío = puente apagado (sigue la ingesta HTTP).
+    mqtt_url: SecretStr = SecretStr("")  # mqtt://[user:pass@]host[:1883] o mqtts://…
+    mqtt_topic: str = "riomonitor/+/telemetria"  # el `+` es el código de la boya
+    # Suscripción compartida ($share/<grupo>/…): con varios workers cada mensaje se ingiere una vez.
+    # Vacío = suscripción normal (solo con WEB_CONCURRENCY=1).
+    mqtt_shared_group: str = "rio-api"
 
     simulation_enabled: bool = False
     simulation_interval_s: float = Field(default=5, gt=0)
@@ -50,11 +71,18 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _no_default_key_outside_dev(self) -> "Settings":
-        if not self.is_dev and self.ingest_api_key.get_secret_value() == DEFAULT_INGEST_KEY:
-            raise ValueError(
-                f"INGEST_API_KEY sigue con el valor por defecto y ENVIRONMENT={self.environment}: "
-                "define una llave propia (o usa ENVIRONMENT=dev)"
-            )
+        if not self.is_dev:
+            for name, value, default in (
+                ("INGEST_API_KEY", self.ingest_api_key, DEFAULT_INGEST_KEY),
+                ("JWT_SECRET", self.jwt_secret, DEFAULT_JWT_SECRET),
+            ):
+                if value.get_secret_value() == default:
+                    raise ValueError(
+                        f"{name} sigue con el valor por defecto y ENVIRONMENT={self.environment}: "
+                        "define uno propio (o usa ENVIRONMENT=dev)"
+                    )
+            if len(self.jwt_secret.get_secret_value().encode()) < 32:
+                raise ValueError("JWT_SECRET debe tener al menos 32 bytes (HS256)")
         return self
 
     @property

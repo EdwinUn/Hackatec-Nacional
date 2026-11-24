@@ -2,7 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
 
-from app.adapters.inbound.http.deps import ContainerDep, PaginationDep, require_api_key
+from app.adapters.inbound.http.deps import ContainerDep, PaginationDep, require_api_key, require_key_or_staff
 from app.adapters.inbound.http.schemas import (
     BatchIn,
     BatchOut,
@@ -22,6 +22,8 @@ from app.application.services.operations import CyclePatch
 from app.domain.enums import CycleStatus
 from app.domain.errors import InvalidDataError
 
+# Efectos de una orden de trabajo: también con el Bearer del personal (no viaja la llave en el teléfono).
+key_or_staff = [Depends(require_key_or_staff)]
 router = APIRouter(tags=["ingesta"])
 auth = [Depends(require_api_key)]
 
@@ -108,7 +110,7 @@ async def record_batch(body: BatchIn, c: ContainerDep):
     "/waste-collections",
     response_model=WasteOut,
     status_code=status.HTTP_201_CREATED,
-    dependencies=auth,
+    dependencies=key_or_staff,
     summary="Registrar basura recolectada",
 )
 async def record_waste(body: WasteIn, c: ContainerDep):

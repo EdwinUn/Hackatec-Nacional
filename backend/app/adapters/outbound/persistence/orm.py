@@ -5,6 +5,7 @@ from enum import StrEnum
 from uuid import UUID
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.domain.enums import (
@@ -18,6 +19,7 @@ from app.domain.enums import (
     StationStatus,
     WasteType,
 )
+from app.domain.operations import Priority, ReportStatus, ReportType, Role, WorkOrderStatus, WorkOrderType
 
 NAMING = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
@@ -61,6 +63,7 @@ class StationRow(TimestampMixin, Base):
     status: Mapped[StationStatus] = mapped_column(enum_col(StationStatus))
     installed_at: Mapped[date | None]
     description: Mapped[str | None] = mapped_column(sa.Text)
+    code: Mapped[str | None] = mapped_column(sa.String(32), unique=True)
 
 
 class SensorRow(TimestampMixin, Base):
@@ -96,6 +99,26 @@ class ReadingRow(Base):
         sa.Index("ix_readings_ts_brin", "ts", postgresql_using="brin"),
         sa.CheckConstraint("quality >= 0 AND quality <= 1", name="quality_range"),
     )
+
+
+class DeviceTelemetryRow(Base):
+    __tablename__ = "device_telemetry"
+    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
+    station_id: Mapped[UUID] = mapped_column(sa.ForeignKey("stations.id", ondelete="CASCADE"))
+    ts: Mapped[datetime] = mapped_column(TZ)
+    seq: Mapped[int | None] = mapped_column(sa.BigInteger)
+    battery_v: Mapped[float | None]
+    battery_pct: Mapped[float | None]
+    river_speed_ms: Mapped[float | None]
+    generator_w: Mapped[float | None]
+    generator_v: Mapped[float | None]
+    pump_on: Mapped[bool | None]
+    brake_on: Mapped[bool | None]
+    alarm_on: Mapped[bool | None]
+    device_efficiency_pct: Mapped[float | None]
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=sa.func.now())
+
+    __table_args__ = (sa.Index("ix_device_telemetry_station_id_ts", "station_id", sa.text("ts DESC")),)
 
 
 class CycleRow(TimestampMixin, Base):
@@ -200,3 +223,66 @@ class AlertRow(TimestampMixin, Base):
         sa.Index("ix_alerts_station_id_status", "station_id", "status"),
         sa.Index("ix_alerts_last_triggered_at", "last_triggered_at"),
     )
+
+
+# ── Operaciones: personal, reportes ciudadanos y órdenes de trabajo ──────────
+REPORT_FOLIO_SEQ = sa.Sequence("citizen_report_folio_seq", metadata=Base.metadata)
+ORDER_FOLIO_SEQ = sa.Sequence("work_order_folio_seq", metadata=Base.metadata)
+
+
+class UserRow(TimestampMixin, Base):
+    __tablename__ = "users"
+    name: Mapped[str] = mapped_column(sa.String(120))
+    email: Mapped[str] = mapped_column(sa.String(254), unique=True)  # siempre en minúsculas
+    password_hash: Mapped[str] = mapped_column(sa.String(255))
+    role: Mapped[Role] = mapped_column(enum_col(Role))
+    active: Mapped[bool] = mapped_column(server_default=sa.true())
+
+
+class CitizenReportRow(TimestampMixin, Base):
+    __tablename__ = "citizen_reports"
+    folio: Mapped[str] = mapped_column(sa.String(16), unique=True)
+    type: Mapped[ReportType] = mapped_column(enum_col(ReportType))
+    description: Mapped[str] = mapped_column(sa.Text)
+    photo: Mapped[str | None] = mapped_column(sa.String(255))  # referencia relativa: media/<id>.jpg
+    latitude: Mapped[float]
+    longitude: Mapped[float]
+    accuracy: Mapped[float | None]
+    status: Mapped[ReportStatus] = mapped_column(enum_col(ReportStatus))
+    station_id: Mapped[UUID | None] = mapped_column(sa.ForeignKey("stations.id", ondelete="SET NULL"))
+    # Referencia circular con work_orders: la FK se crea después de ambas tablas.
+    work_order_id: Mapped[UUID | None] = mapped_column(
+        sa.ForeignKey("work_orders.id", ondelete="SET NULL", use_alter=True)
+    )
+    public_note: Mapped[str | None] = mapped_column(sa.Text)
+
+    __table_args__ = (sa.Index("ix_citizen_reports_created_at", sa.text("created_at DESC")),)
+
+
+class WorkOrderRow(TimestampMixin, Base):
+    __tablename__ = "work_orders"
+    folio: Mapped[str] = mapped_column(sa.String(16), unique=True)
+    type: Mapped[WorkOrderType] = mapped_column(enum_col(WorkOrderType))
+    title: Mapped[str] = mapped_column(sa.String(200))
+    description: Mapped[str] = mapped_column(sa.Text)
+    priority: Mapped[Priority] = mapped_column(enum_col(Priority))
+    status: Mapped[WorkOrderStatus] = mapped_column(enum_col(WorkOrderStatus))
+    station_id: Mapped[UUID | None] = mapped_column(sa.ForeignKey("stations.id", ondelete="SET NULL"))
+    citizen_report_id: Mapped[UUID | None] = mapped_column(
+        sa.ForeignKey("citizen_reports.id", ondelete="SET NULL")
+    )
+    alert_id: Mapped[UUID | None] = mapped_column(sa.ForeignKey("alerts.id", ondelete="SET NULL"))
+    location: Mapped[dict | None] = mapped_column(JSONB)
+    assigned_to: Mapped[UUID | None] = mapped_column(sa.ForeignKey("users.id", ondelete="SET NULL"))
+    created_by: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id", ondelete="RESTRICT"))
+    due_at: Mapped[datetime | None] = mapped_column(TZ)
+    checklist: Mapped[list] = mapped_column(JSONB, server_default=sa.text("'[]'::jsonb"))
+    evidence: Mapped[list] = mapped_column(JSONB, server_default=sa.text("'[]'::jsonb"))
+    notes: Mapped[str] = mapped_column(sa.Text, server_default="")
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    check_in: Mapped[dict | None] = mapped_column(JSONB)
+    started_at: Mapped[datetime | None] = mapped_column(TZ)
+    completed_at: Mapped[datetime | None] = mapped_column(TZ)
+    verified_at: Mapped[datetime | None] = mapped_column(TZ)
+
+    __table_args__ = (sa.Index("ix_work_orders_assigned_to_status", "assigned_to", "status"),)

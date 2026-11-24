@@ -26,6 +26,14 @@ from app.domain.enums import (
     Severity,
     StationStatus,
 )
+from app.domain.operations import (
+    CitizenReport,
+    User,
+    WorkOrder,
+    WorkOrderStatus,
+    WorkOrderType,
+)
+from app.domain.telemetry import DeviceTelemetry
 
 Page = tuple[list[Any], int]  # (items, total)
 
@@ -37,6 +45,7 @@ class StationRepository(Protocol):
     async def list(
         self, *, status: StationStatus | None, river: str | None, limit: int, offset: int
     ) -> tuple[list[Station], int]: ...
+    async def get_by_code(self, code: str) -> Station | None: ...
 
 
 class SensorRepository(Protocol):
@@ -89,6 +98,13 @@ class WasteRepository(Protocol):
     async def add(self, waste: WasteCollection) -> None: ...
 
 
+class DeviceTelemetryRepository(Protocol):
+    async def add(self, telemetry: DeviceTelemetry) -> None: ...
+    async def list(self, *, station_id: UUID, since: datetime | None, limit: int) -> list[DeviceTelemetry]:
+        """Más recientes primero."""
+        ...
+
+
 class AlertRuleRepository(Protocol):
     async def get(self, rule_id: UUID) -> AlertRule | None: ...
     async def add(self, rule: AlertRule) -> None: ...
@@ -119,6 +135,46 @@ class AlertRepository(Protocol):
     ) -> tuple[list[Alert], int]: ...
 
 
+class UserRepository(Protocol):
+    async def get(self, user_id: UUID) -> User | None: ...
+    async def get_by_email(self, email: str) -> User | None: ...
+    async def add(self, user: User) -> None: ...
+    async def save(self, user: User) -> None: ...
+    async def list(self) -> list[User]:
+        """Ordenados por nombre."""
+        ...
+
+
+class CitizenReportRepository(Protocol):
+    async def get(self, report_id: UUID) -> CitizenReport | None: ...
+    async def get_by_folio(self, folio: str) -> CitizenReport | None: ...
+    async def add(self, report: CitizenReport) -> None: ...
+    async def save(self, report: CitizenReport) -> None: ...
+    async def list(self, limit: int) -> list[CitizenReport]:
+        """Más recientes primero."""
+        ...
+
+    async def next_folio(self) -> int: ...
+
+
+class WorkOrderRepository(Protocol):
+    async def get(self, order_id: UUID) -> WorkOrder | None: ...
+    async def add(self, order: WorkOrder) -> None: ...
+    async def save(self, order: WorkOrder) -> None: ...
+    async def list(
+        self,
+        *,
+        assigned_to: UUID | None,
+        statuses: Sequence[WorkOrderStatus],
+        type: WorkOrderType | None,
+        limit: int,
+    ) -> list[WorkOrder]:
+        """Más recientes primero."""
+        ...
+
+    async def next_folio(self) -> int: ...
+
+
 class UnitOfWork(Protocol):
     stations: StationRepository
     sensors: SensorRepository
@@ -126,8 +182,12 @@ class UnitOfWork(Protocol):
     cycles: CycleRepository
     batches: BatchRepository
     waste: WasteRepository
+    telemetry: DeviceTelemetryRepository
     rules: AlertRuleRepository
     alerts: AlertRepository
+    users: UserRepository
+    reports: CitizenReportRepository
+    work_orders: WorkOrderRepository
 
     async def __aenter__(self) -> Self: ...
     async def __aexit__(self, *exc: object) -> None: ...
@@ -191,6 +251,45 @@ class AnalyticsReader(Protocol):
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Solo alertas de calidad del agua: (activas por estación/severidad,
         repeticiones por estación/regla en el periodo)."""
+        ...
+
+
+class PasswordHasher(Protocol):
+    def hash(self, password: str) -> str: ...
+    def verify(self, password_hash: str, password: str) -> bool: ...
+
+
+class TokenService(Protocol):
+    def issue(self, user_id: UUID, role: str) -> tuple[str, int]:
+        """(token, segundos de vigencia)."""
+        ...
+
+    def subject(self, token: str) -> UUID:
+        """Id del usuario; lanza UnauthorizedError si el token no es válido o venció."""
+        ...
+
+
+class MediaStorage(Protocol):
+    def save(self, content: bytes, extension: str) -> str:
+        """Guarda la imagen y devuelve su referencia relativa (p. ej. `media/<id>.jpg`)."""
+        ...
+
+    def exists(self, ref: str) -> bool:
+        """True solo si `ref` es una imagen guardada por este almacenamiento."""
+        ...
+
+
+class RateLimiter(Protocol):
+    async def allow(self, key: str, limit: int, window_s: int) -> bool:
+        """Registra un intento y dice si sigue dentro del límite."""
+        ...
+
+    async def blocked(self, key: str, limit: int, window_s: int) -> bool:
+        """¿Ya se alcanzó el límite? (no registra nada)."""
+        ...
+
+    async def record(self, key: str, window_s: int) -> None:
+        """Registra un intento sin consultar el límite (p. ej. un login fallido)."""
         ...
 
 

@@ -2,7 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
 
-from app.adapters.inbound.http.deps import ContainerDep, PaginationDep, require_api_key
+from app.adapters.inbound.http.deps import ContainerDep, PaginationDep, require_api_key, require_key_or_staff
 from app.adapters.inbound.http.schemas import (
     Page,
     SensorIn,
@@ -14,6 +14,8 @@ from app.adapters.inbound.http.schemas import (
 )
 from app.domain.enums import SensorLocation, SensorStatus, SensorType, StationStatus
 
+# Efectos de una orden de trabajo: también con el Bearer del personal (no viaja la llave en el teléfono).
+key_or_staff = [Depends(require_key_or_staff)]
 router = APIRouter(tags=["catálogo"])
 # Escribir en el catálogo también requiere la llave (no hay usuarios finales todavía).
 auth = [Depends(require_api_key)]
@@ -51,7 +53,7 @@ async def get_station(station_id: UUID, c: ContainerDep):
 @router.patch(
     "/stations/{station_id}",
     response_model=StationOut,
-    dependencies=auth,
+    dependencies=key_or_staff,
     summary="Actualizar estación (p. ej. estado)",
 )
 async def update_station(station_id: UUID, body: StationPatch, c: ContainerDep):
@@ -97,7 +99,7 @@ async def get_sensor(sensor_id: UUID, c: ContainerDep):
 @router.patch(
     "/sensors/{sensor_id}",
     response_model=SensorOut,
-    dependencies=auth,
+    dependencies=key_or_staff,
     summary="Actualizar estado, rango válido o calibración",
 )
 async def update_sensor(sensor_id: UUID, body: SensorPatch, c: ContainerDep):

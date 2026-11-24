@@ -19,3 +19,31 @@ class InvalidDataError(DomainError):
 
 class ConflictError(DomainError):
     code = "conflict"
+
+
+class InvalidTransitionError(ConflictError):
+    code = "invalid_transition"
+
+
+class UnauthorizedError(DomainError):
+    """Falta la credencial, está vencida o no es válida."""
+
+    code = "unauthorized"
+
+
+class InvalidCredentialsError(UnauthorizedError):
+    code = "invalid_credentials"
+
+
+class ForbiddenError(DomainError):
+    """La credencial es válida pero el rol no permite la acción."""
+
+    code = "forbidden"
+
+
+class InactiveAccountError(ForbiddenError):
+    code = "inactive"
+
+
+class RateLimitedError(DomainError):
+    code = "rate_limited"
