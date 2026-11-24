@@ -368,3 +368,46 @@ async def test_cors_allows_any_localhost_port_in_dev(client):
         assert r.headers.get("access-control-allow-origin") == origin
     r = await client.get("/health", headers={"Origin": "http://evil.example"})
     assert "access-control-allow-origin" not in r.headers
+
+
+async def test_critical_points_ranks_the_worst_station_first(client, station, sensors):
+    clean = (
+        await client.post(
+            f"{V1}/stations",
+            json={
+                "name": "Estación limpia",
+                "river": "Río Alseseca",
+                "latitude": 18.995,
+                "longitude": -98.188,
+            },
+        )
+    ).json()
+    clean_ph = (
+        await client.post(
+            f"{V1}/sensors", json={"station_id": clean["id"], "type": "ph", "location": "inlet"}
+        )
+    ).json()["id"]
+    ph = sensors[("ph", "inlet")]["id"]
+    turb = sensors[("turbidity", "inlet")]["id"]
+    t = now() - timedelta(minutes=30)
+    readings = []
+    for i in range(10):
+        ts = iso(t + timedelta(minutes=i))
+        readings += [
+            {"sensor_id": ph, "ts": ts, "value": 4.8 + i / 100},  # pH extremo → alerta crítica
+            {"sensor_id": turb, "ts": ts, "value": 250 + i},
+            {"sensor_id": clean_ph, "ts": ts, "value": 7.1 + i / 100},
+        ]
+    await post_readings(client, readings)
+
+    r = await client.get(f"{V1}/analytics/critical-points")
+    assert r.status_code == 200
+    ranking = r.json()
+    assert [p["rank"] for p in ranking] == [1, 2]
+    worst, best = ranking
+    assert worst["station_id"] == station["id"]
+    assert worst["level"] == "critico" and worst["score"] > best["score"]
+    assert worst["alerts_active"]["critical"] >= 1 and worst["occurrences"] >= 10
+    assert worst["top_issues"][0]["occurrences"] >= 10
+    assert any("alerta crítica" in reason for reason in worst["reasons"])
+    assert best["level"] == "estable"

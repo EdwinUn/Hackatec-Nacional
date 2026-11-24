@@ -320,6 +320,34 @@ Lista de sensores con `uptime_pct` = % de ventanas de 5 min del rango con al men
 
 Con menos de 3 puntos, `points` llega vacío y `note` explica el motivo.
 
+### `GET /api/v1/analytics/critical-points?from=&to=`
+
+Ranking de estaciones por **índice de criticidad** (0–100, valor de prototipo). El índice combina tres componentes, cada uno de 0 a 100:
+
+- **calidad** = 100 − WQI;
+- **alertas** = alertas de calidad del agua activas (crítica 25, advertencia 8, informativa 2);
+- **recurrencia** = repeticiones en el periodo, en escala logarítmica.
+
+Fórmula: `0.5·calidad + 0.3·alertas + 0.2·recurrencia`. Niveles: `critico` ≥ 50, `atencion` ≥ 30, `estable`. Solo cuentan las alertas de calidad del agua (`reading_range`); un sensor caído o una falla de la centrífuga no es contaminación.
+
+```json
+[{
+  "rank": 1, "station_id": "e68a…", "name": "Río Atoyac — Parque Lineal / Echeverría", "river": "Río Atoyac",
+  "latitude": 19.0185, "longitude": -98.2435, "score": 65.0, "level": "critico",
+  "components": { "calidad": 36.1, "alertas": 90.0, "recurrencia": 100.0 },
+  "wqi": 63.9, "wqi_category": "regular", "dominant_parameter": "turbidity",
+  "alerts_active": { "critical": 2, "warning": 5, "info": 0 }, "occurrences": 448,
+  "top_issues": [ { "rule": "pH fuera del rango aceptable", "severity": "warning", "parameter": "ph", "occurrences": 204 } ],
+  "reasons": [
+    "Lo más repetido: pH fuera del rango aceptable (204 veces)",
+    "2 alertas críticas activas, 5 advertencias activas",
+    "Calidad del agua regular (WQI 63.9), sobre todo por turbidez"
+  ]
+}]
+```
+
+`reasons` viene ordenado por el componente que más aporta al índice.
+
 ### `GET /api/v1/analytics/hotspots`
 
 Para el mapa de puntos críticos. No recibe parámetros.

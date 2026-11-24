@@ -2,6 +2,7 @@ import {
   improvementPct,
   mapAlert,
   mapAlertRule,
+  mapCriticalPoint,
   mapCentrifuge,
   mapForecast,
   mapHotspot,
@@ -115,6 +116,25 @@ describe('backend mappers (respuestas reales)', () => {
     expect(range.condition).toMatch(/^fuera de .+–.+/);
     const vib = mapAlertRule(fx.rules.find((r) => r.kind === 'centrifuge_vibration')!);
     expect(vib.condition).toMatch(/^> .+ mm\/s$/);
+  });
+});
+
+describe('mapCriticalPoint', () => {
+  it('keeps rank, score, level, components and reasons for the UI', () => {
+    // Real response shape of GET /analytics/critical-points (demo data).
+    const sample: Be.BeCriticalPoint = {
+      rank: 1, station_id: 's', name: 'Río Atoyac — Parque Lineal', river: 'Río Atoyac', latitude: 19, longitude: -98,
+      score: 65, level: 'critico', components: { calidad: 36.1, alertas: 90, recurrencia: 100 }, wqi: 63.9,
+      dominant_parameter: 'turbidity', alerts_active: { critical: 2, warning: 5, info: 0 }, occurrences: 448,
+      top_issues: [{ rule: 'pH fuera del rango aceptable', severity: 'warning', parameter: 'ph', occurrences: 204 }],
+      reasons: ['2 alertas críticas activas'],
+    };
+    const p = mapCriticalPoint(sample);
+    expect(p).toEqual({
+      rank: sample.rank, station_id: sample.station_id, name: sample.name, score: sample.score,
+      level: sample.level, components: sample.components, reasons: sample.reasons,
+    });
+    expect(['critico', 'atencion', 'estable']).toContain(p.level);
   });
 });
 

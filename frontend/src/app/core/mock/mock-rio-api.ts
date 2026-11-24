@@ -11,6 +11,7 @@ import {
   Bucket,
   CentrifugeAnalytics,
   CentrifugeCycleIngest,
+  CriticalPoint,
   DashboardOverview,
   Hotspot,
   IngestResult,
@@ -197,6 +198,29 @@ export class MockRioApi extends RioApi {
           };
         }),
     );
+  }
+
+  /** Same three components as the backend index (simplified: recurrence = open alerts). */
+  criticalPoints(_q: Query): Observable<CriticalPoint[]> {
+    const points = this.be.stations.map((s) => {
+      const open = this.be.alertList.filter((a) => a.station_id === s.id && a.status === 'open');
+      const critical = open.filter((a) => a.severity === 'critical').length;
+      const wqi = this.be.wqiFor(s.id, 'river');
+      const components = {
+        calidad: Math.round((100 - wqi.score) * 10) / 10,
+        alertas: Math.min(100, critical * 25 + (open.length - critical) * 8),
+        recurrencia: Math.min(100, open.length * 10),
+      };
+      const score = Math.round((0.5 * components.calidad + 0.3 * components.alertas + 0.2 * components.recurrencia) * 10) / 10;
+      const level: CriticalPoint['level'] = score >= 50 ? 'critico' : score >= 30 ? 'atencion' : 'estable';
+      const reasons = [
+        ...(critical ? [`${critical} ${critical === 1 ? 'alerta crítica activa' : 'alertas críticas activas'}`] : []),
+        `Calidad del agua ${wqi.category} (WQI ${wqi.score}), sobre todo por ${wqi.dominant_parameter}`,
+      ];
+      return { rank: 0, station_id: s.id, name: s.name, score, level, components, reasons };
+    });
+    points.sort((a, b) => b.score - a.score).forEach((p, i) => (p.rank = i + 1));
+    return lat(points);
   }
 
   alerts(f: AlertFilters): Observable<Page<Alert>> {

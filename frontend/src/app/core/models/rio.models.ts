@@ -107,6 +107,21 @@ export interface SensorHealth {
   uptime_pct: number;
 }
 
+export type CriticalityLevel = 'critico' | 'atencion' | 'estable';
+
+/** GET /analytics/critical-points — ranking of stations by criticality index (0–100). */
+export interface CriticalPoint {
+  rank: number;
+  station_id: string;
+  name: string;
+  score: number;
+  level: CriticalityLevel;
+  /** calidad, alertas y recurrencia, each 0–100. */
+  components: { calidad: number; alertas: number; recurrencia: number };
+  /** Plain-language reasons, most important first. */
+  reasons: string[];
+}
+
 /** GET /analytics/hotspots */
 export interface Hotspot {
   station_id: string;

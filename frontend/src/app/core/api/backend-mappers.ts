@@ -8,6 +8,7 @@ import {
   AlertRule,
   CentrifugeAnalytics,
   CentrifugeState,
+  CriticalPoint,
   DashboardOverview,
   Hotspot,
   LiveEvent,
@@ -24,6 +25,7 @@ import {
   BeAlertRule,
   BeCentrifuge,
   BeCycle,
+  BeCriticalPoint,
   BeCycleStatus,
   BeEnvelope,
   BeForecast,
@@ -205,6 +207,18 @@ export function mapHotspot(h: BeHotspot): Hotspot {
     wqi: mapWqi(h.wqi),
     open_alerts: h.alerts_open,
     critical_alerts: h.alerts_critical_open,
+  };
+}
+
+export function mapCriticalPoint(p: BeCriticalPoint): CriticalPoint {
+  return {
+    rank: p.rank,
+    station_id: p.station_id,
+    name: p.name,
+    score: p.score,
+    level: p.level,
+    components: p.components,
+    reasons: p.reasons,
   };
 }
 

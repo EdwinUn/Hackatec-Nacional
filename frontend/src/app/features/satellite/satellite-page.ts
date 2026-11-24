@@ -4,13 +4,13 @@ import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import type { ExpressionSpecification, IControl, Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
 import { RioApi } from '../../core/api/rio-api';
-import { Hotspot, SensorHealth, SensorPosition } from '../../core/models/rio.models';
+import { CriticalPoint, Hotspot, SensorHealth, SensorPosition } from '../../core/models/rio.models';
 import { FiltersService } from '../../core/services/filters.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
 import { Pill } from '../../shared/components/pill';
 import { valueOrUndefined } from '../../shared/utils/resource.util';
 import { formatCoords, timeAgo } from '../../shared/utils/format.util';
-import { SENSOR_STATUS_META, WQI_META } from '../../shared/utils/wqi.util';
+import { CRITICALITY_META, SENSOR_STATUS_META, WQI_META } from '../../shared/utils/wqi.util';
 import {
   ATTRIBUTION,
   BASIN_BOUNDS,
@@ -280,6 +280,7 @@ export class SatellitePage {
   private readonly live = inject(LiveStreamService);
 
   protected readonly wqi = WQI_META;
+  protected readonly levelMeta = CRITICALITY_META;
   protected readonly categories = CATEGORIES;
   protected readonly sensorMeta = SENSOR_STATUS_META;
   protected readonly positionLabel = POSITION_LABEL;
@@ -301,8 +302,16 @@ export class SatellitePage {
   });
   protected readonly list = computed<Hotspot[]>(() => valueOrUndefined(this.hotspots) ?? []);
 
+  /** Stations ranked by criticality index (computed by the backend from water quality + alerts). */
+  protected readonly criticalRes = rxResource({
+    params: () => ({ from: this.filters.query().from, to: this.filters.query().to, tick: this.filters.tick() }),
+    stream: ({ params }) => this.api.criticalPoints({ from: params.from, to: params.to }),
+  });
+  protected readonly ranking = computed<CriticalPoint[]>(() => valueOrUndefined(this.criticalRes) ?? []);
+
   protected readonly selectedId = signal<string | null>(null);
   protected readonly selected = computed(() => this.list().find((h) => h.station_id === this.selectedId()) ?? null);
+  protected readonly selectedCritical = computed(() => this.ranking().find((p) => p.station_id === this.selectedId()) ?? null);
 
   protected readonly sensorsRes = rxResource({
     params: () => (this.selectedId() ? { id: this.selectedId()! } : undefined),
@@ -441,8 +450,9 @@ export class SatellitePage {
       this.selectedId.set(pick.station_id);
     });
 
-    // Live pH of the selected station.
+    // Live pH of the selected station; a new alert can change the criticality ranking.
     this.live.events$.pipe(takeUntilDestroyed()).subscribe((e) => {
+      if (e.type === 'alert') this.criticalRes.reload();
       if (e.type !== 'reading' || e.data.station_id !== this.selectedId() || e.data.parameter !== 'ph') return;
       this.liveValues.update((m) => ({ ...m, [e.data.position]: { value: e.data.value, ts: e.data.timestamp } }));
     });
@@ -452,6 +462,16 @@ export class SatellitePage {
     this.liveValues.set({});
     this.selectedId.set(h.station_id);
     this.map?.flyTo({ center: [h.longitude, h.latitude], zoom: Math.max(this.map.getZoom(), 13), duration: 800 });
+  }
+
+  protected selectById(stationId: string): void {
+    const h = this.list().find((x) => x.station_id === stationId);
+    if (h) this.select(h);
+  }
+
+  /** «Río Atoyac — Parque Lineal / Echeverría» → «Río Atoyac». */
+  protected shortName(name: string): string {
+    return name.split(' — ')[0];
   }
 
   protected resetView(): void {

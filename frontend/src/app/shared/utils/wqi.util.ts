@@ -1,4 +1,4 @@
-import { AlertSeverity, AlertStatus, CentrifugeState, SensorStatus, WasteType, WqiCategory } from '../../core/models/rio.models';
+import { AlertSeverity, AlertStatus, CentrifugeState, CriticalityLevel, SensorStatus, WasteType, WqiCategory } from '../../core/models/rio.models';
 
 export const WQI_META: Record<WqiCategory, { label: string; color: string; bg: string }> = {
   excelente: { label: 'Excelente', color: '#0f7a4d', bg: '#dcf5e8' },
@@ -25,6 +25,12 @@ export function improvementPct(inlet: number | null | undefined, outlet: number 
   const before = Math.abs(inlet - 7);
   return before < 1e-6 ? 0 : ((before - Math.abs(outlet - 7)) / before) * 100;
 }
+
+export const CRITICALITY_META: Record<CriticalityLevel, { label: string; color: string; bg: string }> = {
+  critico: { label: 'Crítico', color: '#dc2626', bg: '#fbdcdc' },
+  atencion: { label: 'Atención', color: '#d97706', bg: '#fcefc7' },
+  estable: { label: 'Estable', color: '#16a34a', bg: '#dcf5e8' },
+};
 
 export const SEVERITY_META: Record<AlertSeverity, { label: string; color: string; bg: string; icon: string }> = {
   info: { label: 'Informativa', color: '#1d4ed8', bg: '#dbeafe', icon: 'pi pi-info-circle' },

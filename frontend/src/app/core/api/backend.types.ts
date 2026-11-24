@@ -162,6 +162,24 @@ export interface BeHotspot {
   last_reading_at: string | null;
 }
 
+export interface BeCriticalPoint {
+  rank: number;
+  station_id: string;
+  name: string;
+  river: string;
+  latitude: number;
+  longitude: number;
+  score: number;
+  level: 'critico' | 'atencion' | 'estable';
+  components: { calidad: number; alertas: number; recurrencia: number };
+  wqi: number | null;
+  dominant_parameter: BeSensorType | null;
+  alerts_active: { critical: number; warning: number; info: number };
+  occurrences: number;
+  top_issues: { rule: string; severity: AlertSeverity; parameter: BeSensorType | null; occurrences: number }[];
+  reasons: string[];
+}
+
 export interface BeAlert {
   id: string;
   rule_id: string;

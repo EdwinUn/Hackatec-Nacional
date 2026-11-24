@@ -177,6 +177,11 @@ Todas las tablas usan `id` UUID y fechas `timestamptz` en UTC. Todas tienen `cre
 | Eficiencia baja | warning | < 70 % | Revisar filtros |
 
   Se editan en vivo con `PATCH /api/v1/alert-rules/{id}`, sin reiniciar.
+- **Índice de criticidad** ([`criticality.py`](app/domain/criticality.py)): ordena los puntos críticos de contaminación.
+  - Fórmula: `0.5·(100 − WQI) + 0.3·presión de alertas activas + 0.2·recurrencia en el periodo` (log, satura en 200 repeticiones).
+  - Niveles: crítico ≥ 50, atención ≥ 30, estable.
+  - Solo cuentan las alertas de calidad del agua.
+  - El endpoint `/analytics/critical-points` devuelve además los motivos en español.
 - **Proyección** ([`forecast.py`](app/domain/forecast.py)): regresión lineal sobre promedios de 15 min de las últimas N horas, con una banda de ±1.96·σ de los residuos. Es el primer paso hacia el modelo predictivo del reto.
 
 ## Simulador

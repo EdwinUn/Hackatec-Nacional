@@ -10,6 +10,7 @@ import {
   Bucket,
   CentrifugeAnalytics,
   CentrifugeCycleIngest,
+  CriticalPoint,
   DashboardOverview,
   Hotspot,
   IngestResult,
@@ -29,6 +30,7 @@ import {
   mapAlert,
   mapAlertRule,
   mapCentrifuge,
+  mapCriticalPoint,
   mapForecast,
   mapHotspot,
   mapOverview,
@@ -42,6 +44,7 @@ import {
   BeAlert,
   BeAlertRule,
   BeCentrifuge,
+  BeCriticalPoint,
   BeCycle,
   BeForecast,
   BeHotspot,
@@ -133,6 +136,12 @@ export class HttpRioApi extends RioApi {
   hotspots(_q: Query): Observable<Hotspot[]> {
     // The backend always returns the current state of every station (no range).
     return this.get<BeHotspot[]>('/analytics/hotspots').pipe(map((l) => l.map(mapHotspot)));
+  }
+
+  criticalPoints(q: Query): Observable<CriticalPoint[]> {
+    return this.get<BeCriticalPoint[]>('/analytics/critical-points', { from: q.from, to: q.to }).pipe(
+      map((l) => l.map(mapCriticalPoint)),
+    );
   }
 
   alerts(f: AlertFilters): Observable<Page<Alert>> {

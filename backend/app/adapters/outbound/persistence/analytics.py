@@ -265,6 +265,29 @@ class SqlAnalyticsReader:
             row["status"] = StationStatus(row["status"])
         return rows
 
+    async def alert_pressure(
+        self, start: datetime, end: datetime
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        active = await self._all(
+            """SELECT station_id, severity, count(*) AS n
+               FROM alerts WHERE status <> 'resolved' AND kind = 'reading_range'
+               GROUP BY 1, 2"""
+        )
+        # Solo alertas de calidad del agua (reading_range): sensor caído, vibración o eficiencia son
+        # problemas operativos, no contaminación. `occurrences` cuenta toda la vida de la alerta.
+        recurrent = await self._all(
+            """SELECT a.station_id, r.name AS rule, a.severity, a.parameter,
+                      sum(a.occurrences)::int AS occurrences
+               FROM alerts a JOIN alert_rules r ON r.id = a.rule_id
+               WHERE a.kind = 'reading_range'
+                 AND a.last_triggered_at >= :start AND a.first_triggered_at < :end
+               GROUP BY 1, 2, 3, 4
+               ORDER BY 5 DESC""",
+            start=start,
+            end=end,
+        )
+        return active, recurrent
+
 
 def _rounded(row: dict[str, Any]) -> dict[str, Any]:
     return {k: round(v, 3) if isinstance(v, float) else v for k, v in row.items()}
