@@ -23,6 +23,7 @@
       <section>
         <h3>Capas</h3>
         <label class="row"><input type="checkbox" [checked]="showBuoys()" (change)="showBuoys.set($any($event.target).checked)" /><span>Boyas skimmer <small>fallas por IA</small></span><b>{{ buoyReports().length }}</b></label>
+        <label class="row"><input type="checkbox" [checked]="showBuoyUnits()" (change)="showBuoyUnits.set($any($event.target).checked)" /><span>Boyas Río Monitor <small>modelo 3D</small></span><b>{{ buoys().length }}</b></label>
         <label class="row"><input type="checkbox" [checked]="showKeyPoints()" (change)="showKeyPoints.set($any($event.target).checked)" /><span>Puntos de descarga y monitoreo</span></label>
         <label class="row"><input type="checkbox" [checked]="showReports()" (change)="showReports.set($any($event.target).checked)" /><span>Reportes ciudadanos IA</span><b>{{ otherReports().length }}</b></label>
         <label class="row"><input type="checkbox" [checked]="showStations()" (change)="showStations.set($any($event.target).checked)" /><span>Calidad de agua <small>estaciones</small></span><b>{{ list().length }}</b></label>
@@ -92,6 +93,7 @@
       }
     </ul>
     <label class="layer-toggle"><input type="checkbox" [checked]="showReports()" (change)="showReports.set($any($event.target).checked)" /> <i class="pi pi-megaphone" aria-hidden="true"></i> Reportes ciudadanos <strong>{{ activeReports().length }}</strong></label>
+    <label class="layer-toggle"><input type="checkbox" [checked]="showBuoyUnits()" (change)="showBuoyUnits.set($any($event.target).checked)" /> <i class="pi pi-compass" aria-hidden="true"></i> Boyas Río Monitor <strong>{{ buoys().length }}</strong></label>
     @if (ranking().length) {
       <div class="rank">
         <div class="rank-title"><i class="pi pi-sort-amount-down" aria-hidden="true"></i> Ranking de criticidad</div>

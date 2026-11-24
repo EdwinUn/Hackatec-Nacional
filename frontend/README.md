@@ -40,8 +40,13 @@ pruebas de `mappers.spec.ts` usan fixtures con el formato real.
 ## App Android (Capacitor)
 ```bash
 npm run build:android      # ng build (development) + cap sync
-cd android && ANDROID_HOME=~/Android/Sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk ./gradlew assembleDebug
+cd android && ANDROID_HOME=~/Android/Sdk JAVA_HOME=<ruta a un JDK 21> ./gradlew assembleDebug
 ```
+Gradle 8.14 necesita **JDK 17–21**; con Java 25 falla (`Unsupported class file major version 69`). La ruta depende de
+cada equipo: `/usr/lib/jvm/java-21-openjdk` (paquete del sistema), `~/.jdks/jdk-21…` (descargado por un IDE) o el JBR de
+Android Studio (`<android-studio>/jbr`). Si VS Code marca en rojo `android/`, es la extensión de Java importando con el
+Java del sistema: en `.vscode/settings.json` (ignorado por git) pon `"java.import.gradle.java.home": "<ruta a un JDK 21>"`
+y ejecuta "Java: Clean Java Language Server Workspace".
 Usa la configuración `development` (IP del backend y claves de `environment.development.ts`); la de producción
 apunta a `localhost`, que en el teléfono es el propio teléfono. El WebView sirve la app desde `http://localhost`
 (`androidScheme: 'http'`, `cleartext: true`), origen que el CORS del backend debe permitir.

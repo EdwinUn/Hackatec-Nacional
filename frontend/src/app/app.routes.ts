@@ -19,6 +19,8 @@ export const routes: Routes = [
       // ── Public (citizens) ──────────────────────────────────────────────────
       { path: 'resumen', title: 'Resumen ejecutivo · Río Monitor', loadComponent: () => import('./features/dashboard/dashboard-page').then((m) => m.DashboardPage) },
       { path: 'mapa', title: 'Vista satelital · Río Monitor', loadComponent: () => import('./features/satellite/satellite-page').then((m) => m.SatellitePage) },
+      { path: 'boyas', title: 'Boyas · Río Monitor', loadComponent: () => import('./features/buoys/buoys-page').then((m) => m.BuoysPage) },
+      { path: 'boyas/:id', title: 'Boya en 3D · Río Monitor', loadComponent: () => import('./features/buoys/buoy-detail-page').then((m) => m.BuoyDetailPage) },
       { path: 'alertas', title: 'Alertamiento temprano · Río Monitor', loadComponent: () => import('./features/alerts/alerts-page').then((m) => m.AlertsPage) },
       { path: 'analitica', pathMatch: 'full', redirectTo: 'analitica/pronostico' },
       { path: 'analitica/:tab', title: 'Analítica predictiva · Río Monitor', loadComponent: () => import('./features/predictive/predictive-page').then((m) => m.PredictivePage) },

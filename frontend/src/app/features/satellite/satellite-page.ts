@@ -1,13 +1,15 @@
 import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import type { ExpressionSpecification, IControl, Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
 import { RioApi } from '../../core/api/rio-api';
 import { OpsApi } from '../../core/api/ops-api';
 import { REPORT_STATUS_META, REPORT_TYPE_META } from '../../shared/utils/ops.util';
 import { CriticalPoint, Hotspot, SensorHealth, SensorPosition } from '../../core/models/rio.models';
 import { CitizenReport } from '../../core/models/ops.models';
+import { BUOY_STATUS_META, Buoy } from '../../core/models/buoy.models';
+import { BuoysService } from '../../core/services/buoys.service';
 import { FiltersService } from '../../core/services/filters.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
 import { LayoutService } from '../../core/services/layout.service';
@@ -172,6 +174,28 @@ function basinStyle(): StyleSpecification {
   };
 }
 
+/** Popup body for a buoy, with a button that opens its 3D model (built as DOM). */
+function buoyContent(b: Buoy, onOpen: () => void): HTMLElement {
+  const el = document.createElement('div');
+  el.className = 'buoy-popup';
+  el.style.cssText = 'font-size: 12px; line-height: 1.35';
+  const title = document.createElement('strong');
+  title.textContent = `${b.name} · ${b.code}`;
+  const meta = document.createElement('small');
+  meta.style.display = 'block';
+  meta.textContent = `${b.river} · ${BUOY_STATUS_META[b.status].label}`;
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'open';
+  const icon = document.createElement('i');
+  icon.className = 'pi pi-box';
+  icon.setAttribute('aria-hidden', 'true');
+  open.append(icon, 'Ver en 3D');
+  open.addEventListener('click', onOpen);
+  el.append(title, meta, open);
+  return el;
+}
+
 /** «Puntos clave de la cuenca» on/off switch with the zone legend. */
 class KeyPointsControl implements IControl {
   private el?: HTMLElement;
@@ -258,6 +282,7 @@ export class SatellitePage {
   private readonly layout = inject(LayoutService);
   /** Skimmer emptying survey (brigade only), opened from the selected station's card. */
   protected readonly surveyOpen = signal(false);
+  private readonly router = inject(Router);
 
   protected readonly wqi = WQI_META;
   protected readonly levelMeta = CRITICALITY_META;
@@ -275,6 +300,7 @@ export class SatellitePage {
   private map?: MlMap;
   private readonly markers = new Map<string, { marker: Marker; el: HTMLButtonElement }>();
   private reportMarkers: Marker[] = [];
+  private buoyMarkers: Marker[] = [];
   private is3d = true;
   private readonly ready = signal(false);
 
@@ -308,6 +334,9 @@ export class SatellitePage {
   protected readonly buoyReports = computed(() => this.activeReports().filter(SatellitePage.isBuoy));
   protected readonly otherReports = computed(() => this.activeReports().filter((r) => !SatellitePage.isBuoy(r)));
   private readonly reportsRes = rxResource({ params: () => this.filters.tick(), stream: () => this.ops.citizenReports() });
+  /** Río Monitor buoys (frontend mocks); each popup opens the 3D model. */
+  protected readonly buoys = inject(BuoysService).buoys;
+  protected readonly showBuoyUnits = signal(true);
   protected readonly activeReports = computed(() => (valueOrUndefined(this.reportsRes) ?? []).filter((r) => r.status !== 'resolved' && r.status !== 'rejected'));
   /** Stations ranked by criticality index (computed by the backend from water quality + alerts). */
   protected readonly criticalRes = rxResource({
@@ -486,6 +515,31 @@ export class SatellitePage {
       if (!this.ready()) return;
       const v = this.showKeyPoints() ? 'visible' : 'none';
       for (const id of KEY_POINT_LAYERS) this.map?.setLayoutProperty(id, 'visibility', v);
+    });
+
+    // Buoys: square pin with its name; the popup links to /boyas/:id (3D model).
+    effect(() => {
+      if (!this.ready()) return;
+      const buoys = this.showBuoyUnits() ? this.buoys() : [];
+      for (const m of this.buoyMarkers) m.remove();
+      this.buoyMarkers = buoys.map((b) => {
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'buoy-pin';
+        el.title = `${b.name} · ${b.river}`;
+        el.setAttribute('aria-label', `${b.name}: ver detalles`);
+        const icon = document.createElement('span');
+        icon.className = 'icon';
+        const i = document.createElement('i');
+        i.className = 'pi pi-compass';
+        icon.appendChild(i);
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = b.name;
+        el.append(icon, name);
+        const popup = new this.ml.Popup({ offset: 18, maxWidth: '220px' }).setDOMContent(buoyContent(b, () => void this.router.navigate(['/boyas', b.id])));
+        return new this.ml.Marker({ element: el, anchor: 'left', offset: [-14, 0] }).setLngLat([b.longitude, b.latitude]).setPopup(popup).addTo(this.map!);
+      });
     });
 
     // Initial selection: header station if any, otherwise the worst station.
