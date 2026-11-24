@@ -16,7 +16,8 @@ Actualiza este archivo **antes** o **junto con** cualquier cambio en los endpoin
 | Qué | Cómo |
 | --- | --- |
 | Ingesta y escrituras de catálogo/reglas (`POST`/`PATCH`) | Header `X-API-Key: <INGEST_API_KEY>` |
-| Lecturas (`GET`) y `PATCH /alerts/{id}` | Abiertas (no hay usuarios finales todavía) |
+| Lecturas (`GET`) y `PATCH /alerts/{id}` | Abiertas (los ciudadanos no inician sesión) |
+| Personal operativo (`/tasks`, `POST /skimmers/recoleccion`, `/auth/me`) | Header `Authorization: Bearer <access_token>` de `POST /auth/login` |
 | WebSocket | Abierto con `ENVIRONMENT=dev`; si no, `?api_key=<INGEST_API_KEY>` |
 
 ### Errores (formato único)
@@ -27,12 +28,14 @@ Actualiza este archivo **antes** o **junto con** cualquier cambio en los endpoin
 
 | HTTP | `code` | Cuándo |
 | --- | --- | --- |
-| 401 | `unauthorized` | Falta o es inválida la `X-API-Key` |
+| 401 | `unauthorized` | Falta o es inválida la `X-API-Key`, o el token de sesión / las credenciales son inválidos |
+| 403 | `forbidden` | La cuenta está desactivada o el rol no permite la acción (ej. un técnico creando tareas) |
 | 404 | `not_found` | El recurso no existe |
 | 409 | `conflict` | Ej. nombre de estación repetido, actualizar un ciclo ya cerrado, resolver una alerta ya resuelta |
 | 422 | `validation_error` | JSON inválido; `details` es la lista de campos `[{loc, msg, type}]` |
 | 422 | `invalid_data` | Regla de negocio (rango de fechas, volúmenes imposibles, referencia a un registro inexistente, etc.) |
 | 500 | `internal_error` | Error inesperado (queda en el log) |
+| 503 | `vision_unavailable` | La visión artificial no está disponible (falta `uv sync --extra vision`, el modelo no cargó o está desactivada) |
 
 ### Paginación
 
@@ -61,6 +64,16 @@ Usa el sufijo `Z` (`2026-11-23T18:00:00Z`). Si mandas un offset como `-06:00` o 
 | `severity` | `info`, `warning`, `critical` |
 | `status` (alerta) | `open`, `acknowledged`, `resolved` |
 | `kind` (regla) | `reading_range`, `sensor_offline`, `centrifuge_vibration`, `treatment_efficiency` |
+| `category` (visión) | `peces_muertos`, `boya_defectuosa`, `boya_saturada`, `acumulacion_basura`, `normal` |
+| `severity` (visión) | `critica`, `alta`, `media`, `baja` (¡en español, distinto de `severity` de alertas!) |
+| `buoy.status` (visión) | `no_detectada`, `integra`, `saturada`, `defectuosa` |
+| `role` (usuario) | `technician` (operador de brigada), `supervisor`, `admin` |
+| `kind` (tarea) | `report`, `repair`, `skimmer_collection`, `maintenance` |
+| `priority` (tarea) | `normal`, `urgent` |
+| `status` (tarea) | `pending`, `in_progress`, `done` |
+| `view` (bandeja) | `asignadas`, `reparaciones_pendientes`, `urgentes`, `listos` |
+| `buoy_condition` | `ok`, `danada`, `saturada`, `faltan_piezas` |
+| material (encuesta skimmer) | `plastico`, `organico`, `vidrio`, `otros`, `metal` → `waste_type` `plastic`, `organic`, `glass`, `other`, `metal` |
 
 Unidades por defecto: pH `pH`, turbidez `NTU`, temperatura `°C`, oxígeno disuelto `mg/L`, conductividad `µS/cm`, SDT `mg/L`.
 
@@ -401,6 +414,115 @@ Paginado, de la más reciente a la más vieja (`last_triggered_at`).
 
 ---
 
+## Visión artificial (fotos de reportes ciudadanos)
+
+> ⚠️ Modelo zero-shot y reglas de color **de prototipo**, sin validar con fotos reales de campo. Úsalo como apoyo a la revisión humana, no como diagnóstico. Ver `backend/README.md` § Visión artificial.
+
+### `POST /api/v1/vision/analyze`
+
+Analiza **una foto** y devuelve qué muestra. **Abierto** (sin `X-API-Key`): los ciudadanos no tienen cuenta. Requiere `uv sync --extra vision` en el backend; sin él responde `503 vision_unavailable`.
+
+**Request** — `multipart/form-data` con el campo `file` (JPEG, PNG o WebP, máx. `VISION_MAX_IMAGE_MB` = 8 MB):
+
+```bash
+curl -X POST http://localhost:8000/api/v1/vision/analyze -F "file=@foto.jpg;type=image/jpeg"
+```
+
+**Respuesta 200**
+
+```json
+{
+  "category": "peces_muertos",
+  "severity": "critica",
+  "summary": "Peces muertos detectados: alerta ambiental crítica.",
+  "reasons": ["El clasificador de escena ve peces muertos en el agua (100 %)."],
+  "detections": [
+    { "label": "dead fish", "label_es": "Pez muerto", "confidence": 0.62, "bbox": [10, 20, 200, 120] }
+  ],
+  "buoy": {
+    "status": "no_detectada", "ring_found": false, "barrier_count": 0, "barrier_fragments": 0,
+    "barrier_balance": 0.0, "cage_saturation": null
+  },
+  "scene": [
+    { "label": "peces_muertos", "label_es": "Peces muertos", "probability": 1.0 },
+    { "label": "pez_vivo", "label_es": "Pez vivo", "probability": 0.0 }
+  ],
+  "annotated_image": "data:image/jpeg;base64,/9j/4AAQ…",
+  "image": { "width": 862, "height": 1280 },
+  "model": "yolov8s-worldv2",
+  "elapsed_ms": 312.4,
+  "note": "Resultado de un modelo zero-shot (YOLO-World) y reglas de color de prototipo…"
+}
+```
+
+- `category` / `severity`: ver Enumeraciones. Prioridad: `peces_muertos` (siempre `critica`) > `boya_defectuosa` (`alta`; `critica` si además la cesta está saturada) > `boya_saturada` (`alta` si la cesta está cubierta ≥ 50 %, si no `media`) > `acumulacion_basura` (`baja`/`media`/`alta` por nº de objetos y % de la imagen) > `normal` (`baja`).
+- `detections[].bbox` = `[x1, y1, x2, y2]` en píxeles de la imagen **analizada** (`image`): la foto se reduce a un máximo de 1280 px por lado, así que el cliente debe usar `image.width/height` para escalar las cajas, o mostrar directamente `annotated_image`.
+- `annotated_image` es un *data URL* JPEG con las cajas, las regiones de color de la boya, un banner con la categoría/severidad y la escena dominante. Se puede asignar tal cual a `<img [src]>`.
+- `buoy`: verificación HSV (OpenCV) de la boya skimmer — anillo amarillo, barreras naranjas en «V» (esperadas: 2) y saturación de la cesta de malla (0–1, `null` si no se ve la cesta).
+- `scene`: clasificador de escena CLIP (probabilidades que suman 1, de mayor a menor); `null` si está desactivado (`VISION_SCENE_ENABLED=false`).
+
+**Errores:** `422 invalid_data` si el archivo está vacío, supera el máximo o no es una imagen legible; `422 validation_error` si falta `file`; `503 vision_unavailable` (ver tabla de errores).
+
+La inferencia corre en CPU (~0.3 s por foto tras la primera; la primera tras arrancar tarda más) y se atiende de **una foto a la vez**, así que varias peticiones simultáneas se encolan.
+
+---
+
+## Personal operativo (brigada)
+
+Los ciudadanos usan la app sin cuenta. El personal inicia sesión con `POST /auth/login` y manda el token en `Authorization: Bearer …`.
+En desarrollo (`ENVIRONMENT=dev`) el backend crea al arrancar tres cuentas demo, todas con contraseña `atoyac2026`:
+`operador@atlmonitor.mx` (técnico), `supervisor@atlmonitor.mx` y `admin@atlmonitor.mx`, más cinco tareas de ejemplo.
+Fuera de dev no se crean salvo `DEMO_USERS_ENABLED=true`; define `JWT_SECRET` propio (valor de prototipo por defecto).
+
+### `POST /api/v1/auth/login`
+
+```json
+{ "email": "operador@atlmonitor.mx", "password": "atoyac2026" }
+```
+
+→ `200 { "access_token": "<jwt HS256>", "token_type": "bearer", "expires_in": 43200,
+"user": { "id", "name", "email", "role", "active" } }`. Credenciales malas → 401 `unauthorized`. `GET /auth/me` devuelve el usuario del token.
+
+### Tareas y bandeja del operador
+
+| Método | Ruta | Notas |
+| --- | --- | --- |
+| GET | `/tasks?view=&limit=&offset=` | `view` ∈ `asignadas` (mías sin cerrar), `reparaciones_pendientes`, `urgentes`, `listos` (resueltas). Responde la paginación estándar **más** `counts: {asignadas, reparaciones_pendientes, urgentes, listos}` |
+| GET | `/tasks/{id}` | Detalle |
+| POST | `/tasks` | Solo `supervisor`/`admin`: `{title, kind, description?, priority?, assigned_to?, station_id?, buoy_code?}` → 201 |
+| PATCH | `/tasks/{id}` | Atender: `{"status":"in_progress"}` (se autoasigna si no tenía dueño). Resolver: `{"status":"done","closing_note":"…"}` (nota ≥ 3 caracteres, si no 422). También `priority` y `assigned_to` (un técnico solo puede asignarse a sí mismo). Una tarea resuelta no cambia: 409 |
+
+`Task`: `{id, title, description, kind, priority, status, assigned_to, station_id, buoy_code, closing_note, resolved_at, resolved_by, created_at, updated_at}`.
+
+### Bitácora de recolección de boyas skimmer
+
+### `POST /api/v1/skimmers/recoleccion` → 201 (requiere sesión)
+
+```json
+{ "station_id": "6f1c…", "buoy_code": "SK-01", "buoy_condition": "saturada",
+  "plastico": { "kg": 2.5, "piezas": 40 }, "organico": { "kg": 1.0, "piezas": 12 },
+  "vidrio": { "kg": 0, "piezas": 0 }, "otros": { "kg": 0, "piezas": 0 }, "metal": { "kg": 0.5, "piezas": 3 },
+  "notes": "Cesta casi llena", "task_id": "…", "ts": "2026-11-24T18:30:00Z" }
+```
+
+Los cinco materiales son opcionales (default 0), pero debe haber al menos un peso o una pieza (422 `invalid_data`).
+`task_id` (opcional) cierra sola la tarea de vaciado. Respuesta: la recolección con `materials`, `total_kg`, `total_pieces`, `operator_name`.
+Efecto: además de la bitácora se registra una `waste_collection` por material (alimenta `GET /analytics/waste` y la tarjeta
+«Clasificación de basura») y se emiten por WebSocket un `waste_collected` por material y un `skimmer_collected`.
+
+`GET /skimmers/recoleccion?station_id=&from=&to=` lista la bitácora (paginada, más reciente primero).
+
+### `GET /api/v1/skimmers/clasificacion-basura?station_id=&from=&to=` (abierto)
+
+```json
+{ "total_kg": 4.0, "total_piezas": 55, "recolecciones": 1, "ultima": "2026-11-24T18:30:00Z",
+  "por_material": [ { "material": "plastico", "waste_type": "plastic", "kg": 2.5, "piezas": 40, "pct": 62.5 } ] }
+```
+
+Acumulado de todas las recolecciones (o del rango), ordenado por kg.
+
+---
+
 ## Tiempo real — `WS /ws/live?station_id=<uuid>&api_key=<key>`
 
 - `station_id` es opcional: sin él llegan los eventos de todas las estaciones.
@@ -422,6 +544,7 @@ Todos los mensajes tienen el mismo sobre:
 | `cycle_update` | Un ciclo se crea, actualiza o cierra | `CycleOut` sin `created_at` |
 | `batch_completed` | Se registra un lote tratado | `BatchOut` (incluye `efficiency_pct`, `ph_shift_toward_neutral`, `turbidity_removal_pct`) |
 | `waste_collected` | Se registra basura | `{id, station_id, ts, weight_kg, items_count, waste_type, collector_id}` |
+| `skimmer_collected` | Se registra el vaciado de una boya | `{id, station_id, ts, buoy_code, buoy_condition, materials, total_kg, total_pieces, operator_name, notes, task_id}` |
 | `alert` | Alerta nueva, re-disparada (tras 15 min) o con cambio de estado | `AlertOut` + `created_at`, `updated_at`, `last_notified_at` |
 | `ping` / `pong` / `subscribed` / `error` | Control | `{}` / `{station_id}` / `{message}` |
 

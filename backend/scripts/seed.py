@@ -44,7 +44,7 @@ STATIONS = [
 
 TABLES = (
     "alerts, alert_rules, readings, treatment_batches, centrifuge_cycles, waste_collections, "
-    "sensors, stations"
+    "sensors, stations, skimmer_collections, tasks, staff_users"
 )
 
 
@@ -73,6 +73,9 @@ async def seed(container: Container, reset: bool = False) -> None:
                 }
             )
         print(f"✓ {station.name}: {len(SENSOR_LAYOUT)} sensores")
+
+    await container.staff.ensure_demo_data()
+    print("✓ cuentas demo (operador@/supervisor@/admin@atlmonitor.mx, contraseña atoyac2026) y tareas")
 
     created = await container.alerts.install_default_rules()
     print(f"✓ {created} reglas de alerta por defecto" if created else "· reglas de alerta ya existen")

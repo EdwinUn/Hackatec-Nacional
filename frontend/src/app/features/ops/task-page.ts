@@ -20,6 +20,7 @@ import { ChecklistItem, Evidence, WorkOrder, WorkOrderPatch, WorkResult } from '
 import { WasteType } from '../../core/models/rio.models';
 import { GeoService } from '../../core/services/geo.service';
 import { WorkOrdersService } from '../../core/services/work-orders.service';
+import { AiAnalysis } from '../../shared/components/ai-analysis';
 import { MiniMap } from '../../shared/components/mini-map';
 import { PhotoInput } from '../../shared/components/photo-input';
 import { Pill } from '../../shared/components/pill';
@@ -30,7 +31,7 @@ import { WASTE_META, WASTE_TYPES } from '../../shared/utils/wqi.util';
 
 @Component({
   selector: 'app-task-page',
-  imports: [DatePipe, DecimalPipe, FormsModule, RouterLink, Button, Checkbox, InputNumber, Message, Select, SelectButton, Textarea, MiniMap, PhotoInput, Pill],
+  imports: [DatePipe, DecimalPipe, FormsModule, RouterLink, Button, Checkbox, InputNumber, Message, Select, SelectButton, Textarea, AiAnalysis, MiniMap, PhotoInput, Pill],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './ops.scss',
   templateUrl: './task-page.html',

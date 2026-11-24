@@ -8,7 +8,7 @@ const STORAGE_KEY = 'rm.session';
 
 /** Home screen of each role after logging in. */
 export const ROLE_HOME: Record<Role, string> = {
-  technician: '/operaciones/mis-tareas',
+  technician: '/operaciones/bandeja',
   supervisor: '/operaciones/reportes',
   admin: '/operaciones/reportes',
 };

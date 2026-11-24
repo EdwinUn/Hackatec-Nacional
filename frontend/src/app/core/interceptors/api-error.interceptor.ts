@@ -1,4 +1,4 @@
-import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
+import { HttpContextToken, HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { MessageService } from 'primeng/api';
 import { catchError, throwError } from 'rxjs';
@@ -23,6 +23,9 @@ export function parseApiError(err: HttpErrorResponse): ApiError {
   return new ApiError(`Error ${err.status}`, err.status);
 }
 
+/** Set on a request to skip the global error toast (the caller shows its own inline message). */
+export const SILENT_ERRORS = new HttpContextToken<boolean>(() => false);
+
 let lastMsg = '';
 let lastAt = 0;
 
@@ -33,6 +36,7 @@ export const apiErrorInterceptor: HttpInterceptorFn = (req, next) => {
     catchError((err: unknown) => {
       if (!(err instanceof HttpErrorResponse)) return throwError(() => err);
       const apiErr = parseApiError(err);
+      if (req.context.get(SILENT_ERRORS)) return throwError(() => apiErr);
       const now = Date.now();
       if (apiErr.message !== lastMsg || now - lastAt > 5000) {
         toast.add({ severity: 'error', summary: apiErr.status === 0 ? 'Sin conexión' : 'Error', detail: apiErr.message, life: 5000, key: 'app' });

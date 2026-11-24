@@ -13,6 +13,20 @@
   --rm-green: #1f7a5a;
   --rm-green-soft: #e4f3ec;
   --rm-focus: #1f7a5a;
+  --atl-bg: #f7f8fa;
+  --atl-ink: #1b263b;
+  --atl-muted: #7b8798;
+  --atl-line: #eaecf0;
+  --atl-blue: #00b4d8;
+  --atl-blue-soft: #90e0ef;
+}
+
+/* Atl-Monitor phone look: light fintech canvas, white 20px cards, hairline borders. */
+@media (max-width: 767px) {
+  :root { --rm-canvas: var(--atl-bg); --rm-border: var(--atl-line); --rm-muted: var(--atl-muted); --rm-text: var(--atl-ink); }
+  .rm-card { border-radius: 20px; box-shadow: none; }
+  .page { padding: .5rem 1rem 1.5rem; }
+  .page-title { font-size: 1.5rem; font-weight: 800; letter-spacing: -.03em; }
 }
 
 html { accent-color: var(--rm-green); scrollbar-color: #b8c2bd transparent; scrollbar-width: thin; }

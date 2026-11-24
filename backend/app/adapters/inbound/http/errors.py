@@ -11,11 +11,26 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.domain.errors import ConflictError, DomainError, InvalidDataError, NotFoundError
+from app.domain.errors import (
+    AuthenticationError,
+    ConflictError,
+    DomainError,
+    ForbiddenError,
+    InvalidDataError,
+    NotFoundError,
+    VisionUnavailableError,
+)
 
 log = logging.getLogger(__name__)
 
-STATUS = {NotFoundError: 404, ConflictError: 409, InvalidDataError: 422}
+STATUS = {
+    NotFoundError: 404,
+    ConflictError: 409,
+    InvalidDataError: 422,
+    VisionUnavailableError: 503,
+    AuthenticationError: 401,
+    ForbiddenError: 403,
+}
 HTTP_CODES = {
     400: "bad_request",
     401: "unauthorized",

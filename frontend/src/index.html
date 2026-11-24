@@ -2,15 +2,29 @@
 <html lang="es">
   <head>
     <meta charset="utf-8" />
-    <title>Río Monitor</title>
+    <title>Atl-Monitor</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#112a22" />
-    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <meta name="theme-color" content="#161d2d" />
+    <link rel="icon" type="image/png" href="favicon.png" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body>
+    <div id="boot" aria-hidden="true">
+      <img src="logo-atl.png" alt="" width="132" height="132" />
+      <strong>atl-monitor</strong>
+      <span>Calidad del agua · Cuenca del Alto Atoyac</span>
+    </div>
+    <style>
+      #boot { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .6rem; background: #161d2d; color: #fff; font-family: Inter, system-ui, sans-serif; animation: boot-out .5s ease 1.6s forwards; pointer-events: none; }
+      #boot img { border-radius: 24px; animation: boot-in .6s ease both; }
+      #boot strong { font-size: 1.6rem; letter-spacing: -.02em; }
+      #boot span { font-size: .8rem; color: #90E0EF; letter-spacing: .08em; text-transform: uppercase; }
+      @keyframes boot-in { from { opacity: 0; transform: scale(.85); } }
+      @keyframes boot-out { to { opacity: 0; visibility: hidden; } }
+      @media (prefers-reduced-motion: reduce) { #boot, #boot img { animation-duration: .01s; } }
+    </style>
     <app-root></app-root>
   </body>
 </html>

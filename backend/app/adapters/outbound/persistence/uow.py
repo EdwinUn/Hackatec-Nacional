@@ -10,7 +10,10 @@ from app.adapters.outbound.persistence.repositories import (
     SqlCycleRepository,
     SqlReadingRepository,
     SqlSensorRepository,
+    SqlSkimmerRepository,
+    SqlStaffUserRepository,
     SqlStationRepository,
+    SqlTaskRepository,
     SqlWasteRepository,
 )
 
@@ -36,6 +39,9 @@ class SqlUnitOfWork:
         self.waste = SqlWasteRepository(self.session)
         self.rules = SqlAlertRuleRepository(self.session)
         self.alerts = SqlAlertRepository(self.session, self._renotify_after)
+        self.users = SqlStaffUserRepository(self.session)
+        self.tasks = SqlTaskRepository(self.session)
+        self.skimmers = SqlSkimmerRepository(self.session)
         return self
 
     async def __aexit__(self, *exc: object) -> None:

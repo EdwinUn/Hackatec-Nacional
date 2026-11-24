@@ -6,6 +6,9 @@ from fastapi import Depends, Header, HTTPException, Query, Request
 
 from app.application.time_range import Bucket, TimeRange
 from app.config.container import Container
+from app.domain.entities import StaffUser
+from app.domain.enums import UserRole
+from app.domain.errors import AuthenticationError, ForbiddenError
 
 
 def get_container(request: Request) -> Container:
@@ -56,3 +59,27 @@ class Pagination:
 
 
 PaginationDep = Annotated[Pagination, Depends()]
+
+
+async def current_user(
+    container: ContainerDep,
+    authorization: Annotated[
+        str | None, Header(description="Bearer <access_token> de POST /auth/login")
+    ] = None,
+) -> StaffUser:
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise AuthenticationError("Inicia sesión para continuar")
+    return await container.staff.authenticate(token)
+
+
+CurrentUser = Annotated[StaffUser, Depends(current_user)]
+
+
+def require_roles(*roles: UserRole):
+    async def dep(user: CurrentUser) -> StaffUser:
+        if user.role not in roles:
+            raise ForbiddenError("No tienes permiso para esta acción")
+        return user
+
+    return dep

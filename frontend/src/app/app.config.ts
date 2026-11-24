@@ -13,9 +13,13 @@ import { APP_CONFIG } from './core/config/app-config';
 import { apiErrorInterceptor } from './core/interceptors/api-error.interceptor';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { HttpOpsApi } from './core/api/http-ops-api';
+import { HybridOpsApi } from './core/api/hybrid-ops-api';
+import { HttpVisionApi } from './core/api/http-vision-api';
 import { OpsApi } from './core/api/ops-api';
+import { VisionApi } from './core/api/vision-api';
 import { MockOpsApi } from './core/mock/mock-ops-api';
 import { MockRioApi } from './core/mock/mock-rio-api';
+import { MockVisionApi } from './core/mock/mock-vision-api';
 
 /** Forest-green palette on a light canvas. */
 const RioPreset = definePreset(Aura, {
@@ -45,7 +49,20 @@ export const appConfig: ApplicationConfig = {
     MockRioApi,
     { provide: RioApi, useFactory: () => (inject(APP_CONFIG).useMocks ? inject(MockRioApi) : inject(HttpRioApi)) },
     HttpOpsApi,
+    HttpVisionApi,
+    MockVisionApi,
+    // The vision endpoint is real even when the ops module is mocked: only `useMocks` swaps it.
+    { provide: VisionApi, useFactory: () => (inject(APP_CONFIG).useMocks ? inject(MockVisionApi) : inject(HttpVisionApi)) },
     MockOpsApi,
-    { provide: OpsApi, useFactory: () => (inject(APP_CONFIG).opsMocks ? inject(MockOpsApi) : inject(HttpOpsApi)) },
+    HybridOpsApi,
+    {
+      provide: OpsApi,
+      useFactory: () => {
+        const cfg = inject(APP_CONFIG);
+        if (!cfg.opsMocks) return inject(HttpOpsApi);
+        // Staff login is real unless the whole app runs on mocks (`?mock=1`).
+        return cfg.useMocks ? inject(MockOpsApi) : inject(HybridOpsApi);
+      },
+    },
   ],
 };
