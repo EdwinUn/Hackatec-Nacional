@@ -360,3 +360,11 @@ async def test_overview_has_trend_and_dominant_parameter(client, station, sensor
     assert 3 <= len(points) <= 4
     assert all(p["ph_inlet"] is not None and p["ph_outlet"] is not None for p in points)
     assert sum(p["water_clean_l"] for p in o["trend"]) == 450
+
+
+async def test_cors_allows_any_localhost_port_in_dev(client):
+    for origin in ("http://localhost:4200", "http://localhost:40397"):
+        r = await client.get("/health", headers={"Origin": origin})
+        assert r.headers.get("access-control-allow-origin") == origin
+    r = await client.get("/health", headers={"Origin": "http://evil.example"})
+    assert "access-control-allow-origin" not in r.headers
