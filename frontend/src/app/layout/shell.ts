@@ -11,6 +11,9 @@ import { Select } from 'primeng/select';
 import { Toast } from 'primeng/toast';
 import { ToggleSwitch } from 'primeng/toggleswitch';
 import { APP_CONFIG } from '../core/config/app-config';
+import { AuthService } from '../core/auth/auth.service';
+import { NativeAlertsService } from '../core/services/native-alerts.service';
+import { ROLE_META } from '../shared/utils/ops.util';
 import { AlertCounterService } from '../core/services/alert-counter.service';
 import { FiltersService, PRESET_LABEL, RangePreset } from '../core/services/filters.service';
 import { LiveStreamService } from '../core/services/live-stream.service';
@@ -34,6 +37,15 @@ export class Shell {
   protected readonly mock = inject(APP_CONFIG).useMocks;
   private readonly toast = inject(MessageService);
   protected readonly router = inject(Router);
+  protected readonly auth = inject(AuthService);
+  protected readonly roleMeta = ROLE_META;
+  protected readonly initials = computed(() =>
+    (this.auth.user()?.name ?? '')
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() ?? '')
+      .join(''),
+  );
 
   protected readonly collapsed = signal(this.readCollapsed());
   protected readonly mobileOpen = signal(false);
@@ -57,6 +69,8 @@ export class Shell {
   protected readonly year = new Date().getFullYear();
 
   constructor() {
+    inject(NativeAlertsService).start();
+
     // Fallback auto-refresh of KPIs.
     interval(REFRESH_MS).pipe(takeUntilDestroyed()).subscribe(() => this.filters.refresh());
 

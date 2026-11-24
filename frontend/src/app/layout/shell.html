@@ -32,9 +32,46 @@
           <a routerLink="/analitica/simulador" routerLinkActive="active" class="sub-link">Simulador IoT</a>
         </div>
       }
+
+      <p class="group-label">Participación ciudadana</p>
+      <a routerLink="/reportar" routerLinkActive="active" class="nav-link" title="Reportar contaminación">
+        <i class="pi pi-megaphone" aria-hidden="true"></i><span>Reportar contaminación</span>
+      </a>
+
+      @if (auth.isLoggedIn()) {
+        <p class="group-label">Operaciones</p>
+        <a routerLink="/operaciones/mis-tareas" routerLinkActive="active" class="nav-link" title="Mis tareas">
+          <i class="pi pi-check-square" aria-hidden="true"></i><span>Mis tareas</span>
+        </a>
+        @if (auth.isManager()) {
+          <a routerLink="/operaciones/reportes" routerLinkActive="active" class="nav-link" title="Reportes ciudadanos">
+            <i class="pi pi-inbox" aria-hidden="true"></i><span>Reportes ciudadanos</span>
+          </a>
+          <a routerLink="/operaciones/ordenes" routerLinkActive="active" class="nav-link" title="Órdenes de trabajo">
+            <i class="pi pi-clipboard" aria-hidden="true"></i><span>Órdenes de trabajo</span>
+          </a>
+          <a routerLink="/operaciones/equipo" routerLinkActive="active" class="nav-link" title="Desempeño del equipo">
+            <i class="pi pi-users" aria-hidden="true"></i><span>Desempeño del equipo</span>
+          </a>
+        }
+        @if (auth.hasRole('admin')) {
+          <a routerLink="/operaciones/admin/usuarios" routerLinkActive="active" class="nav-link" title="Usuarios">
+            <i class="pi pi-id-card" aria-hidden="true"></i><span>Usuarios</span>
+          </a>
+        }
+      }
     </nav>
 
     <div class="sidebar-foot">
+      @if (auth.user(); as u) {
+        <div class="me" [title]="u.name + ' · ' + roleMeta[u.role].label">
+          <span class="avatar" aria-hidden="true">{{ initials() }}</span>
+          <span class="me-txt"><strong>{{ u.name }}</strong><small>{{ roleMeta[u.role].label }}</small></span>
+          <button type="button" class="logout" (click)="auth.logout()" aria-label="Cerrar sesión" title="Cerrar sesión"><i class="pi pi-sign-out"></i></button>
+        </div>
+      } @else {
+        <a routerLink="/login" class="nav-link staff" title="Acceso para personal"><i class="pi pi-sign-in" aria-hidden="true"></i><span>Acceso empleados</span></a>
+      }
       @switch (live.status()) {
         @case ('connected') { <span class="live ok"><span class="dot"></span><span class="txt">En vivo{{ mock ? ' (simulado)' : '' }}</span></span> }
         @case ('reconnecting') { <span class="live ok pulse"><span class="dot"></span><span class="txt">Reconectando…</span></span> }

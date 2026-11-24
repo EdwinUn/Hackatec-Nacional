@@ -4,14 +4,17 @@ import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import type { ExpressionSpecification, IControl, Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
 import { RioApi } from '../../core/api/rio-api';
+import { OpsApi } from '../../core/api/ops-api';
+import { REPORT_STATUS_META, REPORT_TYPE_META } from '../../shared/utils/ops.util';
 import { CriticalPoint, Hotspot, SensorHealth, SensorPosition } from '../../core/models/rio.models';
+import { CitizenReport } from '../../core/models/ops.models';
 import { FiltersService } from '../../core/services/filters.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
 import { Pill } from '../../shared/components/pill';
 import { valueOrUndefined } from '../../shared/utils/resource.util';
 import { formatCoords, timeAgo } from '../../shared/utils/format.util';
-<<<<<<< HEAD
-import { CRITICALITY_META, SENSOR_STATUS_META, WQI_META } from '../../shared/utils/wqi.util';
+import { typeLabel } from '../../core/api/labels';
+import { CRITICALITY_META, SENSOR_STATUS_META, WQI_META, wqiText } from '../../shared/utils/wqi.util';
 import {
   ATTRIBUTION,
   BASIN_BOUNDS,
@@ -23,11 +26,6 @@ import {
   TILES,
   toLngLat,
 } from './basin';
-=======
-import { typeLabel } from '../../core/api/labels';
-import { SENSOR_STATUS_META, WQI_META, wqiText } from '../../shared/utils/wqi.util';
-import { ATTRIBUTION, BASIN_BOUNDS, BASIN_CENTER, BASIN_ZOOM, PRESA_VALSEQUILLO, RIO_ALSESECA, RIO_ATOYAC, TILES } from './basin';
->>>>>>> origin/feature/prototipo-c-skimmer
 
 const POSITION_LABEL: Record<SensorPosition, string> = { inlet: 'Entrada', outlet: 'Salida', river: 'Río' };
 const CATEGORIES = Object.keys(WQI_META).filter((k) => k !== 'sin_datos') as (keyof typeof WQI_META)[];
@@ -170,6 +168,32 @@ function basinStyle(): StyleSpecification {
   };
 }
 
+/** Popup body for a citizen report. */
+function reportContent(r: CitizenReport, typeLabel: string, statusLabel: string): HTMLElement {
+  const el = document.createElement('div');
+  el.style.cssText = 'font-size: 12px; line-height: 1.35';
+  const title = document.createElement('strong');
+  title.textContent = typeLabel;
+  const meta = document.createElement('small');
+  meta.style.display = 'block';
+  meta.textContent = `${r.folio} · ${statusLabel} · ${timeAgo(r.created_at)}`;
+  el.append(title, meta);
+  if (r.description) {
+    const p = document.createElement('p');
+    p.style.margin = '.35rem 0 0';
+    p.textContent = r.description;
+    el.appendChild(p);
+  }
+  if (r.photo && /^(data:image\/|https?:\/\/)/.test(r.photo)) {
+    const img = document.createElement('img');
+    img.src = r.photo;
+    img.alt = '';
+    img.style.cssText = 'width: 180px; height: 110px; object-fit: cover; border-radius: 6px; display: block; margin-top: .4rem';
+    el.appendChild(img);
+  }
+  return el;
+}
+
 /** Popup body for a key point (built as DOM: the GeoJSON text is never parsed as HTML). */
 function keyPointContent(p: Record<string, unknown>): HTMLElement {
   const el = document.createElement('div');
@@ -284,6 +308,7 @@ export class SatellitePage {
   private readonly api = inject(RioApi);
   private readonly filters = inject(FiltersService);
   private readonly live = inject(LiveStreamService);
+  private readonly ops = inject(OpsApi);
 
   protected readonly wqi = WQI_META;
   protected readonly levelMeta = CRITICALITY_META;
@@ -300,6 +325,7 @@ export class SatellitePage {
   private ml!: typeof import('maplibre-gl');
   private map?: MlMap;
   private readonly markers = new Map<string, { marker: Marker; el: HTMLButtonElement }>();
+  private reportMarkers: Marker[] = [];
   private is3d = true;
   private readonly ready = signal(false);
 
@@ -310,6 +336,10 @@ export class SatellitePage {
   });
   protected readonly list = computed<Hotspot[]>(() => valueOrUndefined(this.hotspots) ?? []);
 
+  /** Citizen reports still being attended (layer toggled from the HUD). */
+  protected readonly showReports = signal(true);
+  private readonly reportsRes = rxResource({ params: () => this.filters.tick(), stream: () => this.ops.citizenReports() });
+  protected readonly activeReports = computed(() => (valueOrUndefined(this.reportsRes) ?? []).filter((r) => r.status !== 'resolved' && r.status !== 'rejected'));
   /** Stations ranked by criticality index (computed by the backend from water quality + alerts). */
   protected readonly criticalRes = rxResource({
     params: () => ({ from: this.filters.query().from, to: this.filters.query().to, tick: this.filters.tick() }),
@@ -447,6 +477,30 @@ export class SatellitePage {
           this.markers.delete(id);
         }
       }
+    });
+
+    // Citizen reports: small icon pins coloured by type, with a popup (built as DOM, never parsed as HTML).
+    effect(() => {
+      if (!this.ready()) return;
+      const reports = this.showReports() ? this.activeReports() : [];
+      for (const m of this.reportMarkers) m.remove();
+      this.reportMarkers = reports.map((r) => {
+        const t = REPORT_TYPE_META[r.type];
+        const st = REPORT_STATUS_META[r.status];
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'report-pin';
+        el.title = `${r.folio} · ${t.label}`;
+        el.setAttribute('aria-label', `Reporte ${r.folio}: ${t.label}`);
+        const dot = document.createElement('span');
+        dot.style.background = t.color;
+        const icon = document.createElement('i');
+        icon.className = t.icon;
+        dot.appendChild(icon);
+        el.appendChild(dot);
+        const popup = new this.ml.Popup({ offset: 16, maxWidth: '220px' }).setDOMContent(reportContent(r, t.label, st.label));
+        return new this.ml.Marker({ element: el }).setLngLat([r.longitude, r.latitude]).setPopup(popup).addTo(this.map!);
+      });
     });
 
     // Initial selection: header station if any, otherwise the worst station.

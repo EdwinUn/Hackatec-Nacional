@@ -70,12 +70,13 @@ describe('API.md → view-model mappers', () => {
         { bucket: 'b1', inlet: { avg: 7.0, min: 6.9, max: 7.1, count: 4 }, outlet: { avg: 7.2, min: 7.1, max: 7.3, count: 4 } },
         { bucket: 'b2', inlet: null, outlet: { avg: 7.2, min: 7.1, max: 7.3, count: 4 } },
       ],
-      inlet_avg: 7.0, outlet_avg: 7.2, avg_shift_toward_neutral: 0.08,
+      inlet_avg: 7.5, outlet_avg: 7.2, avg_shift_toward_neutral: 0.08,
     };
     const ph = mapPh(dto, '1h');
     expect(ph.series.length).toBe(1);
     expect(ph.series[0]).toMatchObject({ ts: 'b1', inlet: { avg: 7.0 }, outlet: { avg: 7.2 } });
-    expect(ph.avg_improvement_pct).toBeCloseTo(2.857, 2);
+    // Closer to neutral: |7.5 − 7| = 0.5 → |7.2 − 7| = 0.2 ⇒ +60 %.
+    expect(ph.avg_improvement_pct).toBeCloseTo(60, 5);
   });
 
   it('maps water recovery, waste, centrifuge and sensor health', () => {

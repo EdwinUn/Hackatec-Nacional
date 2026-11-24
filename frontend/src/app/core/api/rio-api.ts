@@ -4,13 +4,10 @@ import {
   AlertFilters,
   AlertPatch,
   AlertRule,
+  AlertRulePatch,
   Bucket,
   CentrifugeAnalytics,
-<<<<<<< HEAD
-  CentrifugeCycleIngest,
   CriticalPoint,
-=======
->>>>>>> origin/feature/prototipo-c-skimmer
   DashboardOverview,
   Hotspot,
   IngestResult,
@@ -20,6 +17,7 @@ import {
   Query,
   SensorHealth,
   Station,
+  StationStatus,
   WasteAnalytics,
   WasteType,
   WaterRecovery,
@@ -34,12 +32,8 @@ export abstract class RioApi {
   abstract waste(q: Query, bucket: Bucket): Observable<WasteAnalytics>;
   abstract centrifuge(q: Query, bucket: Bucket): Observable<CentrifugeAnalytics>;
   abstract sensorsHealth(q: Query): Observable<SensorHealth[]>;
-<<<<<<< HEAD
-  abstract hotspots(q: Query): Observable<Hotspot[]>;
-  abstract criticalPoints(q: Query): Observable<CriticalPoint[]>;
-=======
   abstract hotspots(): Observable<Hotspot[]>;
->>>>>>> origin/feature/prototipo-c-skimmer
+  abstract criticalPoints(q: Query): Observable<CriticalPoint[]>;
   abstract alerts(f: AlertFilters): Observable<Page<Alert>>;
   abstract patchAlert(id: string, body: AlertPatch): Observable<Alert>;
   abstract alertRules(): Observable<AlertRule[]>;
@@ -52,4 +46,14 @@ export abstract class RioApi {
   abstract simulateCentrifugeCycle(stationId: string, failed: boolean): Observable<IngestResult>;
   abstract simulateTreatmentBatch(stationId: string): Observable<IngestResult>;
   abstract simulateWasteCollection(stationId: string, type: WasteType): Observable<IngestResult>;
+
+  // ── Field operations on existing endpoints (`X-API-Key` / staff token) ─────
+  /** `POST /waste-collections` with the real weight recorded by a technician. */
+  abstract recordWasteCollection(stationId: string, type: WasteType, kg: number, pieces: number, collectorId: string): Observable<IngestResult>;
+  /** `PATCH /stations/{id}` → `{ status }` */
+  abstract setStationStatus(stationId: string, status: StationStatus): Observable<void>;
+  /** `PATCH /sensors/{id}` → `{ calibration_offset, calibration_factor, calibrated_at }` */
+  abstract calibrateSensor(sensorId: string, offset: number, factor: number): Observable<void>;
+  /** `PATCH /alert-rules/{id}` */
+  abstract patchAlertRule(id: string, body: AlertRulePatch): Observable<AlertRule>;
 }

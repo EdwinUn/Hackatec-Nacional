@@ -8,6 +8,11 @@ import { Dialog } from 'primeng/dialog';
 import { Paginator, PaginatorState } from 'primeng/paginator';
 import { SelectButton } from 'primeng/selectbutton';
 import { Textarea } from 'primeng/textarea';
+import { InputNumber } from 'primeng/inputnumber';
+import { ToggleSwitch } from 'primeng/toggleswitch';
+import { RouterLink } from '@angular/router';
+import { AuthService } from '../../core/auth/auth.service';
+import { NativeAlertsService } from '../../core/services/native-alerts.service';
 import { locationLabel, typeLabel } from '../../core/api/labels';
 import { RioApi } from '../../core/api/rio-api';
 import { Alert, AlertRule, AlertSeverity, AlertStatus } from '../../core/models/rio.models';
@@ -22,7 +27,7 @@ const PAGE_SIZE = 50;
 
 @Component({
   selector: 'app-alerts-page',
-  imports: [DatePipe, FormsModule, Button, Dialog, Paginator, SelectButton, Textarea, Pill],
+  imports: [DatePipe, FormsModule, RouterLink, Button, Dialog, InputNumber, Paginator, SelectButton, Textarea, ToggleSwitch, Pill],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './alerts-page.html',
   styleUrl: './alerts-page.scss',
@@ -31,6 +36,8 @@ export class AlertsPage {
   private readonly api = inject(RioApi);
   private readonly filters = inject(FiltersService);
   private readonly toast = inject(MessageService);
+  protected readonly auth = inject(AuthService);
+  protected readonly native = inject(NativeAlertsService);
 
   protected readonly sev = SEVERITY_META;
   protected readonly statusMeta = ALERT_STATUS_META;
@@ -78,6 +85,11 @@ export class AlertsPage {
   protected readonly target = signal<{ alert: Alert; status: 'acknowledged' | 'resolved' } | null>(null);
   protected readonly note = signal('');
   protected readonly saving = signal(false);
+
+  // Threshold editing (admin) → `PATCH /alert-rules/{id}`
+  protected readonly ruleOpen = signal(false);
+  protected readonly ruleDraft = signal<AlertRule | null>(null);
+  protected readonly ruleSeverityOptions = this.severityOptions.filter((o) => o.value !== 'all');
 
   constructor() {
     inject(LiveStreamService)
@@ -133,6 +145,31 @@ export class AlertsPage {
         this.bump.update((n) => n + 1);
       },
       error: () => this.saving.set(false), // the interceptor already toasted error.message
+    });
+  }
+
+  protected async setNotifications(on: boolean): Promise<void> {
+    const result = await this.native.setEnabled(on);
+    if (on && !result) this.toast.add({ key: 'app', severity: 'warn', summary: 'Permiso denegado', detail: 'Activa las notificaciones de Río Monitor en los ajustes del teléfono.', life: 6000 });
+  }
+
+  protected editRule(r: AlertRule): void {
+    this.ruleDraft.set({ ...r });
+    this.ruleOpen.set(true);
+  }
+
+  protected saveRule(): void {
+    const r = this.ruleDraft();
+    if (!r) return;
+    this.saving.set(true);
+    this.api.patchAlertRule(r.id, { severity: r.severity, min_value: r.min_value, max_value: r.max_value, enabled: r.enabled }).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.ruleOpen.set(false);
+        this.toast.add({ key: 'app', severity: 'success', summary: 'Umbral actualizado', life: 3000 });
+        this.rules.reload();
+      },
+      error: () => this.saving.set(false),
     });
   }
 }

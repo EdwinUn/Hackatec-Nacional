@@ -10,6 +10,7 @@
         <li><span class="dot" [style.background]="wqi[c].color"></span>{{ wqi[c].label }} <strong>{{ counts()[c] }}</strong></li>
       }
     </ul>
+    <label class="layer-toggle"><input type="checkbox" [checked]="showReports()" (change)="showReports.set($any($event.target).checked)" /> <i class="pi pi-megaphone" aria-hidden="true"></i> Reportes ciudadanos <strong>{{ activeReports().length }}</strong></label>
     @if (ranking().length) {
       <div class="rank">
         <div class="rank-title"><i class="pi pi-sort-amount-down" aria-hidden="true"></i> Ranking de criticidad</div>

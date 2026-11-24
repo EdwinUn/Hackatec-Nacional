@@ -1,16 +1,6 @@
 /**
-<<<<<<< HEAD
- * ═══════════════════════════════════════════════════════════════════════════════
- *  MODELOS DE VISTA DEL FRONTEND
- * ═══════════════════════════════════════════════════════════════════════════════
- * Lo que consumen las pantallas y el mock. El contrato real del backend (/API.md) vive
- * en `core/api/backend.types.ts` y se traduce a estos modelos en `core/api/backend-mappers.ts`;
- * si el backend cambia, ajustar allí, no en las pantallas.
- * Timestamps: ISO-8601 UTC.
-=======
  * View models used by the screens. The wire format (exact `API.md` schemas) lives in
  * `api.models.ts`; `api/mappers.ts` converts one into the other. Timestamps: ISO-8601 UTC.
->>>>>>> origin/feature/prototipo-c-skimmer
  */
 
 export type WqiCategory = 'excelente' | 'buena' | 'regular' | 'mala' | 'critica' | 'sin_datos';
@@ -108,7 +98,6 @@ export interface SensorHealth {
   uptime_pct: number;
 }
 
-<<<<<<< HEAD
 export type CriticalityLevel = 'critico' | 'atencion' | 'estable';
 
 /** GET /analytics/critical-points — ranking of stations by criticality index (0–100). */
@@ -125,8 +114,6 @@ export interface CriticalPoint {
 }
 
 /** GET /analytics/hotspots */
-=======
->>>>>>> origin/feature/prototipo-c-skimmer
 export interface Hotspot {
   station_id: string;
   name: string;
@@ -187,6 +174,10 @@ export interface AlertRule {
   /** Full condition text when the rule is a range (e.g. «fuera de 6.5–8.5 pH»). */
   condition?: string;
 }
+
+export type AlertRulePatch = Partial<Pick<AlertRule, 'severity' | 'min_value' | 'max_value' | 'enabled'>>;
+
+export type StationStatus = 'active' | 'maintenance' | 'offline';
 
 export interface PhForecast {
   station_id: string;

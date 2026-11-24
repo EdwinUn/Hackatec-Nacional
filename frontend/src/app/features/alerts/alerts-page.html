@@ -1,7 +1,12 @@
 <div class="page">
-  <div>
-    <h1 class="page-title">Centro de alertamiento temprano</h1>
-    <p class="page-sub">Eventos detectados por los sensores y reglas del sistema. Los cambios llegan en vivo por WebSocket.</p>
+  <div class="head">
+    <div>
+      <h1 class="page-title">Centro de alertamiento temprano</h1>
+      <p class="page-sub">Eventos detectados por los sensores y reglas del sistema. Los cambios llegan en vivo por WebSocket.</p>
+    </div>
+    @if (native.supported) {
+      <label class="notif"><p-toggleswitch [ngModel]="native.enabled()" (ngModelChange)="setNotifications($event)" ariaLabel="Notificaciones en el teléfono" /> <span>Notificaciones en el teléfono</span></label>
+    }
   </div>
 
   <div class="layout">
@@ -26,8 +31,11 @@
             <p class="msg">{{ a.message }}</p>
             <p class="meta muted"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ a.station_name }} · {{ a.created_at | date: 'dd/MM/yyyy HH:mm' }}</p>
             @if (a.note) { <p class="note"><i class="pi pi-comment" aria-hidden="true"></i> {{ a.note }}</p> }
-            @if (a.status !== 'resolved') {
+            @if (a.status !== 'resolved' && auth.isLoggedIn()) {
               <footer>
+                @if (auth.isManager()) {
+                  <p-button label="Crear orden" icon="pi pi-clipboard" size="small" [text]="true" [routerLink]="['/operaciones/ordenes']" [queryParams]="{ alerta: a.id }" />
+                }
                 @if (a.status === 'open') {
                   <p-button label="Reconocer" icon="pi pi-eye" size="small" [outlined]="true" (onClick)="openDialog(a, 'acknowledged')" />
                 }
@@ -62,12 +70,13 @@
       <ul>
         @for (r of ruleList(); track r.id) {
           <li [class.off]="!r.enabled">
-            <div class="r-head"><strong>{{ r.name }}</strong><app-pill [label]="sev[r.severity].label" [color]="sev[r.severity].color" [bg]="sev[r.severity].bg" /></div>
-<<<<<<< HEAD
-            <div class="cond"><code>{{ r.parameter }} {{ r.condition ?? r.operator + ' ' + r.threshold + ' ' + r.unit }}</code> <span class="muted">{{ r.enabled ? 'Activa' : 'Desactivada' }}</span></div>
-=======
+            <div class="r-head"><strong>{{ r.name }}</strong>
+              <span class="row">
+                <app-pill [label]="sev[r.severity].label" [color]="sev[r.severity].color" [bg]="sev[r.severity].bg" />
+                @if (auth.hasRole('admin')) { <p-button icon="pi pi-pencil" size="small" [text]="true" [rounded]="true" [ariaLabel]="'Editar ' + r.name" (onClick)="editRule(r)" /> }
+              </span>
+            </div>
             <div class="cond"><code>{{ criterion(r) }}</code> <span class="muted">{{ r.enabled ? 'Activa' : 'Desactivada' }}</span></div>
->>>>>>> origin/feature/prototipo-c-skimmer
             @if (r.description) { <div class="muted small">{{ r.description }}</div> }
           </li>
         } @empty { <li class="muted">Sin reglas.</li> }
@@ -85,5 +94,25 @@
   <ng-template #footer>
     <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="dialogOpen.set(false)" />
     <p-button [label]="target()?.status === 'resolved' ? 'Resolver' : 'Reconocer'" [loading]="saving()" (onClick)="confirm()" />
+  </ng-template>
+</p-dialog>
+
+<p-dialog [visible]="ruleOpen()" (visibleChange)="ruleOpen.set($event)" [modal]="true" [style]="{ width: 'min(440px, 94vw)' }" [header]="'Editar umbral · ' + (ruleDraft()?.name ?? '')" appendTo="body">
+  @if (ruleDraft(); as r) {
+    <div class="rule-form">
+      <label class="lbl">Severidad
+        <p-selectbutton [options]="ruleSeverityOptions" [(ngModel)]="r.severity" optionLabel="label" optionValue="value" [allowEmpty]="false" size="small" />
+      </label>
+      <div class="two">
+        <label class="lbl">Mínimo <p-inputnumber [(ngModel)]="r.min_value" [maxFractionDigits]="3" [showClear]="true" /></label>
+        <label class="lbl">Máximo <p-inputnumber [(ngModel)]="r.max_value" [maxFractionDigits]="3" [showClear]="true" /></label>
+      </div>
+      <label class="notif"><p-toggleswitch [(ngModel)]="r.enabled" /> <span>Regla activa</span></label>
+      <p class="muted small">Valores de prototipo: documenta el criterio en la descripción de la regla.</p>
+    </div>
+  }
+  <ng-template #footer>
+    <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="ruleOpen.set(false)" />
+    <p-button label="Guardar" icon="pi pi-check" [loading]="saving()" (onClick)="saveRule()" />
   </ng-template>
 </p-dialog>
