@@ -1,9 +1,12 @@
 import { DestroyRef, Injectable, effect, inject, signal, untracked } from '@angular/core';
 import { Subject } from 'rxjs';
 import { APP_CONFIG } from '../config/app-config';
+import { mapEnvelope } from '../api/mappers';
 import { MockBackend } from '../mock/mock-backend';
+import { WsEnvelopeDto } from '../models/api.models';
 import { LiveEvent, LiveStatus } from '../models/rio.models';
 import { FiltersService } from './filters.service';
+import { StationsService } from './stations.service';
 
 /** Reconnect delay: 1 s, 2 s, 4 s … capped at 30 s. */
 export function backoffDelay(attempt: number): number {
@@ -22,6 +25,7 @@ export class LiveStreamService {
   private readonly cfg = inject(APP_CONFIG);
   private readonly filters = inject(FiltersService);
   private readonly mock = inject(MockBackend);
+  private readonly stations = inject(StationsService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly status = signal<LiveStatus>('disconnected');
@@ -81,7 +85,8 @@ export class LiveStreamService {
     };
     ws.onmessage = (m) => {
       try {
-        this.dispatch(JSON.parse(String(m.data)) as LiveEvent);
+        const e = mapEnvelope(JSON.parse(String(m.data)) as WsEnvelopeDto, (id) => (id ? this.stations.name(id) : '—'));
+        if (e) this.dispatch(e);
       } catch {
         /* ignore malformed frames */
       }

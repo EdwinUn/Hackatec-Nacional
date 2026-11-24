@@ -6,7 +6,13 @@ export const WQI_META: Record<WqiCategory, { label: string; color: string; bg: s
   regular: { label: 'Regular', color: '#a16207', bg: '#fcefc7' },
   mala: { label: 'Mala', color: '#c2410c', bg: '#fde4d3' },
   critica: { label: 'Crítica', color: '#b91c1c', bg: '#fbdcdc' },
+  sin_datos: { label: 'Sin datos', color: '#475569', bg: '#e2e8f0' },
 };
+
+/** Score text for a WQI value; `—` when the backend has no data for it. */
+export function wqiText(w: { score: number; category: WqiCategory }): string {
+  return w.category === 'sin_datos' ? '—' : String(Math.round(w.score));
+}
 
 export function wqiCategory(score: number): WqiCategory {
   if (score >= 90) return 'excelente';

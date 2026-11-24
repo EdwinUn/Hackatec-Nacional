@@ -6,7 +6,6 @@ import {
   AlertRule,
   Bucket,
   CentrifugeAnalytics,
-  CentrifugeCycleIngest,
   DashboardOverview,
   Hotspot,
   IngestResult,
@@ -14,12 +13,10 @@ import {
   PhAnalytics,
   PhForecast,
   Query,
-  ReadingIngest,
   SensorHealth,
   Station,
-  TreatmentBatchIngest,
   WasteAnalytics,
-  WasteCollectionIngest,
+  WasteType,
   WaterRecovery,
 } from '../models/rio.models';
 
@@ -32,14 +29,17 @@ export abstract class RioApi {
   abstract waste(q: Query, bucket: Bucket): Observable<WasteAnalytics>;
   abstract centrifuge(q: Query, bucket: Bucket): Observable<CentrifugeAnalytics>;
   abstract sensorsHealth(q: Query): Observable<SensorHealth[]>;
-  abstract hotspots(q: Query): Observable<Hotspot[]>;
+  abstract hotspots(): Observable<Hotspot[]>;
   abstract alerts(f: AlertFilters): Observable<Page<Alert>>;
   abstract patchAlert(id: string, body: AlertPatch): Observable<Alert>;
   abstract alertRules(): Observable<AlertRule[]>;
   abstract forecastPh(stationId: string, horizonHours: number): Observable<PhForecast>;
-  // Simulation / ingest (X-API-Key)
-  abstract postReading(body: ReadingIngest): Observable<IngestResult>;
-  abstract postCentrifugeCycle(body: CentrifugeCycleIngest): Observable<IngestResult>;
-  abstract postTreatmentBatch(body: TreatmentBatchIngest): Observable<IngestResult>;
-  abstract postWasteCollection(body: WasteCollectionIngest): Observable<IngestResult>;
+
+  // ── IoT simulation (ingest endpoints, `X-API-Key`) ─────────────────────────
+  /** pH 5.0 on the inlet sensor of the station → triggers a critical alert. */
+  abstract simulateAcidDischarge(stationId: string): Observable<IngestResult>;
+  /** Starts and closes a centrifuge cycle (`failed` = excessive vibration). */
+  abstract simulateCentrifugeCycle(stationId: string, failed: boolean): Observable<IngestResult>;
+  abstract simulateTreatmentBatch(stationId: string): Observable<IngestResult>;
+  abstract simulateWasteCollection(stationId: string, type: WasteType): Observable<IngestResult>;
 }

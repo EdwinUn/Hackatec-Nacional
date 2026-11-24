@@ -8,8 +8,9 @@ import { Dialog } from 'primeng/dialog';
 import { Paginator, PaginatorState } from 'primeng/paginator';
 import { SelectButton } from 'primeng/selectbutton';
 import { Textarea } from 'primeng/textarea';
+import { locationLabel, typeLabel } from '../../core/api/labels';
 import { RioApi } from '../../core/api/rio-api';
-import { Alert, AlertSeverity, AlertStatus } from '../../core/models/rio.models';
+import { Alert, AlertRule, AlertSeverity, AlertStatus } from '../../core/models/rio.models';
 import { FiltersService } from '../../core/services/filters.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
 import { Pill } from '../../shared/components/pill';
@@ -84,6 +85,22 @@ export class AlertsPage {
       .subscribe((e) => {
         if (e.type === 'alert') this.bump.update((n) => n + 1);
       });
+  }
+
+  /** Human-readable criterion of a rule, from its kind and min/max values. */
+  protected criterion(r: AlertRule): string {
+    switch (r.kind) {
+      case 'reading_range': {
+        const limits = [r.min_value !== null ? `< ${r.min_value}` : '', r.max_value !== null ? `> ${r.max_value}` : ''].filter(Boolean).join(' o ');
+        return `${typeLabel(r.parameter)}${r.location ? ` (${locationLabel(r.location)})` : ''} ${limits}`.trim();
+      }
+      case 'centrifuge_vibration':
+        return `Vibración ≥ ${r.max_value} mm/s`;
+      case 'treatment_efficiency':
+        return `Eficiencia < ${r.min_value}%`;
+      case 'sensor_offline':
+        return `Sensor sin lecturas${r.max_value !== null ? ` > ${r.max_value} min` : ''}`;
+    }
   }
 
   protected setStatus(v: 'all' | AlertStatus | null): void {

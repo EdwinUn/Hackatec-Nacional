@@ -1,15 +1,9 @@
 /**
- * ═══════════════════════════════════════════════════════════════════════════════
- *  ⚠  SUPUESTOS — ESQUEMAS PENDIENTES DE CONFIRMAR CONTRA `API.md`
- * ═══════════════════════════════════════════════════════════════════════════════
- * `API.md` solo documenta `GET /health`. Los esquemas de abajo se INFIRIERON de la
- * descripción del reto (nombres de endpoints, `inlet.avg`, `error.message`, tipos de
- * evento WS…). Todo el frontend depende de este único archivo: cuando exista el
- * contrato real, ajustar SOLO aquí (y, si cambian nombres de campos, `http-rio-api.ts`).
- * Timestamps: ISO-8601 UTC.
+ * View models used by the screens. The wire format (exact `API.md` schemas) lives in
+ * `api.models.ts`; `api/mappers.ts` converts one into the other. Timestamps: ISO-8601 UTC.
  */
 
-export type WqiCategory = 'excelente' | 'buena' | 'regular' | 'mala' | 'critica';
+export type WqiCategory = 'excelente' | 'buena' | 'regular' | 'mala' | 'critica' | 'sin_datos';
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 export type AlertStatus = 'open' | 'acknowledged' | 'resolved';
 export type SensorStatus = 'ok' | 'degraded' | 'fault' | 'offline';
@@ -26,28 +20,28 @@ export interface ApiErrorBody {
 export interface Station {
   id: string; // uuid
   name: string;
-  code: string;
-  municipality: string;
   river: string;
   latitude: number;
   longitude: number;
+  status?: string;
 }
 
 export interface WqiScore {
-  score: number; // 0..100
+  score: number; // 0..100 (0 when `category` is `sin_datos`)
   category: WqiCategory;
-  dominant_parameter: string; // e.g. "ph", "do", "turbidity"
+  /** Parameter with the lowest sub-index, e.g. "turbidity". */
+  dominant_parameter: string | null;
 }
 
-/** GET /dashboard/overview */
+/** GET /dashboard/overview (mapped) */
 export interface DashboardOverview {
   from: string;
   to: string;
-  wqi: { river: WqiScore; outlet: WqiScore; trend: number[] };
-  ph: { inlet: number; outlet: number; improvement_pct: number; trend: number[] };
+  wqi: { river: WqiScore; outlet: WqiScore };
+  ph: { inlet: number | null; outlet: number | null; improvement_pct: number | null };
   sensors: { online: number; total: number };
   treatment_efficiency_pct: number;
-  recovery: { clean_liters: number; waste_kg: number; trend: number[] };
+  recovery: { clean_liters: number; waste_kg: number };
   alerts: { open: number; critical: number };
 }
 
@@ -57,14 +51,13 @@ export interface Stat {
   max: number;
 }
 
-/** GET /analytics/ph?bucket=5m */
 export interface PhAnalytics {
   bucket: Bucket;
+  /** Relative change outlet vs. inlet, in %. */
   avg_improvement_pct: number;
   series: { ts: string; inlet: Stat; outlet: Stat }[];
 }
 
-/** GET /analytics/water-recovery?bucket=1h */
 export interface WaterRecovery {
   bucket: Bucket;
   totals: {
@@ -77,14 +70,12 @@ export interface WaterRecovery {
   series: { ts: string; liters_in: number; liters_clean: number }[];
 }
 
-/** GET /analytics/waste?bucket=1h */
 export interface WasteAnalytics {
   bucket: Bucket;
   total_kg: number;
   by_type: { type: WasteType; kg: number; pieces: number }[];
 }
 
-/** GET /analytics/centrifuge?bucket=1h */
 export interface CentrifugeAnalytics {
   bucket: Bucket;
   cycles_total: number;
@@ -95,7 +86,6 @@ export interface CentrifugeAnalytics {
   current: { state: CentrifugeState; rpm: number; vibration_mm_s: number; updated_at: string };
 }
 
-/** GET /analytics/sensors/health */
 export interface SensorHealth {
   sensor_id: string;
   name: string;
@@ -108,7 +98,6 @@ export interface SensorHealth {
   uptime_pct: number;
 }
 
-/** GET /analytics/hotspots */
 export interface Hotspot {
   station_id: string;
   name: string;
@@ -126,7 +115,6 @@ export interface Page<T> {
   offset: number;
 }
 
-/** GET /alerts · PATCH /alerts/{id} */
 export interface Alert {
   id: string;
   station_id: string;
@@ -137,6 +125,7 @@ export interface Alert {
   parameter: string | null;
   value: number | null;
   created_at: string;
+  occurrences: number;
   acknowledged_at: string | null;
   resolved_at: string | null;
   note: string | null;
@@ -155,69 +144,39 @@ export interface AlertFilters {
   offset: number;
 }
 
-/** GET /alert-rules */
 export interface AlertRule {
   id: string;
   name: string;
-  parameter: string;
-  operator: '<' | '<=' | '>' | '>=';
-  threshold: number;
-  unit: string;
+  kind: 'reading_range' | 'sensor_offline' | 'centrifuge_vibration' | 'treatment_efficiency';
   severity: AlertSeverity;
+  parameter: string | null;
+  location: string | null;
+  min_value: number | null;
+  max_value: number | null;
   enabled: boolean;
   description: string | null;
 }
 
-/** GET /analytics/forecast/ph?station_id=…&horizon=6 */
 export interface PhForecast {
   station_id: string;
   horizon_hours: number;
   history: { ts: string; value: number }[];
   forecast: { ts: string; value: number; lower: number; upper: number }[];
+  /** Why the forecast is empty (e.g. too few samples). */
+  note: string | null;
 }
 
-// ── Ingest / simulation (POST, header `X-API-Key`) ────────────────────────────
-export interface ReadingIngest {
-  station_id: string;
-  position: SensorPosition;
-  parameter: string;
-  value: number;
-  unit: string;
-  timestamp?: string;
-}
-export interface CentrifugeCycleIngest {
-  station_id: string;
-  started_at: string;
-  ended_at: string;
-  avg_rpm: number;
-  max_vibration_mm_s: number;
-  energy_kwh: number;
-  status: 'completed' | 'failed';
-}
-export interface TreatmentBatchIngest {
-  station_id: string;
-  liters_in: number;
-  liters_clean: number;
-  sludge_kg: number;
-  started_at: string;
-  ended_at: string;
-}
-export interface WasteCollectionIngest {
-  station_id: string;
-  waste_type: WasteType;
-  kg: number;
-  pieces: number;
-  collected_at: string;
-}
+/** Outcome of a simulated ingest action. */
 export interface IngestResult {
   id: string;
   accepted: boolean;
+  detail: string;
 }
 
-// ── WebSocket (ws://…/ws/live[?station_id=<uuid>]) ────────────────────────────
+// ── Live events (already mapped from the WebSocket envelope) ─────────────────
 export type LiveEvent =
   | { type: 'hello' | 'ping'; data?: unknown }
-  | { type: 'reading'; data: { station_id: string; position: SensorPosition; parameter: string; value: number; unit: string; timestamp: string } }
+  | { type: 'reading'; data: { station_id: string; sensor_id: string; position: SensorPosition; parameter: string; value: number; unit: string; timestamp: string } }
   | { type: 'sensor_status'; data: { station_id: string; sensor_id: string; status: SensorStatus; signal_quality_pct?: number } }
   | { type: 'cycle_update'; data: { station_id: string; state: CentrifugeState; rpm: number; vibration_mm_s: number } }
   | { type: 'batch_completed'; data: { station_id: string; liters_in: number; liters_clean: number; sludge_kg: number } }

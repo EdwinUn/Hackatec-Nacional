@@ -7,18 +7,18 @@
   <!-- KPI row -->
   <div class="kpis">
     @if (s.overview(); as o) {
-      <app-kpi-tile label="WQI Río → Salida" icon="pi pi-heart" [value]="'' + o.wqi.river.score" [valueTo]="'' + o.wqi.outlet.score" [valueColor]="wqi[o.wqi.outlet.category].color" [spark]="o.wqi.trend" [sparkColor]="wqi[o.wqi.outlet.category].color" [delta]="deltas()?.wqi ?? null" deltaSuffix=" pts" [sub]="'Parámetro crítico: ' + o.wqi.river.dominant_parameter">
+      <app-kpi-tile label="WQI Río → Salida" icon="pi pi-heart"  [value]="wqiText(o.wqi.river)" [valueTo]="wqiText(o.wqi.outlet)" [valueColor]="wqi[o.wqi.outlet.category].color"  [sparkColor]="wqi[o.wqi.outlet.category].color" [delta]="deltas()?.wqi ?? null" deltaSuffix=" pts" [sub]="'Parámetro crítico: ' + paramLabel(o.wqi.river.dominant_parameter)">
         <div class="pills">
           <app-pill [label]="'Río · ' + wqi[o.wqi.river.category].label" [color]="wqi[o.wqi.river.category].color" [bg]="wqi[o.wqi.river.category].bg" />
           <app-pill [label]="'Salida · ' + wqi[o.wqi.outlet.category].label" [color]="wqi[o.wqi.outlet.category].color" [bg]="wqi[o.wqi.outlet.category].bg" />
         </div>
       </app-kpi-tile>
 
-      <app-kpi-tile label="pH entrada → salida" icon="pi pi-percentage" [value]="f.n2(o.ph.inlet)" [valueTo]="f.n2(o.ph.outlet)" [spark]="o.ph.trend" [delta]="deltas()?.ph ?? null" deltaSuffix=" pp" [sub]="(o.ph.improvement_pct >= 0 ? '+' : '') + f.n1(o.ph.improvement_pct) + '% de mejora por el tratamiento'" />
+      <app-kpi-tile label="pH entrada → salida" icon="pi pi-percentage" [value]="phText(o.ph.inlet)" [valueTo]="phText(o.ph.outlet)" [spark]="s.phSpark()" [delta]="deltas()?.ph ?? null" deltaSuffix=" pp" [sub]="improvementText(o.ph.improvement_pct)" />
 
       <app-kpi-tile label="Salud de sensores" icon="pi pi-microchip" [value]="o.sensors.online + '/' + o.sensors.total" unit="en línea" [spark]="s.efficiencySpark()" sparkColor="#2563eb" [delta]="deltas()?.eff ?? null" deltaSuffix=" pp" [sub]="'Eficiencia de tratamiento: ' + f.n1(o.treatment_efficiency_pct) + '%'" />
 
-      <app-kpi-tile label="Recuperación y residuos" icon="pi pi-sync" [value]="f.liters(o.recovery.clean_liters)" sub="" [spark]="o.recovery.trend" sparkColor="#0891b2" [delta]="deltas()?.liters ?? null">
+      <app-kpi-tile label="Recuperación y residuos" icon="pi pi-sync" [value]="f.liters(o.recovery.clean_liters)" sub="" [spark]="s.recoverySpark()" sparkColor="#0891b2" [delta]="deltas()?.liters ?? null">
         <div class="sub-line"><i class="pi pi-trash" aria-hidden="true"></i> {{ f.n1(o.recovery.waste_kg) }} kg de basura recolectada</div>
       </app-kpi-tile>
     } @else if (s.overviewRes.error()) {
@@ -38,7 +38,7 @@
       <h2 class="rm-card-title">
         <i class="pi pi-chart-line" aria-hidden="true"></i> pH · entrada vs. salida
         @if (s.ph(); as ph) {
-          <span class="spacer muted small">Mejora promedio <strong class="good">{{ ph.avg_improvement_pct >= 0 ? '+' : '' }}{{ f.n1(ph.avg_improvement_pct) }}%</strong> · bloques de {{ ph.bucket }}</span>
+          <span class="spacer muted small">Mejora promedio <strong [class.good]="ph.avg_improvement_pct >= 0" [class.bad]="ph.avg_improvement_pct < 0">{{ ph.avg_improvement_pct >= 0 ? '+' : '' }}{{ f.n1(ph.avg_improvement_pct) }}%</strong> · bloques de {{ ph.bucket }}</span>
         }
       </h2>
       @if (phChart(); as cfg) {

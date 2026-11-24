@@ -14,10 +14,12 @@ import {
   WqiScore,
 } from '../models/rio.models';
 
+const CODES = ['ATY-01', 'ALS-02', 'VAL-03'];
+
 export const MOCK_STATIONS: Station[] = [
-  { id: '5b1e0d7a-0c31-4c3e-9a51-1a2b3c4d5e01', name: 'Estación Atoyac Poniente', code: 'ATY-01', municipality: 'Puebla', river: 'Río Atoyac', latitude: 19.059, longitude: -98.253 },
-  { id: '5b1e0d7a-0c31-4c3e-9a51-1a2b3c4d5e02', name: 'Estación Alseseca Oriente', code: 'ALS-02', municipality: 'Puebla', river: 'Río Alseseca', latitude: 19.033, longitude: -98.165 },
-  { id: '5b1e0d7a-0c31-4c3e-9a51-1a2b3c4d5e03', name: 'Estación Valsequillo', code: 'VAL-03', municipality: 'Puebla', river: 'Presa Manuel Ávila Camacho', latitude: 18.956, longitude: -98.156 },
+  { id: '5b1e0d7a-0c31-4c3e-9a51-1a2b3c4d5e01', name: 'Estación Atoyac Poniente', river: 'Río Atoyac', latitude: 19.059, longitude: -98.253 },
+  { id: '5b1e0d7a-0c31-4c3e-9a51-1a2b3c4d5e02', name: 'Estación Alseseca Oriente', river: 'Río Alseseca', latitude: 19.033, longitude: -98.165 },
+  { id: '5b1e0d7a-0c31-4c3e-9a51-1a2b3c4d5e03', name: 'Estación Valsequillo', river: 'Presa Manuel Ávila Camacho', latitude: 18.956, longitude: -98.156 },
 ];
 
 const POSITIONS: SensorPosition[] = ['inlet', 'outlet', 'river'];
@@ -58,7 +60,7 @@ export class MockBackend {
   readonly sensors: SensorHealth[] = MOCK_STATIONS.flatMap((s, si) =>
     POSITIONS.map((p, pi) => ({
       sensor_id: `${s.id}:${p}`,
-      name: `pH ${p === 'inlet' ? 'entrada' : p === 'outlet' ? 'salida' : 'río'} · ${s.code}`,
+      name: `pH ${p === 'inlet' ? 'entrada' : p === 'outlet' ? 'salida' : 'río'} · ${CODES[si]}`,
       station_id: s.id,
       position: p,
       parameter: 'ph',
@@ -76,12 +78,12 @@ export class MockBackend {
     waste: { plastic: { kg: 0, pieces: 0 }, organic: { kg: 0, pieces: 0 }, metal: { kg: 0, pieces: 0 }, glass: { kg: 0, pieces: 0 }, other: { kg: 0, pieces: 0 } },
   };
   readonly rules: AlertRule[] = [
-    { id: 'r1', name: 'pH ácido en la entrada', parameter: 'ph', operator: '<', threshold: 6.0, unit: 'pH', severity: 'warning', enabled: true, description: 'Posible descarga ácida aguas arriba.' },
-    { id: 'r2', name: 'pH muy ácido (descarga)', parameter: 'ph', operator: '<', threshold: 5.5, unit: 'pH', severity: 'critical', enabled: true, description: 'Descarga industrial probable.' },
-    { id: 'r3', name: 'pH alcalino en la salida', parameter: 'ph', operator: '>', threshold: 8.5, unit: 'pH', severity: 'warning', enabled: true, description: 'Sobredosificación de reactivos.' },
-    { id: 'r4', name: 'Vibración de centrífuga', parameter: 'vibration', operator: '>=', threshold: 7.1, unit: 'mm/s', severity: 'critical', enabled: true, description: 'Riesgo mecánico del equipo.' },
-    { id: 'r5', name: 'Eficiencia de tratamiento baja', parameter: 'efficiency', operator: '<', threshold: 70, unit: '%', severity: 'warning', enabled: true, description: 'Lote por debajo del objetivo.' },
-    { id: 'r6', name: 'Sensor sin señal', parameter: 'signal', operator: '<', threshold: 40, unit: '%', severity: 'info', enabled: false, description: 'Calidad de señal insuficiente.' },
+    { id: 'r1', name: 'pH ácido en la entrada', kind: 'reading_range', severity: 'warning', parameter: 'ph', location: 'inlet', min_value: 6.0, max_value: null, enabled: true, description: 'Posible descarga ácida aguas arriba.' },
+    { id: 'r2', name: 'pH extremo (descarga)', kind: 'reading_range', severity: 'critical', parameter: 'ph', location: 'inlet', min_value: 5.5, max_value: 9.5, enabled: true, description: 'Descarga industrial probable.' },
+    { id: 'r3', name: 'pH alcalino en la salida', kind: 'reading_range', severity: 'warning', parameter: 'ph', location: 'outlet', min_value: null, max_value: 8.5, enabled: true, description: 'Sobredosificación de reactivos.' },
+    { id: 'r4', name: 'Vibración de centrífuga', kind: 'centrifuge_vibration', severity: 'critical', parameter: null, location: null, min_value: null, max_value: 7.1, enabled: true, description: 'Riesgo mecánico del equipo.' },
+    { id: 'r5', name: 'Eficiencia de tratamiento baja', kind: 'treatment_efficiency', severity: 'warning', parameter: null, location: null, min_value: 70, max_value: null, enabled: true, description: 'Lote por debajo del objetivo.' },
+    { id: 'r6', name: 'Sensor sin lecturas', kind: 'sensor_offline', severity: 'info', parameter: null, location: null, min_value: null, max_value: 10, enabled: false, description: 'Sin lecturas durante 10 min.' },
   ];
   readonly alertList: Alert[] = this.seedAlerts();
 
@@ -115,6 +117,7 @@ export class MockBackend {
       acknowledged_at: null,
       resolved_at: null,
       note: null,
+      occurrences: 1,
       ...partial,
     };
     this.alertList.unshift(alert);
@@ -128,7 +131,7 @@ export class MockBackend {
     const sensor = this.sensors.find((s) => s.station_id === stationId && s.position === position);
     const ts = new Date().toISOString();
     if (sensor) sensor.last_reading = { value, unit: 'pH', ts };
-    this.events$.next({ type: 'reading', data: { station_id: stationId, position, parameter: 'ph', value, unit: 'pH', timestamp: ts } });
+    this.events$.next({ type: 'reading', data: { station_id: stationId, sensor_id: sensor?.sensor_id ?? '', position, parameter: 'ph', value, unit: 'pH', timestamp: ts } });
     if (position === 'inlet' && value < 6) {
       this.createAlert({
         station_id: stationId,
@@ -207,7 +210,7 @@ export class MockBackend {
       id: `al-seed-${i}`,
       station_id: MOCK_STATIONS[stationIdx].id,
       station_name: MOCK_STATIONS[stationIdx].name,
-      severity, status, message, parameter, value,
+      severity, status, message, parameter, value, occurrences: 1,
       created_at: new Date(Date.now() - ageMin * 60_000).toISOString(),
       acknowledged_at: status !== 'open' ? new Date(Date.now() - (ageMin - 5) * 60_000).toISOString() : null,
       resolved_at: status === 'resolved' ? new Date(Date.now() - (ageMin - 20) * 60_000).toISOString() : null,

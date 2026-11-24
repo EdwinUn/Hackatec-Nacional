@@ -10,11 +10,12 @@ import { LiveStreamService } from '../../core/services/live-stream.service';
 import { Pill } from '../../shared/components/pill';
 import { valueOrUndefined } from '../../shared/utils/resource.util';
 import { formatCoords, timeAgo } from '../../shared/utils/format.util';
-import { SENSOR_STATUS_META, WQI_META } from '../../shared/utils/wqi.util';
+import { typeLabel } from '../../core/api/labels';
+import { SENSOR_STATUS_META, WQI_META, wqiText } from '../../shared/utils/wqi.util';
 import { ATTRIBUTION, BASIN_BOUNDS, BASIN_CENTER, BASIN_ZOOM, PRESA_VALSEQUILLO, RIO_ALSESECA, RIO_ATOYAC, TILES } from './basin';
 
 const POSITION_LABEL: Record<SensorPosition, string> = { inlet: 'Entrada', outlet: 'Salida', river: 'Río' };
-const CATEGORIES = Object.keys(WQI_META) as (keyof typeof WQI_META)[];
+const CATEGORIES = Object.keys(WQI_META).filter((k) => k !== 'sin_datos') as (keyof typeof WQI_META)[];
 
 @Component({
   selector: 'app-satellite-page',
@@ -33,6 +34,8 @@ export class SatellitePage {
   protected readonly sensorMeta = SENSOR_STATUS_META;
   protected readonly positionLabel = POSITION_LABEL;
   protected readonly coords = formatCoords;
+  protected readonly paramLabel = typeLabel;
+  protected readonly wqiText = wqiText;
   protected readonly ago = timeAgo;
   protected readonly positions: SensorPosition[] = ['inlet', 'outlet', 'river'];
 
@@ -45,7 +48,7 @@ export class SatellitePage {
   /** All stations are always on the map, regardless of the header station filter (range still applies). */
   protected readonly hotspots = rxResource({
     params: () => ({ from: this.filters.query().from, to: this.filters.query().to, tick: this.filters.tick() }),
-    stream: ({ params }) => this.api.hotspots({ from: params.from, to: params.to }),
+    stream: () => this.api.hotspots(),
   });
   protected readonly list = computed<Hotspot[]>(() => valueOrUndefined(this.hotspots) ?? []);
 
@@ -60,7 +63,7 @@ export class SatellitePage {
   private readonly liveValues = signal<Partial<Record<SensorPosition, { value: number; ts: string }>>>({});
   protected readonly telemetry = computed(() =>
     this.positions.map((pos) => {
-      const sensor = (valueOrUndefined(this.sensorsRes) ?? []).find((s: SensorHealth) => s.position === pos);
+      const sensor = (valueOrUndefined(this.sensorsRes) ?? []).find((s: SensorHealth) => s.position === pos && s.parameter === 'ph');
       const live = this.liveValues()[pos];
       const last = live ?? (sensor?.last_reading ? { value: sensor.last_reading.value, ts: sensor.last_reading.ts } : null);
       return { pos, sensor, last, live: !!live };
@@ -69,7 +72,7 @@ export class SatellitePage {
 
   protected readonly counts = computed(() => {
     const c = Object.fromEntries(CATEGORIES.map((k) => [k, 0])) as Record<(typeof CATEGORIES)[number], number>;
-    for (const h of this.list()) c[h.wqi.category]++;
+    for (const h of this.list()) if (h.wqi.category in c) c[h.wqi.category]++;
     return c;
   });
   protected readonly totals = computed(() => ({

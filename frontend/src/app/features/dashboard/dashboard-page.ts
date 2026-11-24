@@ -7,7 +7,8 @@ import { KpiTile } from '../../shared/components/kpi-tile';
 import { Pill } from '../../shared/components/pill';
 import { TimeSeriesChart } from '../../shared/components/time-series-chart';
 import { fmt0, fmt1, fmt2, formatLiters, pctDelta, timeAgo } from '../../shared/utils/format.util';
-import { CENTRIFUGE_META, SENSOR_STATUS_META, WASTE_META, WQI_META } from '../../shared/utils/wqi.util';
+import { typeLabel } from '../../core/api/labels';
+import { CENTRIFUGE_META, SENSOR_STATUS_META, WASTE_META, WQI_META, wqiText } from '../../shared/utils/wqi.util';
 import { DashboardStore } from './dashboard-store';
 
 const ORANGE = '#d9730d';
@@ -36,7 +37,7 @@ export class DashboardPage {
     if (!o || !p) return null;
     return {
       wqi: o.wqi.outlet.score - p.wqi.outlet.score,
-      ph: o.ph.improvement_pct - p.ph.improvement_pct,
+      ph: (o.ph.improvement_pct ?? 0) - (p.ph.improvement_pct ?? 0),
       eff: o.treatment_efficiency_pct - p.treatment_efficiency_pct,
       liters: pctDelta(o.recovery.clean_liters, p.recovery.clean_liters),
     };
@@ -101,6 +102,15 @@ export class DashboardPage {
       },
     };
   });
+
+  protected readonly wqiText = wqiText;
+  protected readonly paramLabel = typeLabel;
+  protected phText(v: number | null): string {
+    return v === null ? '—' : fmt2(v);
+  }
+  protected improvementText(pct: number | null): string {
+    return pct === null ? 'Sin lecturas de pH en el periodo' : `${pct >= 0 ? '+' : ''}${fmt1(pct)}% de mejora por el tratamiento`;
+  }
 
   protected signalColor(v: number): string {
     return v >= 80 ? '#1f7a5a' : v >= 55 ? '#d9a30d' : '#c2410c';

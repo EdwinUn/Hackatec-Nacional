@@ -65,6 +65,7 @@ export class PredictivePage {
     stream: ({ params }) => this.api.forecastPh(params.id, params.h),
   });
 
+  protected readonly note = computed(() => valueOrUndefined(this.forecast)?.note ?? null);
   protected readonly summary = computed(() => {
     const f: PhForecast | undefined = valueOrUndefined(this.forecast);
     if (!f?.forecast.length) return null;
@@ -123,40 +124,26 @@ export class PredictivePage {
   protected simulateAcid(): void {
     const id = this.requireStation();
     if (!id) return;
-    this.send('acid', 'Descarga ácida · pH 5.0 en la entrada', this.api.postReading({ station_id: id, position: 'inlet', parameter: 'ph', value: 5.0, unit: 'pH', timestamp: nowIso() }));
+    this.send('acid', 'Descarga ácida · pH 5.0 en la entrada', this.api.simulateAcidDischarge(id));
   }
 
   protected simulateCycle(failed: boolean): void {
     const id = this.requireStation();
     if (!id) return;
-    const t = Date.now();
-    this.send(
-      failed ? 'cycle-bad' : 'cycle',
-      failed ? 'Ciclo de centrífuga con falla (vibración 8.4 mm/s)' : 'Ciclo de centrífuga normal',
-      this.api.postCentrifugeCycle({
-        station_id: id,
-        started_at: new Date(t - 20 * 60_000).toISOString(),
-        ended_at: nowIso(),
-        avg_rpm: failed ? 3620 : 3190,
-        max_vibration_mm_s: failed ? 8.4 : 2.6,
-        energy_kwh: 4.2,
-        status: failed ? 'failed' : 'completed',
-      }),
-    );
+    this.send(failed ? 'cycle-bad' : 'cycle', failed ? 'Ciclo de centrífuga con falla (vibración 8.9 mm/s)' : 'Ciclo de centrífuga normal', this.api.simulateCentrifugeCycle(id, failed));
   }
 
   protected simulateBatch(): void {
     const id = this.requireStation();
     if (!id) return;
-    const t = Date.now();
-    this.send('batch', 'Lote de tratamiento · 1 200 L → 1 050 L limpios', this.api.postTreatmentBatch({ station_id: id, liters_in: 1200, liters_clean: 1050, sludge_kg: 14.4, started_at: new Date(t - 45 * 60_000).toISOString(), ended_at: nowIso() }));
+    this.send('batch', 'Lote de tratamiento · 520 L → 468 L limpios', this.api.simulateTreatmentBatch(id));
   }
 
   protected simulateWaste(): void {
     const id = this.requireStation();
     if (!id) return;
     const type = this.wasteType();
-    this.send('waste', `Recolección de residuos · ${WASTE_META[type].label} 8.5 kg`, this.api.postWasteCollection({ station_id: id, waste_type: type, kg: 8.5, pieces: 40, collected_at: nowIso() }));
+    this.send('waste', `Recolección de residuos · ${WASTE_META[type].label} 8.5 kg`, this.api.simulateWasteCollection(id, type));
   }
 
   private requireStation(): string | null {
@@ -169,7 +156,7 @@ export class PredictivePage {
     this.busy.set(key);
     req.subscribe({
       next: (r) => {
-        this.push({ label, ok: true, detail: `Aceptado · id ${r.id}` });
+        this.push({ label, ok: r.accepted, detail: r.detail });
         this.toast.add({ key: 'app', severity: 'success', summary: 'Evento enviado', detail: 'Observa el flujo en vivo y las alertas.', life: 3500 });
         this.busy.set(null);
       },
@@ -185,4 +172,3 @@ export class PredictivePage {
   }
 }
 
-const nowIso = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
