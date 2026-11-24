@@ -25,6 +25,12 @@ El WebSocket (`LiveStreamService`) reconecta con backoff exponencial (1 s … 30
 ignorado por Git (`ng serve` lo usa vía `fileReplacements`): `apiBaseUrl`, `wsUrl`, `ingestApiKey` (`X-API-Key`) y `primeLicense`
 (PrimeNG 22 pide clave; tier *community* gratuito en <https://primeui.store>). En producción, inyéctalas al desplegar (p. ej. desde secretos del CI).
 
+## Módulo de operaciones (login, reportes ciudadanos, órdenes de trabajo)
+Rutas `/login`, `/operaciones/*` y el reporte/seguimiento público de ciudadanos (`/reportar`, `/reportar/seguimiento/:folio`). **Todavía no tiene backend:** funciona con
+`MockOpsApi` (datos guardados en el navegador) mientras `opsMocks` sea `true` (valor por defecto). Los endpoints propuestos,
+las reglas de negocio y lo que Back debe implementar están en [`docs/propuesta-api-operaciones.md`](docs/propuesta-api-operaciones.md).
+Cuando existan en `main`, se pone `opsMocks: false` en los environments.
+
 ## Contrato de API
 Los esquemas exactos de `API.md` viven en `src/app/core/models/api.models.ts`; `src/app/core/api/mappers.ts`
 los convierte a los modelos de las vistas (`rio.models.ts`) y `http-rio-api.ts` hace las peticiones
