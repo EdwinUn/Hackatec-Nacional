@@ -10,6 +10,8 @@ import { Popover } from 'primeng/popover';
 import { Select } from 'primeng/select';
 import { Toast } from 'primeng/toast';
 import { ToggleSwitch } from 'primeng/toggleswitch';
+import { AppHeader } from './app-header';
+import { BottomNav } from './bottom-nav';
 import { APP_CONFIG } from '../core/config/app-config';
 import { AuthService } from '../core/auth/auth.service';
 import { NativeAlertsService } from '../core/services/native-alerts.service';
@@ -24,7 +26,7 @@ const REFRESH_MS = 45_000;
 
 @Component({
   selector: 'app-shell',
-  imports: [FormsModule, RouterOutlet, RouterLink, RouterLinkActive, Button, DatePicker, Popover, Select, Toast, ToggleSwitch],
+  imports: [AppHeader, BottomNav, FormsModule, RouterOutlet, RouterLink, RouterLinkActive, Button, DatePicker, Popover, Select, Toast, ToggleSwitch],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './shell.html',
   styleUrl: './shell.scss',
@@ -49,6 +51,10 @@ export class Shell {
 
   protected readonly collapsed = signal(this.readCollapsed());
   protected readonly mobileOpen = signal(false);
+  private readonly url = signal(this.router.url);
+  /** Phone: Inicio and Mapa carry their own station/period controls, so the filter bar is hidden there. */
+  protected readonly cleanMobile = computed(() => /^\/(resumen|mapa|operaciones)(\/|$|\?)/.test(this.url()) || this.url() === '/');
+  protected readonly onMap = computed(() => this.url().startsWith('/mapa'));
   protected readonly presetLabel = PRESET_LABEL;
   protected readonly presets: Exclude<RangePreset, 'custom'>[] = ['24h', 'yesterday', '7d', '30d'];
   protected readonly draftRange = signal<Date[] | null>(null);
@@ -94,7 +100,10 @@ export class Shell {
         /* storage unavailable */
       }
     });
-    this.router.events.pipe(takeUntilDestroyed()).subscribe(() => this.mobileOpen.set(false));
+    this.router.events.pipe(takeUntilDestroyed()).subscribe(() => {
+      this.mobileOpen.set(false);
+      this.url.set(this.router.url);
+    });
   }
 
   protected toggleSidebar(): void {

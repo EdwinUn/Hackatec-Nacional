@@ -19,7 +19,10 @@ from app.adapters.outbound.persistence.orm import (
     CycleRow,
     ReadingRow,
     SensorRow,
+    SkimmerCollectionRow,
+    StaffUserRow,
     StationRow,
+    TaskRow,
     WasteRow,
 )
 from app.domain.entities import (
@@ -28,7 +31,10 @@ from app.domain.entities import (
     CentrifugeCycle,
     Reading,
     Sensor,
+    SkimmerCollection,
+    StaffUser,
     Station,
+    Task,
     TreatmentBatch,
     WasteCollection,
 )
@@ -41,6 +47,8 @@ from app.domain.enums import (
     SensorType,
     Severity,
     StationStatus,
+    TaskStatus,
+    TaskView,
 )
 
 
@@ -277,3 +285,94 @@ class SqlAlertRepository(SqlRepository[Alert, AlertRow]):
         if since:
             conds.append(AlertRow.last_triggered_at >= since)
         return await self._page(conds, AlertRow.last_triggered_at.desc(), limit, offset)
+
+
+class SqlStaffUserRepository(SqlRepository[StaffUser, StaffUserRow]):
+    entity, model = StaffUser, StaffUserRow
+
+    async def get_by_email(self, email: str) -> StaffUser | None:
+        row = await self.session.scalar(sa.select(StaffUserRow).where(StaffUserRow.email == email.lower()))
+        return self.to_entity(row) if row else None
+
+
+def _view_condition(view: TaskView, user_id: UUID | None) -> Any:
+    open_ = TaskRow.status != TaskStatus.DONE
+    match view:
+        case TaskView.ASSIGNED:
+            return sa.and_(open_, TaskRow.assigned_to == user_id)
+        case TaskView.PENDING_REPAIRS:
+            return sa.and_(open_, TaskRow.kind == "repair")
+        case TaskView.URGENT:
+            return sa.and_(open_, TaskRow.priority == "urgent")
+        case TaskView.DONE:
+            return TaskRow.status == TaskStatus.DONE
+
+
+class SqlTaskRepository(SqlRepository[Task, TaskRow]):
+    entity, model = Task, TaskRow
+
+    async def count(self) -> int:
+        return await self.session.scalar(sa.select(sa.func.count()).select_from(TaskRow)) or 0
+
+    async def list(
+        self, *, view: TaskView | None, user_id: UUID | None, limit: int, offset: int
+    ) -> tuple[list[Task], int]:
+        conds = [_view_condition(view, user_id)] if view else []
+        order = (
+            sa.desc(TaskRow.resolved_at)
+            if view is TaskView.DONE
+            else sa.case((TaskRow.priority == "urgent", 0), else_=1)
+        )
+        rows_order = [order, sa.desc(TaskRow.created_at)] if view is not TaskView.DONE else [order]
+        where = sa.and_(sa.true(), *conds)
+        total = await self.session.scalar(sa.select(sa.func.count()).select_from(TaskRow).where(where))
+        rows = await self.session.scalars(
+            sa.select(TaskRow).where(where).order_by(*rows_order).limit(limit).offset(offset)
+        )
+        return [self.to_entity(r) for r in rows], total or 0
+
+    async def counts(self, user_id: UUID | None) -> dict[TaskView, int]:
+        out: dict[TaskView, int] = {}
+        for view in TaskView:
+            out[view] = (
+                await self.session.scalar(
+                    sa.select(sa.func.count()).select_from(TaskRow).where(_view_condition(view, user_id))
+                )
+                or 0
+            )
+        return out
+
+
+class SqlSkimmerRepository(SqlRepository[SkimmerCollection, SkimmerCollectionRow]):
+    entity, model = SkimmerCollection, SkimmerCollectionRow
+
+    @staticmethod
+    def _conds(station_id: UUID | None, start: datetime | None, end: datetime | None) -> list[Any]:
+        conds: list[Any] = []
+        if station_id:
+            conds.append(SkimmerCollectionRow.station_id == station_id)
+        if start:
+            conds.append(SkimmerCollectionRow.ts >= start)
+        if end:
+            conds.append(SkimmerCollectionRow.ts < end)
+        return conds
+
+    async def list(
+        self,
+        *,
+        station_id: UUID | None,
+        start: datetime | None,
+        end: datetime | None,
+        limit: int,
+        offset: int,
+    ) -> tuple[list[SkimmerCollection], int]:
+        return await self._page(
+            self._conds(station_id, start, end), sa.desc(SkimmerCollectionRow.ts), limit, offset
+        )
+
+    async def all_in(
+        self, *, station_id: UUID | None, start: datetime | None, end: datetime | None
+    ) -> Sequence[SkimmerCollection]:
+        where = sa.and_(sa.true(), *self._conds(station_id, start, end))
+        rows = await self.session.scalars(sa.select(SkimmerCollectionRow).where(where))
+        return [self.to_entity(r) for r in rows]

@@ -57,7 +57,7 @@ describe('MockOpsApi + AuthService', () => {
     await expect(firstValueFrom(auth.login('tecnico@demo.mx', 'nope'))).rejects.toThrow(/incorrectos/);
     await firstValueFrom(auth.login('TECNICO@demo.mx', DEMO_PASSWORD));
     expect(auth.role()).toBe('technician');
-    expect(auth.homeUrl()).toBe('/operaciones/mis-tareas');
+    expect(auth.homeUrl()).toBe('/operaciones/bandeja');
     auth.logout(false);
     expect(auth.isLoggedIn()).toBe(false);
   });

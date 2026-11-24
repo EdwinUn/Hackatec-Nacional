@@ -25,3 +25,13 @@ class VisionUnavailableError(DomainError):
     """La visión artificial no está disponible (falta el extra `vision` o el modelo)."""
 
     code = "vision_unavailable"
+
+
+class AuthenticationError(DomainError):
+    """Credenciales o token inválidos."""
+
+    code = "unauthorized"
+
+
+class ForbiddenError(DomainError):
+    code = "forbidden"

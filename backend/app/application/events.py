@@ -15,6 +15,7 @@ from app.domain.entities import (
     CentrifugeCycle,
     Reading,
     Sensor,
+    SkimmerCollection,
     TreatmentBatch,
     WasteCollection,
     utcnow,
@@ -29,6 +30,7 @@ class EventType(StrEnum):
     BATCH_COMPLETED = "batch_completed"
     WASTE_COLLECTED = "waste_collected"
     ALERT = "alert"
+    SKIMMER_COLLECTED = "skimmer_collected"
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,3 +109,9 @@ def waste_event(waste: WasteCollection) -> Event:
 
 def alert_event(alert: Alert) -> Event:
     return Event(EventType.ALERT, alert.station_id, _payload(alert))
+
+
+def skimmer_event(collection: SkimmerCollection) -> Event:
+    return Event(
+        EventType.SKIMMER_COLLECTED, collection.station_id, _payload(collection, "created_at", "updated_at")
+    )

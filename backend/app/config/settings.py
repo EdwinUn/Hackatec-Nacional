@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:4200"
     ingest_api_key: SecretStr = SecretStr(DEFAULT_INGEST_KEY)
 
+    # Sesión del personal (JWT HS256). En producción define JWT_SECRET propio.
+    jwt_secret: SecretStr = SecretStr("dev-jwt-secret-change-me")
+    jwt_expire_min: int = Field(default=720, ge=1)
+    # Crea las cuentas demo (operador@atlmonitor.mx, …) al arrancar. Solo en dev por defecto.
+    demo_users_enabled: bool | None = None
+
     # Salud de sensores (valores de prototipo, ver README).
     sensor_offline_after_min: int = Field(default=10, ge=1)
     sensor_degraded_quality: float = Field(default=0.6, ge=0, le=1)
@@ -57,6 +63,10 @@ class Settings(BaseSettings):
     @property
     def is_dev(self) -> bool:
         return self.environment.lower() in DEV_ENVIRONMENTS
+
+    @property
+    def seed_demo_users(self) -> bool:
+        return self.is_dev if self.demo_users_enabled is None else self.demo_users_enabled
 
     @model_validator(mode="after")
     def _no_default_key_outside_dev(self) -> "Settings":

@@ -1,11 +1,9 @@
 <a class="skip-link" href="#main" (click)="focusMain($event)">Saltar al contenido</a>
-<div class="shell" [class.collapsed]="collapsed()" [class.mobile-open]="mobileOpen()">
+<div class="shell" [class.collapsed]="collapsed()" [class.mobile-open]="mobileOpen()" [class.m-clean]="cleanMobile()" [class.m-map]="onMap()">
   <aside class="sidebar" aria-label="Navegación principal">
-    <a class="brand" routerLink="/resumen" aria-label="Río Monitor, inicio">
-      <span class="logo" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="30" height="30"><path d="M16 3C10 10 6 14.5 6 19a10 10 0 0 0 20 0c0-4.5-4-9-10-16Z" fill="#3ddc97"/><path d="M10 21c2.2-1.6 3.8 1.6 6 0s3.8 1.6 6 0" stroke="#112a22" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
-      </span>
-      <span class="brand-text"><strong>Río Monitor</strong><small>Cuenca del Alto Atoyac</small></span>
+    <a class="brand" routerLink="/resumen" aria-label="Atl-Monitor, inicio">
+      <span class="logo" aria-hidden="true"><img src="logo-atl-mark.png" alt="" width="34" height="34" /></span>
+      <span class="brand-text"><strong>Atl-Monitor</strong><small>Calidad del agua · Alto Atoyac</small></span>
     </a>
 
     <nav>
@@ -82,6 +80,7 @@
   <div class="scrim" (click)="mobileOpen.set(false)" aria-hidden="true"></div>
 
   <div class="main">
+    <app-header />
     <header class="topbar">
       <p-button class="menu-btn" icon="pi pi-bars" [text]="true" severity="secondary" [rounded]="true" ariaLabel="Mostrar u ocultar menú" (onClick)="toggleSidebar()" />
 
@@ -134,5 +133,6 @@
       Prototipo de demostración: los umbrales y las métricas de WQI son configurables y se muestran con fines demostrativos.
     </footer>
   </div>
+  <app-bottom-nav />
   <p-toast key="app" position="bottom-right" />
 </div>

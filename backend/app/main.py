@@ -7,7 +7,7 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.adapters.inbound.http.errors import ERROR_SCHEMA, install_error_handlers
-from app.adapters.inbound.http.routers import alerts, analytics, catalog, health, ingest, vision
+from app.adapters.inbound.http.routers import alerts, analytics, catalog, health, ingest, staff, vision
 from app.adapters.inbound.websocket import endpoint as ws_endpoint
 from app.config.container import VERSION, Container
 from app.config.logging import configure_logging
@@ -88,7 +88,7 @@ def create_app(settings: Settings | None = None, container: Container | None = N
         return response
 
     v1 = APIRouter(prefix="/api/v1")
-    for module in (ingest, catalog, alerts, analytics, vision, health):
+    for module in (ingest, catalog, alerts, analytics, vision, staff, health):
         v1.include_router(module.router)
     app.include_router(v1)
     app.include_router(health.router)  # /health también en la raíz (lo usa el frontend actual)

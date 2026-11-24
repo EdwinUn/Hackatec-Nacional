@@ -31,6 +31,7 @@ export const routes: Routes = [
         canActivate: [authGuard],
         children: [
           { path: '', pathMatch: 'full', redirectTo: 'mis-tareas' },
+          { path: 'bandeja', title: 'Mi bandeja · Atl-Monitor', loadComponent: () => import('./features/operator/bandeja-page').then((m) => m.BandejaPage) },
           { path: 'mis-tareas', title: 'Mis tareas · Río Monitor', loadComponent: () => import('./features/ops/my-tasks-page').then((m) => m.MyTasksPage) },
           { path: 'tarea/:id', title: 'Orden de trabajo · Río Monitor', loadComponent: () => import('./features/ops/task-page').then((m) => m.TaskPage) },
           { path: 'reportes', title: 'Reportes ciudadanos · Río Monitor', canActivate: [MANAGERS], loadComponent: () => import('./features/ops/inbox-page').then((m) => m.InboxPage) },

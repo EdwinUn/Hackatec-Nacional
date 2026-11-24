@@ -13,7 +13,7 @@ import {
 type Meta = { label: string; color: string; bg: string };
 
 export const ROLE_META: Record<Role, { label: string; icon: string }> = {
-  technician: { label: 'Técnico de campo', icon: 'pi pi-wrench' },
+  technician: { label: 'Operador de brigada', icon: 'pi pi-wrench' },
   supervisor: { label: 'Supervisor', icon: 'pi pi-briefcase' },
   admin: { label: 'Administrador', icon: 'pi pi-shield' },
 };

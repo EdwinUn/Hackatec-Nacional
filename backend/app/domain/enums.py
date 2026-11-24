@@ -68,3 +68,47 @@ class RuleKind(StrEnum):
     SENSOR_OFFLINE = "sensor_offline"
     CENTRIFUGE_VIBRATION = "centrifuge_vibration"
     TREATMENT_EFFICIENCY = "treatment_efficiency"
+
+
+class UserRole(StrEnum):
+    """Personal de la brigada. Los ciudadanos no inician sesión."""
+
+    TECHNICIAN = "technician"
+    SUPERVISOR = "supervisor"
+    ADMIN = "admin"
+
+
+class TaskKind(StrEnum):
+    REPORT = "report"  # atender un reporte ciudadano
+    REPAIR = "repair"  # reparar una boya / equipo
+    SKIMMER_COLLECTION = "skimmer_collection"  # vaciar una boya skimmer
+    MAINTENANCE = "maintenance"
+
+
+class TaskPriority(StrEnum):
+    NORMAL = "normal"
+    URGENT = "urgent"
+
+
+class TaskStatus(StrEnum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    DONE = "done"
+
+
+class TaskView(StrEnum):
+    """Pestañas de la bandeja del operador (nombres de la API en español)."""
+
+    ASSIGNED = "asignadas"
+    PENDING_REPAIRS = "reparaciones_pendientes"
+    URGENT = "urgentes"
+    DONE = "listos"
+
+
+class BuoyCondition(StrEnum):
+    """Estado físico de la boya skimmer al vaciarla."""
+
+    OK = "ok"
+    DAMAGED = "danada"
+    SATURATED = "saturada"
+    MISSING_PARTS = "faltan_piezas"

@@ -28,7 +28,7 @@ API_KEY = "test-key"
 BACKEND = Path(__file__).resolve().parents[2]
 TABLES = (
     "alerts, alert_rules, readings, treatment_batches, centrifuge_cycles, waste_collections, "
-    "sensors, stations"
+    "sensors, stations, skimmer_collections, tasks, staff_users"
 )
 
 
@@ -40,6 +40,7 @@ def make_settings(**overrides) -> Settings:
         "ingest_api_key": API_KEY,
         "log_json": False,
         "log_level": "WARNING",
+        "demo_users_enabled": False,
     }
     return Settings(_env_file=None, **(values | overrides))
 
