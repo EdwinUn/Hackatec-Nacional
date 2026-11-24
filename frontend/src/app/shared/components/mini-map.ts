@@ -58,7 +58,9 @@ export class MiniMap {
     const destroyRef = inject(DestroyRef);
     let destroyed = false;
     afterNextRender(() => {
-      void import('maplibre-gl').then((ml) => {
+      void import('maplibre-gl').then(async (ml) => {
+        // The worker is copied next to the app by angular.json (assets).
+        await ml.setWorkerUrl(new URL('maplibre-gl-worker.mjs', document.baseURI).href);
         if (destroyed) return;
         this.ml = ml;
         const [sw, ne] = BASIN_BOUNDS.map(toLngLat);

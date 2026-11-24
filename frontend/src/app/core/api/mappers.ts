@@ -35,6 +35,7 @@ import {
   WaterRecovery,
   WqiScore,
 } from '../models/rio.models';
+import { improvementPct } from '../../shared/utils/wqi.util';
 import { locationLabel, typeLabel } from './labels';
 
 /** Wire (`API.md`) → view-model mappers. Pure functions, unit-tested. */
@@ -58,7 +59,7 @@ export function mapOverview(d: OverviewDto): DashboardOverview {
     from: d.from,
     to: d.to,
     wqi: { river: mapWqi(d.wqi), outlet: mapWqi(d.wqi_outlet) },
-    ph: { inlet, outlet, improvement_pct: inlet && outlet !== null ? ((outlet - inlet) / inlet) * 100 : null },
+    ph: { inlet, outlet, improvement_pct: inlet !== null && outlet !== null ? improvementPct(inlet, outlet) : null },
     sensors: { online: d.sensors_online, total: d.sensors_total },
     treatment_efficiency_pct: d.efficiency_pct ?? 0,
     recovery: { clean_liters: d.water_clean_l, waste_kg: d.waste_kg },
@@ -74,7 +75,7 @@ export function mapPh(d: PhSeriesDto, bucket: Bucket): PhAnalytics {
       inlet: { avg: p.inlet!.avg, min: p.inlet!.min, max: p.inlet!.max },
       outlet: { avg: p.outlet!.avg, min: p.outlet!.min, max: p.outlet!.max },
     }));
-  const pct = d.inlet_avg && d.outlet_avg !== null ? ((d.outlet_avg - d.inlet_avg) / d.inlet_avg) * 100 : 0;
+  const pct = improvementPct(d.inlet_avg, d.outlet_avg);
   return { bucket, avg_improvement_pct: pct, series };
 }
 
