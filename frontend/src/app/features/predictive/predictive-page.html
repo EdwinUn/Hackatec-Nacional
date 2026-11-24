@@ -1,0 +1,79 @@
+<div class="page">
+  <div class="head">
+    <div>
+      <h1 class="page-title">Analítica predictiva</h1>
+      <p class="page-sub">Proyección de pH y simulador de eventos IoT para demostraciones en vivo.</p>
+    </div>
+    <p-selectbutton [options]="tabOptions" [ngModel]="tab()" (ngModelChange)="setTab($event)" optionLabel="label" optionValue="value" size="small" ariaLabel="Sección" />
+  </div>
+
+  @if (!isSim()) {
+    <section class="rm-card">
+      <div class="ctrl">
+        <div class="stn"><i class="pi pi-map-marker" aria-hidden="true"></i> <strong>{{ stationName() }}</strong>
+          @if (usingFallback()) { <span class="muted small">(primera estación; elige una en el encabezado)</span> }</div>
+        <div class="hz"><span class="lbl" id="lbl-h">Horizonte</span>
+          <p-selectbutton [options]="horizonOptions" [ngModel]="horizon()" (ngModelChange)="horizon.set($event ?? 6)" optionLabel="label" optionValue="value" size="small" ariaLabelledBy="lbl-h" /></div>
+        @if (summary(); as s) {
+          <div class="chips">
+            <span class="chip">pH final <strong>{{ fmt(s.end) }}</strong></span>
+            <span class="chip">Rango esperado <strong>{{ fmt(s.min) }} – {{ fmt(s.max) }}</strong></span>
+            <span class="chip" [class.risk]="s.risk">{{ s.risk ? 'Riesgo de salir de 6.0–8.5' : 'Dentro de lo normal' }}</span>
+          </div>
+        }
+      </div>
+      @if (note(); as n) { <p class="muted small">{{ n }}</p> }
+      @if (chart(); as cfg) {
+        <app-time-series-chart [config]="cfg" height="380px" ariaLabel="Histórico y proyección de pH con banda de confianza" />
+      } @else if (noStation()) {
+        <div class="inline-err">No hay estaciones disponibles para calcular el pronóstico.</div>
+      } @else if (forecast.error()) {
+        <div class="inline-err">No se pudo cargar el pronóstico.<p-button label="Reintentar" icon="pi pi-refresh" size="small" [outlined]="true" (onClick)="forecast.reload()" /></div>
+      } @else {
+        <div class="skeleton" style="height: 380px"></div>
+      }
+    </section>
+  } @else {
+    <div class="sim-grid">
+      <section class="rm-card">
+        <h2 class="rm-card-title"><i class="pi pi-bolt" aria-hidden="true"></i> Simulador IoT</h2>
+        <p class="muted small">Dispara eventos de ingesta (<code>X-API-Key</code>) sobre <strong>{{ stationName() }}</strong> y mira cómo llegan por WebSocket al resumen y a las alertas.</p>
+
+        <div class="actions">
+          <div class="act danger">
+            <div><strong>Descarga ácida</strong><span class="muted">POST /readings · pH 5.0 en el sensor de entrada → alerta crítica</span></div>
+            <p-button label="Simular" icon="pi pi-exclamation-triangle" [disabled]="!stationId()" severity="danger" size="small" [loading]="busy() === 'acid'" (onClick)="simulateAcid()" />
+          </div>
+          <div class="act">
+            <div><strong>Ciclo de centrífuga</strong><span class="muted">POST /centrifuge-cycles</span></div>
+            <div class="btns">
+              <p-button label="Normal" [disabled]="!stationId()" icon="pi pi-cog" size="small" [outlined]="true" [loading]="busy() === 'cycle'" (onClick)="simulateCycle(false)" />
+              <p-button label="Con falla" [disabled]="!stationId()" icon="pi pi-times-circle" severity="danger" size="small" [outlined]="true" [loading]="busy() === 'cycle-bad'" (onClick)="simulateCycle(true)" />
+            </div>
+          </div>
+          <div class="act">
+            <div><strong>Lote de tratamiento</strong><span class="muted">POST /treatment-batches · 520 L → 468 L</span></div>
+            <p-button label="Simular" icon="pi pi-sync" [disabled]="!stationId()" size="small" [outlined]="true" [loading]="busy() === 'batch'" (onClick)="simulateBatch()" />
+          </div>
+          <div class="act">
+            <div><strong>Recolección de residuos</strong><span class="muted">POST /waste-collections · 8.5 kg, 40 piezas</span></div>
+            <div class="btns">
+              <p-select [options]="wasteOptions" [ngModel]="wasteType()" (ngModelChange)="wasteType.set($event)" optionLabel="label" optionValue="value" size="small" appendTo="body" ariaLabel="Tipo de residuo" />
+              <p-button label="Simular" icon="pi pi-trash" [disabled]="!stationId()" size="small" [outlined]="true" [loading]="busy() === 'waste'" (onClick)="simulateWaste()" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="rm-card">
+        <h2 class="rm-card-title"><i class="pi pi-list" aria-hidden="true"></i> Registro de envíos</h2>
+        <ul class="log" aria-live="polite">
+          @for (e of log(); track e.at.getTime()) {
+            <li [class.err]="!e.ok"><i [class]="e.ok ? 'pi pi-check-circle' : 'pi pi-times-circle'" aria-hidden="true"></i>
+              <div><strong>{{ e.label }}</strong><span class="muted">{{ e.at.toLocaleTimeString('es-MX') }} · {{ e.detail }}</span></div></li>
+          } @empty { <li class="empty">Aún no has enviado eventos.</li> }
+        </ul>
+      </section>
+    </div>
+  }
+</div>

@@ -1,0 +1,139 @@
+<div class="page">
+  <div>
+    <h1 class="page-title">Resumen ejecutivo</h1>
+    <p class="page-sub">Calidad del agua, tratamiento y recuperación en la Cuenca del Alto Atoyac.</p>
+  </div>
+
+  <!-- KPI row -->
+  <div class="kpis">
+    @if (s.overview(); as o) {
+      <app-kpi-tile label="WQI Río → Salida" icon="pi pi-heart"  [value]="wqiText(o.wqi.river)" [valueTo]="wqiText(o.wqi.outlet)" [valueColor]="wqi[o.wqi.outlet.category].color"  [sparkColor]="wqi[o.wqi.outlet.category].color" [delta]="deltas()?.wqi ?? null" deltaSuffix=" pts" [sub]="'Parámetro crítico: ' + paramLabel(o.wqi.river.dominant_parameter)">
+        <div class="pills">
+          <app-pill [label]="'Río · ' + wqi[o.wqi.river.category].label" [color]="wqi[o.wqi.river.category].color" [bg]="wqi[o.wqi.river.category].bg" />
+          <app-pill [label]="'Salida · ' + wqi[o.wqi.outlet.category].label" [color]="wqi[o.wqi.outlet.category].color" [bg]="wqi[o.wqi.outlet.category].bg" />
+        </div>
+      </app-kpi-tile>
+
+      <app-kpi-tile label="pH entrada → salida" icon="pi pi-percentage" [value]="phText(o.ph.inlet)" [valueTo]="phText(o.ph.outlet)" [spark]="s.phSpark()" [delta]="deltas()?.ph ?? null" deltaSuffix=" pp" [sub]="improvementText(o.ph.improvement_pct)" />
+
+      <app-kpi-tile label="Salud de sensores" icon="pi pi-microchip" [value]="o.sensors.online + '/' + o.sensors.total" unit="en línea" [spark]="s.efficiencySpark()" sparkColor="#2563eb" [delta]="deltas()?.eff ?? null" deltaSuffix=" pp" [sub]="'Eficiencia de tratamiento: ' + f.n1(o.treatment_efficiency_pct) + '%'" />
+
+      <app-kpi-tile label="Recuperación y residuos" icon="pi pi-sync" [value]="f.liters(o.recovery.clean_liters)" sub="" [spark]="s.recoverySpark()" sparkColor="#0891b2" [delta]="deltas()?.liters ?? null">
+        <div class="sub-line"><i class="pi pi-trash" aria-hidden="true"></i> {{ f.n1(o.recovery.waste_kg) }} kg de basura recolectada</div>
+      </app-kpi-tile>
+    } @else if (s.overviewRes.error()) {
+      <div class="rm-card state-error kpis-error" role="alert">
+        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+        <p><strong>No se pudo cargar el resumen.</strong><span class="muted">Revisa la conexión con el backend o usa <code>?mock=1</code> para datos simulados.</span></p>
+        <p-button label="Reintentar" icon="pi pi-refresh" size="small" (onClick)="s.reloadAll()" />
+      </div>
+    } @else {
+      @for (i of [1, 2, 3, 4]; track i) { <div class="skeleton kpi-skel"></div> }
+    }
+  </div>
+
+  <!-- Chart + water recovery -->
+  <div class="main-row">
+    <section class="rm-card">
+      <h2 class="rm-card-title">
+        <i class="pi pi-chart-line" aria-hidden="true"></i> pH · entrada vs. salida
+        @if (s.ph(); as ph) {
+          <span class="spacer muted small">Mejora promedio <strong [class.good]="ph.avg_improvement_pct >= 0" [class.bad]="ph.avg_improvement_pct < 0">{{ ph.avg_improvement_pct >= 0 ? '+' : '' }}{{ f.n1(ph.avg_improvement_pct) }}%</strong> · bloques de {{ ph.bucket }}</span>
+        }
+      </h2>
+      @if (phChart(); as cfg) {
+        <app-time-series-chart [config]="cfg" height="340px" ariaLabel="Serie temporal de pH de entrada y salida" />
+      } @else if (s.phRes.error()) {
+        <div class="inline-err">No se pudo cargar la serie de pH.<p-button label="Reintentar" size="small" [outlined]="true" (onClick)="s.phRes.reload()" /></div>
+      } @else {
+        <div class="skeleton chart-skel"></div>
+      }
+    </section>
+
+    <section class="rm-card">
+      <h2 class="rm-card-title"><i class="pi pi-wave-pulse" aria-hidden="true"></i> Agua recuperada</h2>
+      @if (s.water(); as w) {
+        <dl class="ledger">
+          <div><dt>Litros de entrada</dt><dd>{{ w.totals.liters_in | number: '1.0-0' }} L</dd></div>
+          <div><dt>Litros limpios</dt><dd class="good">{{ w.totals.liters_clean | number: '1.0-0' }} L</dd></div>
+          <div><dt>Litros perdidos</dt><dd>{{ w.totals.liters_lost | number: '1.0-0' }} L</dd></div>
+          <div><dt>Lodo generado</dt><dd>{{ w.totals.sludge_kg | number: '1.0-1' }} kg</dd></div>
+          <div class="total"><dt>Eficiencia total</dt><dd>{{ f.n1(w.totals.efficiency_pct) }}%</dd></div>
+        </dl>
+      } @else if (s.waterRes.error()) {
+        <div class="inline-err">Sin datos de recuperación.<p-button label="Reintentar" size="small" [outlined]="true" (onClick)="s.waterRes.reload()" /></div>
+      } @else {
+        <div class="skeleton" style="height: 220px"></div>
+      }
+    </section>
+  </div>
+
+  <!-- Bottom row -->
+  <div class="bottom-row">
+    <section class="rm-card">
+      <h2 class="rm-card-title"><i class="pi pi-trash" aria-hidden="true"></i> Clasificación de basura @if (s.waste(); as w) { <span class="spacer muted small">{{ f.n1(w.total_kg) }} kg</span> }</h2>
+      @if (s.waste()) {
+        <ul class="bars">
+          @for (t of wasteRows(); track t.type) {
+            <li>
+              <div class="bar-head"><span>{{ wasteMeta[t.type].label }}</span><span class="muted">{{ f.n1(t.kg) }} kg · {{ f.n0(t.pieces) }} pzas</span></div>
+              <p-progressbar [value]="t.pct" [showValue]="false" [style]="{ height: '10px', '--p-progressbar-value-background': wasteMeta[t.type].color }" [attr.aria-label]="wasteMeta[t.type].label + ' ' + f.n1(t.kg) + ' kg'" />
+            </li>
+          }
+        </ul>
+      } @else if (s.wasteRes.error()) {
+        <div class="inline-err">Sin datos de residuos.<p-button label="Reintentar" size="small" [outlined]="true" (onClick)="s.wasteRes.reload()" /></div>
+      } @else {
+        <div class="skeleton" style="height: 200px"></div>
+      }
+    </section>
+
+    <section class="rm-card">
+      <h2 class="rm-card-title"><i class="pi pi-cog" aria-hidden="true"></i> Centrífuga
+        @if (s.centrifuge(); as c) { <span class="spacer"><app-pill [label]="cfMeta[c.current.state].label" [color]="cfMeta[c.current.state].color" [bg]="cfMeta[c.current.state].bg" /></span> }
+      </h2>
+      @if (s.centrifuge(); as c) {
+        <div class="live-now">
+          <div><span class="muted">RPM en vivo</span><strong>{{ f.n0(c.current.rpm) }}</strong></div>
+          <div><span class="muted">Vibración en vivo</span><strong>{{ f.n1(c.current.vibration_mm_s) }} <small>mm/s</small></strong></div>
+        </div>
+        <dl class="ledger">
+          <div><dt>Ciclos totales</dt><dd>{{ f.n0(c.cycles_total) }}</dd></div>
+          <div><dt>Fallas</dt><dd [class.bad]="c.failures > 0">{{ f.n0(c.failures) }}</dd></div>
+          <div><dt>RPM promedio</dt><dd>{{ f.n0(c.avg_rpm) }}</dd></div>
+          <div><dt>Vibración promedio</dt><dd>{{ f.n1(c.avg_vibration_mm_s) }} mm/s</dd></div>
+          <div><dt>Consumo</dt><dd>{{ f.n1(c.energy_kwh) }} kWh</dd></div>
+        </dl>
+      } @else if (s.centrifugeRes.error()) {
+        <div class="inline-err">Sin datos de la centrífuga.<p-button label="Reintentar" size="small" [outlined]="true" (onClick)="s.centrifugeRes.reload()" /></div>
+      } @else {
+        <div class="skeleton" style="height: 240px"></div>
+      }
+    </section>
+
+    <section class="rm-card">
+      <h2 class="rm-card-title"><i class="pi pi-microchip" aria-hidden="true"></i> Salud de sensores</h2>
+      @if (s.sensors(); as list) {
+        <ul class="sensors">
+          @for (x of list; track x.sensor_id) {
+            <li>
+              <div class="s-main">
+                <strong>{{ x.name }}</strong>
+                <app-pill [label]="sensorMeta[x.status].label" [color]="sensorMeta[x.status].color" [bg]="sensorMeta[x.status].bg" />
+              </div>
+              <div class="s-meta muted">
+                @if (x.last_reading; as r) { <span>{{ f.n2(r.value) }} {{ r.unit }} · {{ f.ago(r.ts) }}</span> } @else { <span>Sin lecturas</span> }
+                <span class="signal" [attr.title]="'Calidad de señal ' + x.signal_quality_pct + '%'"><span class="sig-bar"><span [style.width.%]="x.signal_quality_pct" [style.background]="signalColor(x.signal_quality_pct)"></span></span>{{ f.n0(x.signal_quality_pct) }}%</span>
+                <span>Uptime {{ f.n1(x.uptime_pct) }}%</span>
+              </div>
+            </li>
+          } @empty { <li class="empty">Sin sensores registrados.</li> }
+        </ul>
+      } @else if (s.sensorsRes.error()) {
+        <div class="inline-err">Sin datos de sensores.<p-button label="Reintentar" size="small" [outlined]="true" (onClick)="s.sensorsRes.reload()" /></div>
+      } @else {
+        <div class="skeleton" style="height: 240px"></div>
+      }
+    </section>
+  </div>
+</div>

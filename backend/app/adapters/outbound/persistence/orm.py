@@ -1,0 +1,202 @@
+"""Modelos ORM (SQLAlchemy 2). Espejo de las entidades del dominio; los mappers son genéricos."""
+
+from datetime import date, datetime
+from enum import StrEnum
+from uuid import UUID
+
+import sqlalchemy as sa
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from app.domain.enums import (
+    AlertStatus,
+    CycleStatus,
+    RuleKind,
+    SensorLocation,
+    SensorStatus,
+    SensorType,
+    Severity,
+    StationStatus,
+    WasteType,
+)
+
+NAMING = {
+    "ix": "ix_%(table_name)s_%(column_0_N_name)s",
+    "uq": "uq_%(table_name)s_%(column_0_N_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
+
+class Base(DeclarativeBase):
+    metadata = sa.MetaData(naming_convention=NAMING)
+
+
+def enum_col(enum: type[StrEnum]) -> sa.Enum:
+    # VARCHAR sin CHECK: agregar un valor al enum no requiere migración (diseñado para extender).
+    return sa.Enum(
+        enum,
+        native_enum=False,
+        create_constraint=False,
+        length=32,
+        values_callable=lambda e: [m.value for m in e],
+    )
+
+
+TZ = sa.DateTime(timezone=True)
+
+
+class TimestampMixin:
+    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=sa.func.now())
+    updated_at: Mapped[datetime] = mapped_column(TZ, server_default=sa.func.now())
+
+
+class StationRow(TimestampMixin, Base):
+    __tablename__ = "stations"
+    name: Mapped[str] = mapped_column(sa.String(120), unique=True)
+    river: Mapped[str] = mapped_column(sa.String(120), index=True)
+    latitude: Mapped[float]
+    longitude: Mapped[float]
+    status: Mapped[StationStatus] = mapped_column(enum_col(StationStatus))
+    installed_at: Mapped[date | None]
+    description: Mapped[str | None] = mapped_column(sa.Text)
+
+
+class SensorRow(TimestampMixin, Base):
+    __tablename__ = "sensors"
+    station_id: Mapped[UUID] = mapped_column(sa.ForeignKey("stations.id", ondelete="CASCADE"), index=True)
+    type: Mapped[SensorType] = mapped_column(enum_col(SensorType))
+    location: Mapped[SensorLocation] = mapped_column(enum_col(SensorLocation))
+    unit: Mapped[str] = mapped_column(sa.String(16))
+    valid_min: Mapped[float]
+    valid_max: Mapped[float]
+    status: Mapped[SensorStatus] = mapped_column(enum_col(SensorStatus))
+    last_seen_at: Mapped[datetime | None] = mapped_column(TZ)
+    calibration_offset: Mapped[float] = mapped_column(server_default="0")
+    calibration_factor: Mapped[float] = mapped_column(server_default="1")
+    calibrated_at: Mapped[datetime | None] = mapped_column(TZ)
+    model: Mapped[str | None] = mapped_column(sa.String(120))
+
+
+class ReadingRow(Base):
+    __tablename__ = "readings"
+    id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
+    sensor_id: Mapped[UUID] = mapped_column(sa.ForeignKey("sensors.id", ondelete="CASCADE"))
+    station_id: Mapped[UUID] = mapped_column(sa.ForeignKey("stations.id", ondelete="CASCADE"))
+    ts: Mapped[datetime] = mapped_column(TZ)
+    value: Mapped[float]
+    quality: Mapped[float] = mapped_column(server_default="1")
+    created_at: Mapped[datetime] = mapped_column(TZ, server_default=sa.func.now())
+
+    __table_args__ = (
+        # Idempotencia + "última lectura de un sensor" en un solo índice.
+        sa.Index("uq_readings_sensor_id_ts", "sensor_id", sa.text("ts DESC"), unique=True),
+        sa.Index("ix_readings_station_id_ts", "station_id", "ts"),
+        sa.Index("ix_readings_ts_brin", "ts", postgresql_using="brin"),
+        sa.CheckConstraint("quality >= 0 AND quality <= 1", name="quality_range"),
+    )
+
+
+class CycleRow(TimestampMixin, Base):
+    __tablename__ = "centrifuge_cycles"
+    station_id: Mapped[UUID] = mapped_column(sa.ForeignKey("stations.id", ondelete="CASCADE"))
+    started_at: Mapped[datetime] = mapped_column(TZ)
+    ended_at: Mapped[datetime | None] = mapped_column(TZ)
+    status: Mapped[CycleStatus] = mapped_column(enum_col(CycleStatus))
+    rpm_avg: Mapped[float | None]
+    rpm_max: Mapped[float | None]
+    vibration_mm_s: Mapped[float | None]
+    power_w: Mapped[float | None]
+    water_in_l: Mapped[float | None]
+    water_out_clean_l: Mapped[float | None]
+    sludge_kg: Mapped[float | None]
+    failure_reason: Mapped[str | None] = mapped_column(sa.Text)
+
+    __table_args__ = (sa.Index("ix_centrifuge_cycles_station_id_started_at", "station_id", "started_at"),)
+
+
+class BatchRow(TimestampMixin, Base):
+    __tablename__ = "treatment_batches"
+    station_id: Mapped[UUID] = mapped_column(sa.ForeignKey("stations.id", ondelete="CASCADE"))
+    cycle_id: Mapped[UUID | None] = mapped_column(
+        sa.ForeignKey("centrifuge_cycles.id", ondelete="SET NULL"), index=True
+    )
+    ts: Mapped[datetime] = mapped_column(TZ)
+    volume_in_l: Mapped[float]
+    volume_clean_l: Mapped[float]
+    sludge_kg: Mapped[float | None]
+    ph_in: Mapped[float | None]
+    ph_out: Mapped[float | None]
+    turbidity_in_ntu: Mapped[float | None]
+    turbidity_out_ntu: Mapped[float | None]
+    efficiency_pct: Mapped[float]
+
+    __table_args__ = (sa.Index("ix_treatment_batches_station_id_ts", "station_id", "ts"),)
+
+
+class WasteRow(TimestampMixin, Base):
+    __tablename__ = "waste_collections"
+    station_id: Mapped[UUID] = mapped_column(sa.ForeignKey("stations.id", ondelete="CASCADE"))
+    ts: Mapped[datetime] = mapped_column(TZ)
+    weight_kg: Mapped[float]
+    items_count: Mapped[int | None]
+    waste_type: Mapped[WasteType] = mapped_column(enum_col(WasteType))
+    collector_id: Mapped[str | None] = mapped_column(sa.String(120))
+
+    __table_args__ = (sa.Index("ix_waste_collections_station_id_ts", "station_id", "ts"),)
+
+
+class AlertRuleRow(TimestampMixin, Base):
+    __tablename__ = "alert_rules"
+    name: Mapped[str] = mapped_column(sa.String(200))
+    kind: Mapped[RuleKind] = mapped_column(enum_col(RuleKind))
+    severity: Mapped[Severity] = mapped_column(enum_col(Severity))
+    parameter: Mapped[SensorType | None] = mapped_column(enum_col(SensorType))
+    location: Mapped[SensorLocation | None] = mapped_column(enum_col(SensorLocation))
+    station_id: Mapped[UUID | None] = mapped_column(
+        sa.ForeignKey("stations.id", ondelete="CASCADE"), index=True
+    )
+    min_value: Mapped[float | None]
+    max_value: Mapped[float | None]
+    enabled: Mapped[bool] = mapped_column(server_default=sa.true())
+    description: Mapped[str | None] = mapped_column(sa.Text)
+
+
+ACTIVE_ALERT = "status IN ('open', 'acknowledged')"
+
+
+class AlertRow(TimestampMixin, Base):
+    __tablename__ = "alerts"
+    rule_id: Mapped[UUID] = mapped_column(sa.ForeignKey("alert_rules.id", ondelete="CASCADE"))
+    station_id: Mapped[UUID] = mapped_column(sa.ForeignKey("stations.id", ondelete="CASCADE"))
+    sensor_id: Mapped[UUID | None] = mapped_column(sa.ForeignKey("sensors.id", ondelete="SET NULL"))
+    subject_key: Mapped[str] = mapped_column(sa.String(80))
+    kind: Mapped[RuleKind] = mapped_column(enum_col(RuleKind))
+    parameter: Mapped[SensorType | None] = mapped_column(enum_col(SensorType))
+    severity: Mapped[Severity] = mapped_column(enum_col(Severity))
+    status: Mapped[AlertStatus] = mapped_column(enum_col(AlertStatus))
+    message: Mapped[str] = mapped_column(sa.Text)
+    trigger_value: Mapped[float]
+    threshold_min: Mapped[float | None]
+    threshold_max: Mapped[float | None]
+    first_triggered_at: Mapped[datetime] = mapped_column(TZ)
+    last_triggered_at: Mapped[datetime] = mapped_column(TZ)
+    occurrences: Mapped[int] = mapped_column(server_default="1")
+    last_notified_at: Mapped[datetime | None] = mapped_column(TZ)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(TZ)
+    resolved_at: Mapped[datetime | None] = mapped_column(TZ)
+    note: Mapped[str | None] = mapped_column(sa.Text)
+
+    __table_args__ = (
+        # Anti-spam a nivel BD: una sola alerta activa por (regla, sujeto), segura con N workers.
+        sa.Index(
+            "uq_alerts_active_rule_subject",
+            "rule_id",
+            "subject_key",
+            unique=True,
+            postgresql_where=sa.text(ACTIVE_ALERT),
+        ),
+        sa.Index("ix_alerts_station_id_status", "station_id", "status"),
+        sa.Index("ix_alerts_last_triggered_at", "last_triggered_at"),
+    )

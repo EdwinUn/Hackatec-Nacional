@@ -1,5 +1,6 @@
-# Base de datos local para desarrollo.
-# Uso: docker compose up -d db   (o: podman compose up -d db)
+# Stack local: PostgreSQL + Redis + API.
+#   docker compose up -d              # todo (la API migra sola al arrancar)
+#   docker compose up -d db redis     # solo infraestructura (API con `make dev` en backend/)
 services:
   db:
     image: docker.io/library/postgres:17
@@ -12,11 +13,40 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./backend/docker/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U hackatec -d hackatec"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  redis:
+    image: docker.io/library/redis:7-alpine
+    container_name: hackatec-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    container_name: hackatec-api
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://hackatec:hackatec@db:5432/hackatec
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   pgdata:

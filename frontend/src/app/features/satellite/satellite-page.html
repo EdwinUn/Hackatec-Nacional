@@ -1,0 +1,98 @@
+<div class="sat">
+  <div #map class="map" role="application" aria-label="Mapa satelital de la Cuenca del Alto Atoyac"></div>
+
+  <!-- Title + legend -->
+  <div class="glass hud">
+    <div class="hud-title"><i class="pi pi-globe" aria-hidden="true"></i> Cuenca del Alto Atoyac</div>
+    <div class="hud-sub">Puebla · {{ list().length }} estaciones · {{ totals().open }} alertas abiertas ({{ totals().critical }} críticas)</div>
+    <ul class="legend" aria-label="Leyenda de WQI">
+      @for (c of categories; track c) {
+        <li><span class="dot" [style.background]="wqi[c].color"></span>{{ wqi[c].label }} <strong>{{ counts()[c] }}</strong></li>
+      }
+    </ul>
+    @if (ranking().length) {
+      <div class="rank">
+        <div class="rank-title"><i class="pi pi-sort-amount-down" aria-hidden="true"></i> Ranking de criticidad</div>
+        <ol aria-label="Ranking de puntos críticos">
+          @for (p of ranking(); track p.station_id) {
+            <li>
+              <button type="button" [class.on]="p.station_id === selectedId()" (click)="selectById(p.station_id)" [title]="p.reasons.join(' · ')">
+                <span class="pos">{{ p.rank }}</span>
+                <span class="nm">{{ shortName(p.name) }}</span>
+                <span class="sc" [style.color]="levelMeta[p.level].color">{{ p.score | number: '1.0-0' }}</span>
+                <span class="bar"><span [style.width.%]="p.score" [style.background]="levelMeta[p.level].color"></span></span>
+              </button>
+            </li>
+          }
+        </ol>
+      </div>
+    }
+    <button type="button" class="reset" (click)="resetView()"><i class="pi pi-compass" aria-hidden="true"></i> Centrar cuenca</button>
+  </div>
+
+  @if (hotspots.error()) {
+    <div class="glass map-error" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudieron cargar las estaciones.
+      <button type="button" class="reset" style="width:auto;margin:0;padding:.3rem .7rem" (click)="hotspots.reload()">Reintentar</button></div>
+  }
+
+  <!-- Station panel -->
+  @if (selected(); as h) {
+    <aside class="glass panel" aria-label="Detalle de la estación">
+      <header>
+        <div>
+          <h2>{{ h.name }}</h2>
+          <p class="coords"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ coords(h.latitude, h.longitude) }}</p>
+        </div>
+        <button type="button" class="x" aria-label="Cerrar panel" (click)="selectedId.set(null)"><i class="pi pi-times"></i></button>
+      </header>
+
+      <div class="wqi" [style.border-color]="wqi[h.wqi.category].color">
+        <div class="score" [style.color]="wqi[h.wqi.category].color">{{ wqiText(h.wqi) }}<small>WQI</small></div>
+        <div>
+          <app-pill [label]="wqi[h.wqi.category].label" [color]="wqi[h.wqi.category].color" [bg]="wqi[h.wqi.category].bg" />
+          <div class="dom">Parámetro dominante: <strong>{{ paramLabel(h.wqi.dominant_parameter) }}</strong></div>
+        </div>
+      </div>
+
+      <div class="alert-counts">
+        <div><strong>{{ h.open_alerts }}</strong><span>Alertas abiertas</span></div>
+        <div [class.crit]="h.critical_alerts > 0"><strong>{{ h.critical_alerts }}</strong><span>Críticas</span></div>
+      </div>
+
+      @if (selectedCritical(); as c) {
+        <div class="crit" [style.border-color]="levelMeta[c.level].color">
+          <div class="crit-head">
+            <div class="score" [style.color]="levelMeta[c.level].color">{{ c.score | number: '1.0-0' }}<small>Criticidad</small></div>
+            <div>
+              <app-pill [label]="levelMeta[c.level].label" [color]="levelMeta[c.level].color" [bg]="levelMeta[c.level].bg" />
+              <div class="dom">Puesto <strong>{{ c.rank }}</strong> de {{ ranking().length }} en la cuenca</div>
+            </div>
+          </div>
+          <ul class="why" aria-label="Motivos">
+            @for (r of c.reasons; track r) { <li>{{ r }}</li> }
+          </ul>
+        </div>
+      }
+
+      <h3>Telemetría en vivo · pH</h3>
+      <ul class="tele">
+        @for (t of telemetry(); track t.pos) {
+          <li>
+            <div><span class="pos">{{ positionLabel[t.pos] }}</span>
+              @if (t.sensor; as s) { <app-pill [label]="sensorMeta[s.status].label" [color]="sensorMeta[s.status].color" [bg]="sensorMeta[s.status].bg" /> }
+            </div>
+            <div class="val">
+              @if (t.last; as l) {
+                <strong>{{ l.value | number: '1.2-2' }}</strong> <small class="muted">{{ ago(l.ts) }}</small>
+                @if (t.live) { <span class="live-dot" title="Lectura en vivo"></span> }
+              } @else { <span class="muted">—</span> }
+            </div>
+          </li>
+        }
+      </ul>
+      <a class="link" routerLink="/alertas">Ver alertas de la estación <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
+    </aside>
+  } @else if (!hotspots.error()) {
+    <div class="glass hint-chip">Selecciona una estación en el mapa</div>
+  }
+</div>

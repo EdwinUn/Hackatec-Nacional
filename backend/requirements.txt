@@ -1,5 +1,0 @@
-fastapi[standard]
-sqlmodel
-psycopg[binary]
-pydantic-settings
-pytest

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">RioMonitor</string>
+    <string name="title_activity_main">RioMonitor</string>
+    <string name="package_name">mx.tecnm.riomonitor</string>
+    <string name="custom_url_scheme">mx.tecnm.riomonitor</string>
+</resources>

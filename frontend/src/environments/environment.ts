@@ -1,8 +1,10 @@
-import { PRIMENG_LICENSE } from './license.local';
-
-// Producción (ng build). Cambia apiUrl por la URL pública del backend al desplegar.
+// Base environment (committed, NO secrets). Development builds swap it for
+// `environment.development.ts` (git-ignored); see angular.json fileReplacements.
 export const environment = {
-  apiUrl: 'http://localhost:8000',
+  production: false,
   useMocks: false,
-  primengLicense: PRIMENG_LICENSE,
+  apiBaseUrl: 'http://10.174.97.75:8000/api/v1',
+  wsUrl: 'ws://10.174.97.75:8000/ws/live',
+  ingestApiKey: '',
+  primeLicense: '',
 };
