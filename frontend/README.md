@@ -26,8 +26,19 @@ ignorado por Git (`ng serve` lo usa vía `fileReplacements`): `apiBaseUrl`, `wsU
 (PrimeNG 22 pide clave; tier *community* gratuito en <https://primeui.store>). En producción, inyéctalas al desplegar (p. ej. desde secretos del CI).
 
 ## Contrato de API
-`API.md` solo documenta `/health`; los esquemas de Río Monitor son **supuestos** y están aislados en
-`src/app/core/models/rio.models.ts` — ver [API-ASSUMPTIONS.md](API-ASSUMPTIONS.md).
+Los esquemas exactos de `API.md` viven en `src/app/core/models/api.models.ts`; `src/app/core/api/mappers.ts`
+los convierte a los modelos de las vistas (`rio.models.ts`) y `http-rio-api.ts` hace las peticiones
+(`/api/v1`; la ingesta del simulador usa `X-API-Key`). Si cambia `API.md`, ajusta esos tres archivos; las
+pruebas de `mappers.spec.ts` usan fixtures con el formato real.
+
+## App Android (Capacitor)
+```bash
+npm run build:android      # ng build (development) + cap sync
+cd android && ANDROID_HOME=~/Android/Sdk JAVA_HOME=/usr/lib/jvm/java-21-openjdk ./gradlew assembleDebug
+```
+Usa la configuración `development` (IP del backend y claves de `environment.development.ts`); la de producción
+apunta a `localhost`, que en el teléfono es el propio teléfono. El WebView sirve la app desde `http://localhost`
+(`androidScheme: 'http'`, `cleartext: true`), origen que el CORS del backend debe permitir.
 
 ## Estructura
 `core/` (config, modelos, `api/` HTTP + `mock/`, servicios, interceptor) · `shared/` (KPI, sparkline, gráfica, utilidades) · `layout/` (shell) · `features/` (dashboard, satellite, alerts, predictive).

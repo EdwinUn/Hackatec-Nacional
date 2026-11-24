@@ -61,7 +61,7 @@ describe('mock API', () => {
     const o = await firstValueFrom(api.overview(q));
     expect(o.sensors.total).toBe(9);
     expect(o.wqi.outlet.score).toBeGreaterThan(o.wqi.river.score);
-    expect(o.ph.outlet).toBeGreaterThan(o.ph.inlet);
+    expect(o.ph.outlet!).toBeGreaterThan(o.ph.inlet!);
   });
 
   it('ph analytics has avg/min/max per bucket and water totals add up', async () => {
@@ -79,7 +79,8 @@ describe('mock API', () => {
     const events: string[] = [];
     be.events$.subscribe((e) => events.push(e.type));
     const id = be.stations[0].id;
-    await firstValueFrom(api.postReading({ station_id: id, position: 'inlet', parameter: 'ph', value: 5.0, unit: 'pH' }));
+    const r = await firstValueFrom(api.simulateAcidDischarge(id));
+    expect(r.accepted).toBe(true);
     expect(events).toContain('reading');
     expect(events).toContain('alert');
     const page = await firstValueFrom(api.alerts({ status: 'open', severity: 'critical', limit: 50, offset: 0 }));

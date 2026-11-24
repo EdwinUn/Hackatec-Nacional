@@ -20,6 +20,7 @@
             <header>
               <app-pill [label]="sev[a.severity].label" [color]="sev[a.severity].color" [bg]="sev[a.severity].bg" />
               <app-pill [label]="statusMeta[a.status].label" [color]="a.status === 'open' ? '#b91c1c' : a.status === 'acknowledged' ? '#a16207' : '#0f7a4d'" [bg]="a.status === 'open' ? '#fbdcdc' : a.status === 'acknowledged' ? '#fcefc7' : '#dcf5e8'" />
+              @if (a.occurrences > 1) { <span class="muted" title="Veces que se disparó">×{{ a.occurrences }}</span> }
               <span class="muted when">{{ ago(a.created_at) }}</span>
             </header>
             <p class="msg">{{ a.message }}</p>
@@ -62,7 +63,11 @@
         @for (r of ruleList(); track r.id) {
           <li [class.off]="!r.enabled">
             <div class="r-head"><strong>{{ r.name }}</strong><app-pill [label]="sev[r.severity].label" [color]="sev[r.severity].color" [bg]="sev[r.severity].bg" /></div>
+<<<<<<< HEAD
             <div class="cond"><code>{{ r.parameter }} {{ r.condition ?? r.operator + ' ' + r.threshold + ' ' + r.unit }}</code> <span class="muted">{{ r.enabled ? 'Activa' : 'Desactivada' }}</span></div>
+=======
+            <div class="cond"><code>{{ criterion(r) }}</code> <span class="muted">{{ r.enabled ? 'Activa' : 'Desactivada' }}</span></div>
+>>>>>>> origin/feature/prototipo-c-skimmer
             @if (r.description) { <div class="muted small">{{ r.description }}</div> }
           </li>
         } @empty { <li class="muted">Sin reglas.</li> }

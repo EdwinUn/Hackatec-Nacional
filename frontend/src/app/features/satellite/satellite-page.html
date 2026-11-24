@@ -47,10 +47,10 @@
       </header>
 
       <div class="wqi" [style.border-color]="wqi[h.wqi.category].color">
-        <div class="score" [style.color]="wqi[h.wqi.category].color">{{ h.wqi.score }}<small>WQI</small></div>
+        <div class="score" [style.color]="wqi[h.wqi.category].color">{{ wqiText(h.wqi) }}<small>WQI</small></div>
         <div>
           <app-pill [label]="wqi[h.wqi.category].label" [color]="wqi[h.wqi.category].color" [bg]="wqi[h.wqi.category].bg" />
-          <div class="dom">Parámetro dominante: <strong>{{ h.wqi.dominant_parameter }}</strong></div>
+          <div class="dom">Parámetro dominante: <strong>{{ paramLabel(h.wqi.dominant_parameter) }}</strong></div>
         </div>
       </div>
 

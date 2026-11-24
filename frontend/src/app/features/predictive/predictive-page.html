@@ -22,6 +22,7 @@
           </div>
         }
       </div>
+      @if (note(); as n) { <p class="muted small">{{ n }}</p> }
       @if (chart(); as cfg) {
         <app-time-series-chart [config]="cfg" height="380px" ariaLabel="Histórico y proyección de pH con banda de confianza" />
       } @else if (noStation()) {
@@ -40,7 +41,7 @@
 
         <div class="actions">
           <div class="act danger">
-            <div><strong>Descarga ácida</strong><span class="muted">POST /readings · pH 5.0 en la entrada → alerta crítica</span></div>
+            <div><strong>Descarga ácida</strong><span class="muted">POST /readings · pH 5.0 en el sensor de entrada → alerta crítica</span></div>
             <p-button label="Simular" icon="pi pi-exclamation-triangle" [disabled]="!stationId()" severity="danger" size="small" [loading]="busy() === 'acid'" (onClick)="simulateAcid()" />
           </div>
           <div class="act">
@@ -51,7 +52,7 @@
             </div>
           </div>
           <div class="act">
-            <div><strong>Lote de tratamiento</strong><span class="muted">POST /treatment-batches · 1 200 L → 1 050 L</span></div>
+            <div><strong>Lote de tratamiento</strong><span class="muted">POST /treatment-batches · 520 L → 468 L</span></div>
             <p-button label="Simular" icon="pi pi-sync" [disabled]="!stationId()" size="small" [outlined]="true" [loading]="busy() === 'batch'" (onClick)="simulateBatch()" />
           </div>
           <div class="act">

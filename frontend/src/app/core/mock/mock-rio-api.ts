@@ -10,8 +10,11 @@ import {
   AlertRule,
   Bucket,
   CentrifugeAnalytics,
+<<<<<<< HEAD
   CentrifugeCycleIngest,
   CriticalPoint,
+=======
+>>>>>>> origin/feature/prototipo-c-skimmer
   DashboardOverview,
   Hotspot,
   IngestResult,
@@ -19,12 +22,10 @@ import {
   PhAnalytics,
   PhForecast,
   Query,
-  ReadingIngest,
   SensorHealth,
   Station,
-  TreatmentBatchIngest,
   WasteAnalytics,
-  WasteCollectionIngest,
+  WasteType,
   WaterRecovery,
 } from '../models/rio.models';
 import { MockBackend, mulberry32 } from './mock-backend';
@@ -64,19 +65,21 @@ export class MockRioApi extends RioApi {
     const inlet = Math.round(avg((id) => this.be.currentPh.get(id)!.inlet) * 100) / 100;
     const outlet = Math.round(avg((id) => this.be.currentPh.get(id)!.outlet) * 100) / 100;
     const sensors = this.be.sensors.filter((s) => !q.station_id || s.station_id === q.station_id);
-    const trend = (base: number, amp: number) => Array.from({ length: 14 }, (_, i) => Math.round((base + Math.sin(i / 2 + seed) * amp + (rng() - 0.5) * amp) * 100) / 100);
     return lat({
       from: new Date(from).toISOString(),
       to: new Date(to).toISOString(),
       wqi: {
         river: { score: riverScore, category: wqiCategory(riverScore), dominant_parameter: dominant },
-        outlet: { score: outletScore, category: wqiCategory(outletScore), dominant_parameter: 'do' },
-        trend: trend(riverScore, 4),
+        outlet: { score: outletScore, category: wqiCategory(outletScore), dominant_parameter: 'dissolved_oxygen' },
       },
+<<<<<<< HEAD
       ph: { inlet, outlet, improvement_pct: Math.round(improvementPct(inlet, outlet) * 10) / 10, trend: trend(outlet, 0.25) },
+=======
+      ph: { inlet, outlet, improvement_pct: Math.round(((outlet - inlet) / inlet) * 1000) / 10 },
+>>>>>>> origin/feature/prototipo-c-skimmer
       sensors: { online: sensors.filter((s) => s.status === 'ok' || s.status === 'degraded').length, total: sensors.length },
       treatment_efficiency_pct: wr.totals.efficiency_pct,
-      recovery: { clean_liters: wr.totals.liters_clean, waste_kg: wasteKg, trend: wr.series.slice(-14).map((p) => p.liters_clean) },
+      recovery: { clean_liters: wr.totals.liters_clean, waste_kg: wasteKg },
       alerts: { open: alerts.length, critical: alerts.filter((a) => a.severity === 'critical').length },
     });
   }
@@ -181,10 +184,9 @@ export class MockRioApi extends RioApi {
     return lat(this.be.sensors.filter((s) => !q.station_id || s.station_id === q.station_id).map((s) => ({ ...s })));
   }
 
-  hotspots(q: Query): Observable<Hotspot[]> {
+  hotspots(): Observable<Hotspot[]> {
     return lat(
       this.be.stations
-        .filter((s) => !q.station_id || s.id === q.station_id)
         .map((s) => {
           const open = this.be.alertList.filter((a) => a.station_id === s.id && a.status === 'open');
           return {
@@ -267,40 +269,39 @@ export class MockRioApi extends RioApi {
       const sigma = 0.04 + 0.018 * Math.sqrt(i + 1);
       return { ts: new Date(t).toISOString(), value: r2(v), lower: r2(v - 1.96 * sigma), upper: r2(v + 1.96 * sigma) };
     });
-    return lat({ station_id: stationId, horizon_hours: horizonHours, history, forecast });
+    return lat({ station_id: stationId, horizon_hours: horizonHours, history, forecast, note: null });
   }
 
-  // ── Simulation endpoints ──────────────────────────────────────────────────
-  private ok(): Observable<IngestResult> {
-    return lat({ id: `ing-${Date.now().toString(36)}`, accepted: true });
+  // ── Simulation (same outcome the real backend produces) ───────────────────
+  private ok(detail: string): Observable<IngestResult> {
+    return lat({ id: `ing-${Date.now().toString(36)}`, accepted: true, detail });
   }
 
-  postReading(b: ReadingIngest): Observable<IngestResult> {
-    this.be.emitReading(b.station_id, b.position, b.value);
-    return this.ok();
+  simulateAcidDischarge(stationId: string): Observable<IngestResult> {
+    this.be.emitReading(stationId, 'inlet', 5.0);
+    return this.ok('1 lectura(s) aceptada(s) · 1 alerta(s) disparada(s)');
   }
 
-  postCentrifugeCycle(b: CentrifugeCycleIngest): Observable<IngestResult> {
-    const failed = b.status === 'failed';
+  simulateCentrifugeCycle(stationId: string, failed: boolean): Observable<IngestResult> {
     this.be.extras.cycles++;
     if (failed) this.be.extras.failures++;
     const state = failed ? 'fault' : 'running';
-    Object.assign(this.be.centrifuge.get(b.station_id)!, { state, rpm: b.avg_rpm, vibration_mm_s: b.max_vibration_mm_s, updated_at: new Date().toISOString() });
-    this.be.events$.next({ type: 'cycle_update', data: { station_id: b.station_id, state, rpm: b.avg_rpm, vibration_mm_s: b.max_vibration_mm_s } });
-    if (failed || b.max_vibration_mm_s >= 7.1) {
-      this.be.createAlert({ station_id: b.station_id, severity: 'critical', message: `Falla en centrífuga: vibración ${b.max_vibration_mm_s} mm/s.`, parameter: 'vibration', value: b.max_vibration_mm_s });
-    }
-    return this.ok();
+    const rpm = failed ? 3600 : 2850;
+    const vib = failed ? 8.9 : 2.8;
+    Object.assign(this.be.centrifuge.get(stationId)!, { state, rpm, vibration_mm_s: vib, updated_at: new Date().toISOString() });
+    this.be.events$.next({ type: 'cycle_update', data: { station_id: stationId, state, rpm, vibration_mm_s: vib } });
+    if (failed) this.be.createAlert({ station_id: stationId, severity: 'critical', message: `Vibración peligrosa en centrífuga: ${vib} mm/s (máx 7.1)`, parameter: null, value: vib });
+    return this.ok(`Ciclo ${failed ? 'fallido' : 'completado'}`);
   }
 
-  postTreatmentBatch(b: TreatmentBatchIngest): Observable<IngestResult> {
-    this.be.addBatch(b.station_id, b.liters_in, b.liters_clean / b.liters_in, b.sludge_kg);
-    return this.ok();
+  simulateTreatmentBatch(stationId: string): Observable<IngestResult> {
+    this.be.addBatch(stationId, 520, 468 / 520, 3.4);
+    return this.ok('Lote registrado · eficiencia 90%');
   }
 
-  postWasteCollection(b: WasteCollectionIngest): Observable<IngestResult> {
-    this.be.addWaste(b.station_id, b.waste_type, b.kg, b.pieces);
-    return this.ok();
+  simulateWasteCollection(stationId: string, type: WasteType): Observable<IngestResult> {
+    this.be.addWaste(stationId, type, 8.5, 40);
+    return this.ok('Recolección registrada');
   }
 }
 
