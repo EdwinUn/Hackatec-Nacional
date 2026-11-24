@@ -1,7 +1,19 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, afterNextRender, effect, inject, input, output, signal, viewChild } from '@angular/core';
-import type * as Leaflet from 'leaflet';
+import type { Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
 import { GeoPoint } from '../../core/models/ops.models';
-import { ATTRIBUTION, BASIN_BOUNDS, BASIN_CENTER, TILES } from '../../features/satellite/basin';
+import { ATTRIBUTION, BASIN_BOUNDS, BASIN_CENTER, TILES, toLngLat } from '../../features/satellite/basin';
+
+const STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    satellite: { type: 'raster', tiles: [TILES.imagery], tileSize: 256, maxzoom: 19, attribution: ATTRIBUTION },
+    labels: { type: 'raster', tiles: [TILES.labels], tileSize: 256, maxzoom: 19 },
+  },
+  layers: [
+    { id: 'satellite', type: 'raster', source: 'satellite' },
+    { id: 'labels', type: 'raster', source: 'labels', paint: { 'raster-opacity': 0.85 } },
+  ],
+};
 
 export interface MapPoint extends GeoPoint {
   id: string;
@@ -36,32 +48,39 @@ export class MiniMap {
   readonly pointClick = output<string>();
 
   private readonly el = viewChild.required<ElementRef<HTMLElement>>('map');
-  private L!: typeof Leaflet;
-  private map?: Leaflet.Map;
-  private layer?: Leaflet.LayerGroup;
-  private pin?: Leaflet.Marker;
+  private ml!: typeof import('maplibre-gl');
+  private map?: MlMap;
+  private markers: Marker[] = [];
+  private pin?: Marker;
   private readonly ready = signal(false);
 
   constructor() {
     const destroyRef = inject(DestroyRef);
     let destroyed = false;
     afterNextRender(() => {
-      void import('leaflet').then((mod) => {
+      void import('maplibre-gl').then((ml) => {
         if (destroyed) return;
-        const L = ((mod as unknown as { default?: typeof Leaflet }).default ?? mod) as typeof Leaflet;
-        this.L = L;
-        const map = L.map(this.el().nativeElement, { center: BASIN_CENTER, zoom: 11, minZoom: 9, maxZoom: 18, maxBounds: BASIN_BOUNDS, zoomControl: true, attributionControl: false });
-        L.tileLayer(TILES.imagery, { maxZoom: 18, attribution: ATTRIBUTION }).addTo(map);
-        L.tileLayer(TILES.labels, { maxZoom: 18, opacity: 0.85 }).addTo(map);
-        this.layer = L.layerGroup().addTo(map);
-        map.on('click', (e: Leaflet.LeafletMouseEvent) => {
-          if (this.pickable()) this.picked.emit({ latitude: e.latlng.lat, longitude: e.latlng.lng, accuracy: null });
+        this.ml = ml;
+        const [sw, ne] = BASIN_BOUNDS.map(toLngLat);
+        const map = new ml.Map({
+          container: this.el().nativeElement,
+          style: STYLE,
+          center: toLngLat(BASIN_CENTER),
+          zoom: 11,
+          minZoom: 9,
+          maxZoom: 18,
+          maxBounds: [sw, ne],
+          attributionControl: false,
         });
-        const ro = new ResizeObserver(() => map.invalidateSize());
+        map.addControl(new ml.NavigationControl({ showCompass: false }), 'top-left');
+        map.on('click', (e) => {
+          if (this.pickable()) this.picked.emit({ latitude: e.lngLat.lat, longitude: e.lngLat.lng, accuracy: null });
+        });
+        const ro = new ResizeObserver(() => map.resize());
         ro.observe(this.el().nativeElement);
         destroyRef.onDestroy(() => ro.disconnect());
         this.map = map;
-        this.ready.set(true);
+        map.once('load', () => this.ready.set(true));
       });
     });
     destroyRef.onDestroy(() => {
@@ -73,36 +92,48 @@ export class MiniMap {
       const pts = this.points();
       const sel = this.selectedId();
       if (!this.ready()) return;
-      const L = this.L;
-      this.layer!.clearLayers();
-      for (const p of pts) {
+      for (const m of this.markers) m.remove();
+      this.markers = pts.map((p) => {
         const on = p.id === sel;
-        L.circleMarker([p.latitude, p.longitude], { radius: on ? 10 : 7, color: '#fff', weight: 2, fillColor: p.color, fillOpacity: 1 })
-          .bindTooltip(p.label)
-          .on('click', () => this.pointClick.emit(p.id))
-          .addTo(this.layer!);
-      }
+        const size = on ? 20 : 14;
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.title = p.label;
+        el.setAttribute('aria-label', p.label);
+        el.style.cssText = `width:${size}px;height:${size}px;padding:0;border-radius:50%;border:2px solid #fff;background:${p.color};cursor:pointer;box-shadow:0 1px 4px rgb(0 0 0 / .5)`;
+        el.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          this.pointClick.emit(p.id);
+        });
+        return new this.ml.Marker({ element: el }).setLngLat([p.longitude, p.latitude]).addTo(this.map!);
+      });
+      const map = this.map!;
       if (sel) {
         const p = pts.find((x) => x.id === sel);
-        if (p) this.map!.setView([p.latitude, p.longitude], Math.max(this.map!.getZoom(), 14));
+        if (p) map.easeTo({ center: [p.longitude, p.latitude], zoom: Math.max(map.getZoom(), 14) });
       } else if (pts.length && !this.value()) {
-        this.map!.fitBounds(L.latLngBounds(pts.map((p) => [p.latitude, p.longitude] as Leaflet.LatLngTuple)).pad(0.25), { maxZoom: 15 });
+        const bounds = new this.ml.LngLatBounds();
+        for (const p of pts) bounds.extend([p.longitude, p.latitude]);
+        map.fitBounds(bounds, { padding: 40, maxZoom: 15, duration: 0 });
       }
     });
 
     effect(() => {
       const v = this.value();
       if (!this.ready()) return;
-      const L = this.L;
       if (!v) {
         this.pin?.remove();
         this.pin = undefined;
         return;
       }
-      const icon = L.divIcon({ className: '', html: '<i class="pi pi-map-marker" style="font-size:2rem;color:#e5484d;text-shadow:0 1px 4px #000"></i>', iconSize: [32, 32], iconAnchor: [16, 30] });
-      if (this.pin) this.pin.setLatLng([v.latitude, v.longitude]);
-      else this.pin = L.marker([v.latitude, v.longitude], { icon }).addTo(this.map!);
-      this.map!.setView([v.latitude, v.longitude], Math.max(this.map!.getZoom(), 15));
+      if (this.pin) this.pin.setLngLat([v.longitude, v.latitude]);
+      else {
+        const el = document.createElement('i');
+        el.className = 'pi pi-map-marker';
+        el.style.cssText = 'font-size:2rem;color:#e5484d;text-shadow:0 1px 4px #000';
+        this.pin = new this.ml.Marker({ element: el, anchor: 'bottom' }).setLngLat([v.longitude, v.latitude]).addTo(this.map!);
+      }
+      this.map!.easeTo({ center: [v.longitude, v.latitude], zoom: Math.max(this.map!.getZoom(), 15) });
     });
   }
 }

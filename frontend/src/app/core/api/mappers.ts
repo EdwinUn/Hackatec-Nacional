@@ -2,6 +2,7 @@ import {
   AlertDto,
   AlertRuleDto,
   CentrifugeAnalyticsDto,
+  CriticalPointDto,
   CycleDto,
   HotspotDto,
   OverviewDto,
@@ -18,6 +19,7 @@ import {
   Alert,
   AlertRule,
   Bucket,
+  CriticalPoint,
   CentrifugeAnalytics,
   CentrifugeState,
   DashboardOverview,
@@ -207,4 +209,8 @@ export function mapEnvelope(m: WsEnvelopeDto, stationName: (id: string | null) =
     default:
       return null;
   }
+}
+
+export function mapCriticalPoint(p: CriticalPointDto): CriticalPoint {
+  return { rank: p.rank, station_id: p.station_id, name: p.name, score: p.score, level: p.level, components: p.components, reasons: p.reasons };
 }

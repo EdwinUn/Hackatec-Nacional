@@ -7,6 +7,7 @@ import {
   AlertRulePatch,
   Bucket,
   CentrifugeAnalytics,
+  CriticalPoint,
   DashboardOverview,
   Hotspot,
   IngestResult,
@@ -32,6 +33,7 @@ export abstract class RioApi {
   abstract centrifuge(q: Query, bucket: Bucket): Observable<CentrifugeAnalytics>;
   abstract sensorsHealth(q: Query): Observable<SensorHealth[]>;
   abstract hotspots(): Observable<Hotspot[]>;
+  abstract criticalPoints(q: Query): Observable<CriticalPoint[]>;
   abstract alerts(f: AlertFilters): Observable<Page<Alert>>;
   abstract patchAlert(id: string, body: AlertPatch): Observable<Alert>;
   abstract alertRules(): Observable<AlertRule[]>;

@@ -5,6 +5,21 @@
 .hud { top: 1rem; left: 1rem; padding: .8rem 1rem; max-width: 300px; }
 .hud-title { font-weight: 700; display: flex; align-items: center; gap: .5rem; i { color: #3ddc97; } }
 .hud-sub { font-size: .78rem; color: #b6d0c4; margin: .2rem 0 .6rem; }
+.rank { margin-top: .7rem; padding-top: .6rem; border-top: 1px solid rgb(255 255 255 / .14);
+  .rank-title { font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #b6d0c4; display: flex; align-items: center; gap: .4rem; margin-bottom: .35rem; }
+  ol { list-style: none; margin: 0; padding: 0; display: grid; gap: .25rem; }
+  button { width: 100%; display: grid; grid-template-columns: 1.1rem 1fr auto; grid-template-areas: 'pos nm sc' 'pos bar bar'; column-gap: .45rem; row-gap: .2rem; align-items: center; padding: .3rem .4rem; border: 1px solid transparent; border-radius: 8px; background: none; color: inherit; font: inherit; font-size: .8rem; text-align: left; cursor: pointer;
+    &:hover, &.on { background: rgb(255 255 255 / .08); border-color: rgb(255 255 255 / .16); } }
+  .pos { grid-area: pos; font-weight: 800; color: #b6d0c4; }
+  .nm { grid-area: nm; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sc { grid-area: sc; font-weight: 800; }
+  .bar { grid-area: bar; height: 4px; border-radius: 4px; background: rgb(255 255 255 / .12); overflow: hidden; span { display: block; height: 100%; border-radius: 4px; } }
+}
+.crit { border: 1px solid; border-radius: 12px; padding: .7rem .8rem; background: rgb(255 255 255 / .04);
+  .crit-head { display: flex; align-items: center; gap: .9rem; }
+  .score { font-size: 2rem; }
+  .why { margin: .5rem 0 0; padding-left: 1rem; display: grid; gap: .2rem; font-size: .8rem; color: #d7e6df; }
+}
 .legend { list-style: none; margin: 0; padding: 0; display: grid; gap: .25rem; font-size: .8rem; li { display: flex; align-items: center; gap: .5rem; } strong { margin-left: auto; } }
 .dot { width: .7rem; height: .7rem; border-radius: 50%; border: 1.5px solid #fff; }
 .layer-toggle { display: flex; align-items: center; gap: .45rem; margin-top: .6rem; font-size: .8rem; cursor: pointer; strong { margin-left: auto; } input { accent-color: #3ddc97; } }

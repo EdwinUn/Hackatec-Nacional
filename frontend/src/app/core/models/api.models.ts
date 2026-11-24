@@ -234,3 +234,14 @@ export interface WsEnvelopeDto {
   ts: string;
   data: Record<string, unknown>;
 }
+
+/** GET /analytics/critical-points — fields the UI uses (the backend also sends coordinates, wqi, alerts…). */
+export interface CriticalPointDto {
+  rank: number;
+  station_id: string;
+  name: string;
+  score: number;
+  level: 'critico' | 'atencion' | 'estable';
+  components: { calidad: number; alertas: number; recurrencia: number };
+  reasons: string[];
+}
