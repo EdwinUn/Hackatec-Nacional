@@ -8,6 +8,8 @@ export const environment = {
   wsUrl: 'ws://localhost:8000/ws/live',
   /** Sent as `X-API-Key` on the simulation / ingest POST endpoints (dev key goes in environment.development.ts). */
   ingestApiKey: '',
+  /** true: login, citizen reports and work orders come from the local mock (backend endpoints still proposed). */
+  opsMocks: true,
   /** PrimeNG / PrimeUI license key (community tier is free): https://primeui.store */
   primeLicense: '',
 };

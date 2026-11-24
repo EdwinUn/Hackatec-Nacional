@@ -1,0 +1,170 @@
+<div class="page task-page">
+  <div class="row">
+    <p-button icon="pi pi-arrow-left" [text]="true" severity="secondary" [rounded]="true" ariaLabel="Volver"
+      [routerLink]="auth.isManager() ? '/operaciones/ordenes' : '/operaciones/mis-tareas'" />
+    @if (order(); as o) {
+      <div class="grow">
+        <p class="muted small" style="margin:0">{{ o.folio }} · {{ typeMeta[o.type].label }}</p>
+        <h1 class="page-title">{{ o.title }}</h1>
+      </div>
+    }
+  </div>
+
+  @if (order(); as o) {
+    <div class="row">
+      <app-pill [label]="statusMeta[o.status].label" [color]="statusMeta[o.status].color" [bg]="statusMeta[o.status].bg" />
+      <app-pill [label]="'Prioridad ' + prio[o.priority].label.toLowerCase()" [color]="prio[o.priority].color" [bg]="prio[o.priority].bg" />
+      @if (o.assigned_name) { <span class="muted small"><i class="pi pi-user"></i> {{ o.assigned_name }}</span> }
+      @if (o.due_at) { <span class="muted small"><i class="pi pi-clock"></i> Para {{ o.due_at | date: 'dd/MM HH:mm' }}</span> }
+    </div>
+
+    @if (error()) { <p-message severity="error">{{ error() }}</p-message> }
+
+    <div class="task-grid">
+      <!-- ── Context ─────────────────────────────────────────── -->
+      <section class="stack">
+        <div class="rm-card stack">
+          <h2 class="rm-card-title"><i class="pi pi-info-circle"></i> Qué hay que hacer</h2>
+          @if (o.description) { <p class="m0">{{ o.description }}</p> }
+          @if (o.station_name) { <p class="m0 muted small"><i class="pi pi-map-marker"></i> Estación: {{ o.station_name }}</p> }
+          @if (o.location; as loc) {
+            <app-mini-map class="map-sm" [value]="loc" />
+            <a class="p-button p-button-sm p-button-secondary p-button-outlined link-btn" [href]="dirUrl(loc)" target="_blank" rel="noopener"><i class="pi pi-directions"></i> Cómo llegar ({{ coords(loc.latitude, loc.longitude) }})</a>
+          }
+          @if (o.check_in; as c) { <p class="m0 muted small"><i class="pi pi-check-circle"></i> Check-in {{ ago(c.ts) }} en {{ coords(c.latitude, c.longitude) }}</p> }
+        </div>
+
+        @if (report(); as r) {
+          <div class="rm-card stack">
+            <h2 class="rm-card-title"><i class="pi pi-megaphone"></i> Reporte ciudadano {{ r.folio }}</h2>
+            <p class="m0"><i [class]="reportMeta[r.type].icon" [style.color]="reportMeta[r.type].color"></i> <strong>{{ reportMeta[r.type].label }}</strong> · <span class="muted">{{ ago(r.created_at) }}</span></p>
+            @if (r.photo) { <img class="photo" [src]="r.photo" alt="Foto enviada por el ciudadano" /> }
+            @if (r.description) { <p class="m0">"{{ r.description }}"</p> }
+          </div>
+        }
+      </section>
+
+      <!-- ── Work ────────────────────────────────────────────── -->
+      <section class="stack">
+        @if (o.status === 'assigned' || o.status === 'pending') {
+          <div class="rm-card stack center-card">
+            <i class="pi pi-flag big" aria-hidden="true"></i>
+            <p class="m0">Cuando llegues al punto, inicia la tarea. Se registrará tu ubicación como check-in.</p>
+            @if (isMine() || auth.isManager()) {
+              <p-button label="Llegué, comenzar tarea" icon="pi pi-play" [loading]="busy() === 'start'" [disabled]="o.status === 'pending'" (onClick)="start()" />
+              @if (o.status === 'pending') { <small class="muted">Primero hay que asignar la orden a un técnico.</small> }
+            }
+          </div>
+        } @else {
+          <fieldset class="rm-card stack" [disabled]="!canWork()">
+            <h2 class="rm-card-title"><i class="pi pi-list-check"></i> Lista de verificación <span class="spacer muted small">{{ checklistDone() }}/{{ checklist().length }}</span></h2>
+            <ul class="checklist">
+              @for (c of checklist(); track c.key; let i = $index) {
+                <li><label><p-checkbox [binary]="true" [ngModel]="c.done" (ngModelChange)="toggle(i, $event)" [inputId]="'chk-' + c.key" [disabled]="!canWork()" /> {{ c.label }}</label></li>
+              }
+            </ul>
+          </fieldset>
+
+          @switch (o.type) {
+            @case ('waste_collection') {
+              <fieldset class="rm-card stack" [disabled]="!canWork()">
+                <h2 class="rm-card-title"><i class="pi pi-trash"></i> Basura recolectada</h2>
+                <label class="field">Tipo principal
+                  <p-select [options]="wasteOptions" [(ngModel)]="wasteType" optionLabel="label" optionValue="value" [disabled]="!canWork()" appendTo="body" />
+                </label>
+                <div class="two">
+                  <label class="field">Peso (kg)
+                    <p-inputnumber [(ngModel)]="weightKg" [min]="0" [max]="500" [maxFractionDigits]="2" suffix=" kg" inputmode="decimal" [disabled]="!canWork()" />
+                  </label>
+                  <label class="field">Piezas (aprox.)
+                    <p-inputnumber [(ngModel)]="itemsCount" [min]="0" [max]="10000" inputmode="numeric" [disabled]="!canWork()" />
+                  </label>
+                </div>
+                <small class="muted"><i class="pi pi-info-circle"></i> Al terminar, la recolección se registra en el sistema y aparece en el Resumen ejecutivo.</small>
+              </fieldset>
+            }
+            @case ('calibration') {
+              <fieldset class="rm-card stack" [disabled]="!canWork()">
+                <h2 class="rm-card-title"><i class="pi pi-sliders-h"></i> Calibración</h2>
+                <label class="field">Sensor
+                  <p-select [options]="sensorOptions()" [ngModel]="sensorId" (ngModelChange)="onSensor($event)" optionLabel="label" optionValue="value" placeholder="Elige el sensor" [disabled]="!canWork()" appendTo="body" />
+                </label>
+                <div class="two">
+                  <label class="field">Valor de la solución patrón
+                    <p-inputnumber [(ngModel)]="referenceValue" [minFractionDigits]="2" [maxFractionDigits]="3" inputmode="decimal" [disabled]="!canWork()" />
+                  </label>
+                  <label class="field">Lectura del sensor
+                    <p-inputnumber [(ngModel)]="measuredValue" [minFractionDigits]="2" [maxFractionDigits]="3" inputmode="decimal" [disabled]="!canWork()" />
+                  </label>
+                </div>
+                @if (offset() !== null) {
+                  <p class="m0 calib">Ajuste (offset) que se aplicará: <strong>{{ offset()! >= 0 ? '+' : '' }}{{ offset() | number: '1.3-3' }}</strong></p>
+                }
+                <small class="muted"><i class="pi pi-info-circle"></i> Calibración de un punto (valor de prototipo): offset = patrón − lectura; factor 1.</small>
+              </fieldset>
+            }
+            @case ('citizen_report') {
+              <fieldset class="rm-card stack" [disabled]="!canWork()">
+                <h2 class="rm-card-title"><i class="pi pi-megaphone"></i> Resultado de la atención</h2>
+                <p-selectbutton [options]="confirmOptions" [(ngModel)]="confirmed" optionLabel="label" optionValue="value" [disabled]="!canWork()" ariaLabel="¿Se confirmó el problema?" />
+                <label class="field">Acción realizada <small class="muted">(la verá el ciudadano)</small>
+                  <textarea pTextarea rows="2" [(ngModel)]="actionTaken" [autoResize]="true" placeholder="Ej. Se retiraron 20 kg de basura y se notificó al municipio de la descarga." [disabled]="!canWork()"></textarea>
+                </label>
+              </fieldset>
+            }
+          }
+
+          <div class="rm-card stack">
+            <h2 class="rm-card-title"><i class="pi pi-camera"></i> Evidencia</h2>
+            <div class="two">
+              <div class="stack"><strong class="small">Antes</strong>
+                @if (canWork()) { <app-photo-input [value]="before()" (valueChange)="before.set($event)" label="Foto antes" /> }
+                @else if (before()) { <img class="photo" [src]="before()" alt="Antes" /> } @else { <span class="muted small">Sin foto</span> }
+              </div>
+              <div class="stack"><strong class="small">Después</strong>
+                @if (canWork()) { <app-photo-input [value]="after()" (valueChange)="after.set($event)" label="Foto después" /> }
+                @else if (after()) { <img class="photo" [src]="after()" alt="Después" /> } @else { <span class="muted small">Sin foto</span> }
+              </div>
+            </div>
+            <label class="field">Observaciones
+              <textarea pTextarea rows="2" [(ngModel)]="notes" [autoResize]="true" placeholder="Ej. Se cambió una manguera con fuga." [disabled]="!canWork()"></textarea>
+            </label>
+          </div>
+
+          @if (canWork()) {
+            <div class="rm-card stack actions-card">
+              @if (missing().length) {
+                <ul class="missing">@for (m of missing(); track m) { <li><i class="pi pi-circle"></i> {{ m }}</li> }</ul>
+              }
+              <div class="row">
+                <p-button label="Guardar avance" icon="pi pi-save" severity="secondary" [outlined]="true" [loading]="busy() === 'save'" (onClick)="save()" />
+                <p-button label="Terminar tarea" icon="pi pi-check" [loading]="busy() === 'finish'" [disabled]="missing().length > 0" (onClick)="finish()" />
+              </div>
+            </div>
+          }
+
+          @if (o.status === 'done' && auth.isManager()) {
+            <div class="rm-card stack actions-card">
+              <p class="m0">Revisa la evidencia y verifica el trabajo, o reábrelo si falta algo.</p>
+              <div class="row">
+                <p-button label="Reabrir" icon="pi pi-replay" severity="secondary" [outlined]="true" [loading]="busy() === 'reopen'" (onClick)="reopen()" />
+                <p-button label="Verificar" icon="pi pi-verified" [loading]="busy() === 'verify'" (onClick)="verify()" />
+              </div>
+            </div>
+          }
+          @if (o.status === 'done' && !auth.isManager()) {
+            <p-message severity="success">Tarea terminada. Está pendiente de verificación por el supervisor.</p-message>
+          }
+        }
+
+        @if (auth.isManager() && o.status !== 'verified' && o.status !== 'cancelled' && o.status !== 'done') {
+          <p-button label="Cancelar orden" icon="pi pi-times" severity="danger" [text]="true" size="small" [loading]="busy() === 'cancel'" (onClick)="cancel()" />
+        }
+      </section>
+    </div>
+  } @else if (res.isLoading()) {
+    <div class="skeleton" style="height: 320px"></div>
+  } @else {
+    <div class="rm-card empty"><i class="pi pi-exclamation-triangle"></i> No se encontró la orden.</div>
+  }
+</div>

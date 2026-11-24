@@ -20,7 +20,7 @@ import {
   WasteAnalyticsDto,
   WaterRecoveryDto,
 } from '../models/api.models';
-import { AlertFilters, AlertPatch, Bucket, IngestResult, Query, WasteType } from '../models/rio.models';
+import { AlertFilters, AlertPatch, AlertRulePatch, Bucket, IngestResult, Query, StationStatus, WasteType } from '../models/rio.models';
 import {
   mapAlert,
   mapCentrifuge,
@@ -145,6 +145,22 @@ export class HttpRioApi extends RioApi {
     return this.post<{ id: string }>('/waste-collections', { station_id: stationId, ts: iso(), weight_kg: 8.5, items_count: 40, waste_type: type, collector_id: 'banda-1' }).pipe(
       map((w) => ({ id: w.id, accepted: true, detail: `Recolección registrada · ${w.id.slice(0, 8)}` })),
     );
+  }
+
+  // ── Field operations ───────────────────────────────────────────────────────
+  recordWasteCollection(stationId: string, type: WasteType, kg: number, pieces: number, collectorId: string): Observable<IngestResult> {
+    return this.post<{ id: string }>('/waste-collections', { station_id: stationId, ts: iso(), weight_kg: kg, items_count: pieces, waste_type: type, collector_id: collectorId }).pipe(
+      map((w) => ({ id: w.id, accepted: true, detail: `Recolección registrada · ${w.id.slice(0, 8)}` })),
+    );
+  }
+  setStationStatus(stationId: string, status: StationStatus): Observable<void> {
+    return this.patchKey<StationDto>(`/stations/${stationId}`, { status }).pipe(map(() => undefined));
+  }
+  calibrateSensor(sensorId: string, offset: number, factor: number): Observable<void> {
+    return this.patchKey<SensorDto>(`/sensors/${sensorId}`, { calibration_offset: offset, calibration_factor: factor, calibrated_at: iso() }).pipe(map(() => undefined));
+  }
+  patchAlertRule(id: string, body: AlertRulePatch) {
+    return this.patchKey<AlertRuleDto>(`/alert-rules/${id}`, body).pipe(map(mapRule));
   }
 }
 

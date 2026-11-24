@@ -79,3 +79,6 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
 }
+
+/* Citizen report pins on the satellite map */
+.report-pin span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 5px rgb(0 0 0 / .55); color: #fff; font-size: .75rem; }

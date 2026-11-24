@@ -157,6 +157,10 @@ export interface AlertRule {
   description: string | null;
 }
 
+export type AlertRulePatch = Partial<Pick<AlertRule, 'severity' | 'min_value' | 'max_value' | 'enabled'>>;
+
+export type StationStatus = 'active' | 'maintenance' | 'offline';
+
 export interface PhForecast {
   station_id: string;
   horizon_hours: number;

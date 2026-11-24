@@ -8,6 +8,7 @@ import {
   AlertFilters,
   AlertPatch,
   AlertRule,
+  AlertRulePatch,
   Bucket,
   CentrifugeAnalytics,
   DashboardOverview,
@@ -19,6 +20,7 @@ import {
   Query,
   SensorHealth,
   Station,
+  StationStatus,
   WasteAnalytics,
   WasteType,
   WaterRecovery,
@@ -270,6 +272,31 @@ export class MockRioApi extends RioApi {
   simulateWasteCollection(stationId: string, type: WasteType): Observable<IngestResult> {
     this.be.addWaste(stationId, type, 8.5, 40);
     return this.ok('Recolección registrada');
+  }
+
+  // ── Field operations ───────────────────────────────────────────────────────
+  recordWasteCollection(stationId: string, type: WasteType, kg: number, pieces: number): Observable<IngestResult> {
+    this.be.addWaste(stationId, type, kg, pieces);
+    return this.ok('Recolección registrada');
+  }
+
+  setStationStatus(stationId: string, status: StationStatus): Observable<void> {
+    const s = this.be.stations.find((x) => x.id === stationId);
+    if (s) s.status = status;
+    return lat(undefined);
+  }
+
+  calibrateSensor(sensorId: string): Observable<void> {
+    const s = this.be.sensors.find((x) => x.sensor_id === sensorId);
+    if (s && s.status !== 'offline') s.status = 'ok';
+    return lat(undefined);
+  }
+
+  patchAlertRule(id: string, body: AlertRulePatch): Observable<AlertRule> {
+    const r = this.be.rules.find((x) => x.id === id);
+    if (!r) return throwError(() => new ApiError('Regla no encontrada', 404, 'not_found'));
+    Object.assign(r, body);
+    return lat({ ...r });
   }
 }
 

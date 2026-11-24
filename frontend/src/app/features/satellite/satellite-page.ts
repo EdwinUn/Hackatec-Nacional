@@ -4,6 +4,8 @@ import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import type * as Leaflet from 'leaflet';
 import { RioApi } from '../../core/api/rio-api';
+import { OpsApi } from '../../core/api/ops-api';
+import { REPORT_STATUS_META, REPORT_TYPE_META } from '../../shared/utils/ops.util';
 import { Hotspot, SensorHealth, SensorPosition } from '../../core/models/rio.models';
 import { FiltersService } from '../../core/services/filters.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
@@ -28,6 +30,7 @@ export class SatellitePage {
   private readonly api = inject(RioApi);
   private readonly filters = inject(FiltersService);
   private readonly live = inject(LiveStreamService);
+  private readonly ops = inject(OpsApi);
 
   protected readonly wqi = WQI_META;
   protected readonly categories = CATEGORIES;
@@ -43,6 +46,7 @@ export class SatellitePage {
   private L!: typeof Leaflet;
   private map?: Leaflet.Map;
   private markers?: Leaflet.LayerGroup;
+  private reportLayer?: Leaflet.LayerGroup;
   private readonly ready = signal(false);
 
   /** All stations are always on the map, regardless of the header station filter (range still applies). */
@@ -51,6 +55,11 @@ export class SatellitePage {
     stream: () => this.api.hotspots(),
   });
   protected readonly list = computed<Hotspot[]>(() => valueOrUndefined(this.hotspots) ?? []);
+
+  /** Citizen reports still being attended (layer toggled from the HUD). */
+  protected readonly showReports = signal(true);
+  private readonly reportsRes = rxResource({ params: () => this.filters.tick(), stream: () => this.ops.citizenReports() });
+  protected readonly activeReports = computed(() => (valueOrUndefined(this.reportsRes) ?? []).filter((r) => r.status !== 'resolved' && r.status !== 'rejected'));
 
   protected readonly selectedId = signal<string | null>(null);
   protected readonly selected = computed(() => this.list().find((h) => h.station_id === this.selectedId()) ?? null);
@@ -113,6 +122,7 @@ export class SatellitePage {
         river(RIO_ALSESECA, 'Río Alseseca', 3);
         L.polygon(PRESA_VALSEQUILLO, { color: '#7dd3fc', weight: 2, fillColor: '#0ea5e9', fillOpacity: 0.28 }).bindTooltip('Presa de Valsequillo (Manuel Ávila Camacho)', { sticky: true }).addTo(map);
 
+        this.reportLayer = L.layerGroup().addTo(map);
         this.markers = L.layerGroup().addTo(map);
         this.map = map;
         const ro = new ResizeObserver(() => map.invalidateSize());
@@ -144,6 +154,29 @@ export class SatellitePage {
         L.marker([h.latitude, h.longitude], { icon, title: `${h.name} · WQI ${h.wqi.score}`, alt: h.name, keyboard: true, zIndexOffset: h.station_id === sel ? 1000 : 0 })
           .on('click', () => this.select(h))
           .addTo(this.markers!);
+      }
+    });
+
+    // Citizen reports: small icon pins coloured by type, with a popup.
+    effect(() => {
+      if (!this.ready()) return;
+      const { L } = this;
+      const reports = this.showReports() ? this.activeReports() : [];
+      this.reportLayer?.clearLayers();
+      for (const r of reports) {
+        const t = REPORT_TYPE_META[r.type];
+        const st = REPORT_STATUS_META[r.status];
+        const icon = L.divIcon({
+          className: 'report-pin',
+          html: `<span style="background:${t.color}"><i class="${t.icon}"></i></span>`,
+          iconSize: [26, 26],
+          iconAnchor: [13, 13],
+        });
+        const esc = (v: string) => v.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+        const photo = r.photo && /^(data:image\/|https?:\/\/)/.test(r.photo) ? `<img src="${esc(r.photo)}" alt="" style="width:180px;height:110px;object-fit:cover;border-radius:6px;display:block;margin-top:.4rem">` : '';
+        L.marker([r.latitude, r.longitude], { icon, title: `${r.folio} · ${t.label}`, alt: t.label, keyboard: true })
+          .bindPopup(`<strong>${t.label}</strong><br><small>${esc(r.folio)} · ${st.label} · ${timeAgo(r.created_at)}</small>${r.description ? `<p style="margin:.35rem 0 0;max-width:200px">${esc(r.description)}</p>` : ''}${photo}`)
+          .addTo(this.reportLayer!);
       }
     });
 

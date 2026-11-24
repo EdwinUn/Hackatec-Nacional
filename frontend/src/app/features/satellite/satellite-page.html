@@ -10,6 +10,7 @@
         <li><span class="dot" [style.background]="wqi[c].color"></span>{{ wqi[c].label }} <strong>{{ counts()[c] }}</strong></li>
       }
     </ul>
+    <label class="layer-toggle"><input type="checkbox" [checked]="showReports()" (change)="showReports.set($any($event.target).checked)" /> <i class="pi pi-megaphone" aria-hidden="true"></i> Reportes ciudadanos <strong>{{ activeReports().length }}</strong></label>
     <button type="button" class="reset" (click)="resetView()"><i class="pi pi-compass" aria-hidden="true"></i> Centrar cuenca</button>
   </div>
 

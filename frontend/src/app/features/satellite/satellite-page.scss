@@ -7,6 +7,7 @@
 .hud-sub { font-size: .78rem; color: #b6d0c4; margin: .2rem 0 .6rem; }
 .legend { list-style: none; margin: 0; padding: 0; display: grid; gap: .25rem; font-size: .8rem; li { display: flex; align-items: center; gap: .5rem; } strong { margin-left: auto; } }
 .dot { width: .7rem; height: .7rem; border-radius: 50%; border: 1.5px solid #fff; }
+.layer-toggle { display: flex; align-items: center; gap: .45rem; margin-top: .6rem; font-size: .8rem; cursor: pointer; strong { margin-left: auto; } input { accent-color: #3ddc97; } }
 .reset { margin-top: .7rem; width: 100%; background: rgb(255 255 255 / .1); color: #fff; border: 1px solid rgb(255 255 255 / .2); border-radius: 8px; padding: .4rem; font: inherit; font-size: .8rem; cursor: pointer; &:hover { background: rgb(255 255 255 / .18); } }
 .panel { top: 1rem; right: 1rem; width: 330px; max-height: calc(100% - 2rem); overflow: auto; padding: 1rem; display: flex; flex-direction: column; gap: .8rem;
   header { display: flex; justify-content: space-between; gap: .5rem; } h2 { font-size: 1.05rem; } h3 { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: #9fc2b3; margin: .2rem 0 0; }

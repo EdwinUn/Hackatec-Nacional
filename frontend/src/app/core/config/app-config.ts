@@ -6,6 +6,8 @@ export interface AppConfig {
   apiBaseUrl: string;
   wsUrl: string;
   ingestApiKey: string;
+  /** Operations module (login, citizen reports, work orders) from the local mock until the backend has those endpoints. */
+  opsMocks: boolean;
 }
 
 /** `?mock=1` forces the in-memory backend (handy for demos when the API is down). */
@@ -24,5 +26,6 @@ export const APP_CONFIG = new InjectionToken<AppConfig>('APP_CONFIG', {
     apiBaseUrl: environment.apiBaseUrl.replace(/\/$/, ''),
     wsUrl: environment.wsUrl,
     ingestApiKey: environment.ingestApiKey,
+    opsMocks: environment.useMocks || mockForced() || (environment as { opsMocks?: boolean }).opsMocks !== false,
   }),
 });

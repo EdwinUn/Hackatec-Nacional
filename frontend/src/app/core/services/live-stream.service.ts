@@ -31,6 +31,8 @@ export class LiveStreamService {
   readonly status = signal<LiveStatus>('disconnected');
   readonly events$ = new Subject<LiveEvent>();
   readonly reconnected$ = new Subject<void>();
+  /** Every frame as received (`{ type, data }`), before mapping; used for event types outside `LiveEvent` (operations). */
+  readonly raw$ = new Subject<{ type: string; data: unknown }>();
 
   private ws?: WebSocket;
   private attempt = 0;
@@ -85,7 +87,9 @@ export class LiveStreamService {
     };
     ws.onmessage = (m) => {
       try {
-        const e = mapEnvelope(JSON.parse(String(m.data)) as WsEnvelopeDto, (id) => (id ? this.stations.name(id) : '—'));
+        const frame = JSON.parse(String(m.data)) as WsEnvelopeDto;
+        this.raw$.next({ type: frame.type, data: frame.data });
+        const e = mapEnvelope(frame, (id) => (id ? this.stations.name(id) : '—'));
         if (e) this.dispatch(e);
       } catch {
         /* ignore malformed frames */

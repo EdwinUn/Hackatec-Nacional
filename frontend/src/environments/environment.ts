@@ -6,5 +6,6 @@ export const environment = {
   apiBaseUrl: 'http://10.174.97.75:8000/api/v1',
   wsUrl: 'ws://10.174.97.75:8000/ws/live',
   ingestApiKey: '',
+  opsMocks: true,
   primeLicense: '',
 };

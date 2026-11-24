@@ -11,6 +11,10 @@ import { HttpRioApi } from './core/api/http-rio-api';
 import { RioApi } from './core/api/rio-api';
 import { APP_CONFIG } from './core/config/app-config';
 import { apiErrorInterceptor } from './core/interceptors/api-error.interceptor';
+import { authInterceptor } from './core/interceptors/auth.interceptor';
+import { HttpOpsApi } from './core/api/http-ops-api';
+import { OpsApi } from './core/api/ops-api';
+import { MockOpsApi } from './core/mock/mock-ops-api';
 import { MockRioApi } from './core/mock/mock-rio-api';
 
 /** Forest-green palette on a light canvas. */
@@ -30,7 +34,7 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
     provideRouter(routes, withComponentInputBinding()),
-    provideHttpClient(withFetch(), withInterceptors([apiErrorInterceptor])),
+    provideHttpClient(withFetch(), withInterceptors([apiErrorInterceptor, authInterceptor])),
     providePrimeNG({
       ripple: true,
       ...(environment.primeLicense ? { license: environment.primeLicense } : {}),
@@ -40,5 +44,8 @@ export const appConfig: ApplicationConfig = {
     HttpRioApi,
     MockRioApi,
     { provide: RioApi, useFactory: () => (inject(APP_CONFIG).useMocks ? inject(MockRioApi) : inject(HttpRioApi)) },
+    HttpOpsApi,
+    MockOpsApi,
+    { provide: OpsApi, useFactory: () => (inject(APP_CONFIG).opsMocks ? inject(MockOpsApi) : inject(HttpOpsApi)) },
   ],
 };

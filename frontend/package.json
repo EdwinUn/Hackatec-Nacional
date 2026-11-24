@@ -21,6 +21,8 @@
     "@capacitor/android": "^8.6.2",
     "@capacitor/cli": "^8.6.2",
     "@capacitor/core": "^8.6.2",
+    "@capacitor/geolocation": "^8.2.5",
+    "@capacitor/local-notifications": "^8.3.1",
     "@primeuix/themes": "^3.1.1",
     "chart.js": "^4.6.2",
     "chartjs-adapter-date-fns": "^3.0.0",

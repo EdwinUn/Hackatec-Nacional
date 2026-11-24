@@ -39,4 +39,12 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Ubicación para reportes ciudadanos y check-in de técnicos (@capacitor/geolocation) -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <!-- Notificaciones de alertas críticas y tareas asignadas (@capacitor/local-notifications) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Fotos de evidencia desde la cámara (input type=file capture) -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>
