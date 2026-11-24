@@ -219,7 +219,7 @@ Todos aceptan `station_id` (omitir = todas las estaciones) y `from`/`to`.
 ```json
 {
   "station_id": "e68a…", "from": "2026-11-23T04:13:51Z", "to": "2026-11-24T04:13:51Z",
-  "wqi": { "score": 80.0, "category": "buena", "components": [
+  "wqi": { "score": 80.0, "category": "buena", "dominant_parameter": "turbidity", "components": [
     { "parameter": "ph", "value": 7.362, "sub_index": 100.0, "weight": 0.25 },
     { "parameter": "turbidity", "value": 46.977, "sub_index": 48.28, "weight": 0.25 }
   ] },
@@ -229,10 +229,16 @@ Todos aceptan `station_id` (omitir = todas las estaciones) y `from`/`to`.
   "sensors_online": 12, "sensors_total": 12,
   "water_in_l": 23743.7, "water_clean_l": 21239.6, "sludge_kg": 64.48, "efficiency_pct": 89.45,
   "waste_kg": 42.66, "waste_items": 319, "cycles_running": 0,
-  "alerts_open": 7, "alerts_critical_open": 3
+  "alerts_open": 7, "alerts_critical_open": 3,
+  "trend_bucket": "1h",
+  "trend": [
+    { "bucket": "2026-11-23T05:00:00Z", "wqi": 81.2, "ph_inlet": 7.31, "ph_outlet": 7.12, "water_clean_l": 2210.4 }
+  ]
 }
 ```
 
+- `dominant_parameter`: el parámetro con el sub-índice más bajo, es decir, el que más baja la calidad. Es `null` si no hay datos.
+- `trend`: serie corta para sparklines de los KPI (WQI, pH de entrada y salida, litros limpios). Usa buckets de `1h` hasta 48 h de rango y de `1d` por encima.
 - `wqi`: agua cruda (río + entrada). `wqi_outlet`: agua que regresa al río. Categorías: `excelente | buena | regular | mala | critica`. Si faltan datos, valen `null`.
 - `alerts_open` cuenta las alertas no resueltas (`open` + `acknowledged`).
 

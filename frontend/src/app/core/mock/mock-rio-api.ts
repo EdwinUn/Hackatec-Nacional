@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable, delay, of, throwError } from 'rxjs';
-import { wqiCategory } from '../../shared/utils/wqi.util';
+import { improvementPct, wqiCategory } from '../../shared/utils/wqi.util';
 import { RioApi } from '../api/rio-api';
 import { ApiError } from '../interceptors/api-error.interceptor';
 import {
@@ -72,7 +72,7 @@ export class MockRioApi extends RioApi {
         outlet: { score: outletScore, category: wqiCategory(outletScore), dominant_parameter: 'do' },
         trend: trend(riverScore, 4),
       },
-      ph: { inlet, outlet, improvement_pct: Math.round(((outlet - inlet) / inlet) * 1000) / 10, trend: trend(outlet, 0.25) },
+      ph: { inlet, outlet, improvement_pct: Math.round(improvementPct(inlet, outlet) * 10) / 10, trend: trend(outlet, 0.25) },
       sensors: { online: sensors.filter((s) => s.status === 'ok' || s.status === 'degraded').length, total: sensors.length },
       treatment_efficiency_pct: wr.totals.efficiency_pct,
       recovery: { clean_liters: wr.totals.liters_clean, waste_kg: wasteKg, trend: wr.series.slice(-14).map((p) => p.liters_clean) },
@@ -101,7 +101,7 @@ export class MockRioApi extends RioApi {
         inlet: { avg: r2(inAvg), min: r2(inAvg - w - rng() * 0.08), max: r2(inAvg + w + rng() * 0.08) },
         outlet: { avg: r2(outAvg), min: r2(outAvg - w / 3), max: r2(outAvg + w / 3) },
       });
-      imp += ((outAvg - inAvg) / inAvg) * 100;
+      imp += improvementPct(inAvg, outAvg);
     }
     return lat({ bucket, avg_improvement_pct: r2(imp / n), series });
   }

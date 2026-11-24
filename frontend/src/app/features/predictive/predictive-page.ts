@@ -71,7 +71,7 @@ export class PredictivePage {
     const last = f.forecast[f.forecast.length - 1];
     const min = Math.min(...f.forecast.map((p) => p.lower));
     const max = Math.max(...f.forecast.map((p) => p.upper));
-    return { end: last.value, min, max, risk: min < 6 || max > 8.5 };
+    return { end: last.value, min, max, risk: min < 6.5 || max > 8.5 };
   });
 
   protected readonly chart = computed<ChartConfiguration | null>(() => {
@@ -91,7 +91,7 @@ export class PredictivePage {
       const x0 = hist[0].x;
       const x1 = x(fc[fc.length - 1].ts);
       const limit = (label: string, y: number): ChartDataset<'line'> => ({ label, data: [{ x: x0, y }, { x: x1, y }], borderColor: '#b91c1c', borderDash: [2, 4], borderWidth: 1.3, pointRadius: 0 });
-      datasets.push(limit('Límites de pH (6.0 – 8.5)', 6), limit('_alk', 8.5));
+      datasets.push(limit('Límites de pH (6.5 – 8.5)', 6.5), limit('_alk', 8.5));
     }
     return {
       type: 'line',

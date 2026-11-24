@@ -1,11 +1,10 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- *  ⚠  SUPUESTOS — ESQUEMAS PENDIENTES DE CONFIRMAR CONTRA `API.md`
+ *  MODELOS DE VISTA DEL FRONTEND
  * ═══════════════════════════════════════════════════════════════════════════════
- * `API.md` solo documenta `GET /health`. Los esquemas de abajo se INFIRIERON de la
- * descripción del reto (nombres de endpoints, `inlet.avg`, `error.message`, tipos de
- * evento WS…). Todo el frontend depende de este único archivo: cuando exista el
- * contrato real, ajustar SOLO aquí (y, si cambian nombres de campos, `http-rio-api.ts`).
+ * Lo que consumen las pantallas y el mock. El contrato real del backend (/API.md) vive
+ * en `core/api/backend.types.ts` y se traduce a estos modelos en `core/api/backend-mappers.ts`;
+ * si el backend cambia, ajustar allí, no en las pantallas.
  * Timestamps: ISO-8601 UTC.
  */
 
@@ -166,6 +165,8 @@ export interface AlertRule {
   severity: AlertSeverity;
   enabled: boolean;
   description: string | null;
+  /** Full condition text when the rule is a range (e.g. «fuera de 6.5–8.5 pH»). */
+  condition?: string;
 }
 
 /** GET /analytics/forecast/ph?station_id=…&horizon=6 */

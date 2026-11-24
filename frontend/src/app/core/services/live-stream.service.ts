@@ -3,7 +3,10 @@ import { Subject } from 'rxjs';
 import { APP_CONFIG } from '../config/app-config';
 import { MockBackend } from '../mock/mock-backend';
 import { LiveEvent, LiveStatus } from '../models/rio.models';
+import { mapLiveEvent } from '../api/backend-mappers';
+import { BeEnvelope } from '../api/backend.types';
 import { FiltersService } from './filters.service';
+import { StationsService } from './stations.service';
 
 /** Reconnect delay: 1 s, 2 s, 4 s … capped at 30 s. */
 export function backoffDelay(attempt: number): number {
@@ -23,6 +26,7 @@ export class LiveStreamService {
   private readonly filters = inject(FiltersService);
   private readonly mock = inject(MockBackend);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly stations = inject(StationsService);
 
   readonly status = signal<LiveStatus>('disconnected');
   readonly events$ = new Subject<LiveEvent>();
@@ -81,7 +85,9 @@ export class LiveStreamService {
     };
     ws.onmessage = (m) => {
       try {
-        this.dispatch(JSON.parse(String(m.data)) as LiveEvent);
+        // The backend sends `{ type, station_id, ts, data }` in its own field names (API.md).
+        const event = mapLiveEvent(JSON.parse(String(m.data)) as BeEnvelope, (id) => this.stations.name(id));
+        if (event) this.dispatch(event);
       } catch {
         /* ignore malformed frames */
       }

@@ -16,6 +16,16 @@ export function wqiCategory(score: number): WqiCategory {
   return 'critica';
 }
 
+/**
+ * pH improvement = how much closer to neutral (7) the water gets: 7.56 → 7.22 is +61 %
+ * (|0.56| → |0.22|), 5.0 → 6.8 is +90 %. Negative means the treatment moved it away from 7.
+ */
+export function improvementPct(inlet: number | null | undefined, outlet: number | null | undefined): number {
+  if (inlet === null || inlet === undefined || outlet === null || outlet === undefined) return 0;
+  const before = Math.abs(inlet - 7);
+  return before < 1e-6 ? 0 : ((before - Math.abs(outlet - 7)) / before) * 100;
+}
+
 export const SEVERITY_META: Record<AlertSeverity, { label: string; color: string; bg: string; icon: string }> = {
   info: { label: 'Informativa', color: '#1d4ed8', bg: '#dbeafe', icon: 'pi pi-info-circle' },
   warning: { label: 'Advertencia', color: '#a16207', bg: '#fcefc7', icon: 'pi pi-exclamation-triangle' },

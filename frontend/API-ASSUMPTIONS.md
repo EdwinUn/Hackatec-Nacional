@@ -1,24 +1,37 @@
-# Esquemas de API supuestos (pendientes de confirmar contra `API.md`)
+# Integración con el backend Río Monitor
 
-`API.md` solo documenta `GET /health`. El contrato de **Backend Río Monitor** que consume este frontend
-(`/api/v1/*`, `ws://…/ws/live`) **no está en el repo**, así que los esquemas se **infirieron** de la descripción del reto
-y viven aislados en un único archivo: [`src/app/core/models/rio.models.ts`](src/app/core/models/rio.models.ts)
-(marcado con «SUPUESTOS»). Cuando exista el contrato real, ajustar solo ese archivo (y `core/api/http-rio-api.ts` si cambian rutas o nombres de parámetros).
+El contrato real del backend está en [`/API.md`](../API.md) (raíz del repo) y en `http://localhost:8000/docs`.
 
-## Lo que viene del reto (fijo)
-- Base HTTP `http://localhost:8000/api/v1`, WebSocket `ws://localhost:8000/ws/live` (`?station_id=<uuid>`, mensaje `{"type":"subscribe","station_id":…}`).
-- `GET` y `PATCH /alerts/{id}` sin API Key; `POST /readings`, `/centrifuge-cycles`, `/treatment-batches`, `/waste-collections` con `X-API-Key`.
-- Errores `{ "error": { "code", "message" } }` → toast con `error.message`.
-- Endpoints: `/stations`, `/dashboard/overview`, `/analytics/{ph,water-recovery,waste,centrifuge,sensors/health,hotspots}`, `/alerts`, `/alert-rules`, `/analytics/forecast/ph?station_id&horizon`.
-- Eventos WS: `reading`, `sensor_status`, `cycle_update`, `batch_completed`, `waste_collected`, `alert` (+ `hello`/`ping` ignorados).
-- Categorías WQI `excelente|buena|regular|mala|critica`; estados de sensor `ok|degraded|fault|offline`; estados de alerta `open|acknowledged|resolved`.
+## Cómo está conectado
 
-## Lo que se supuso (verificar)
-- Forma de cada respuesta (`inlet/outlet {avg,min,max}`, `totals`, `by_type`, `current`, `items/total/limit/offset`, etc.) y nombres de campos.
-- Severidades de alerta `info|warning|critical`; `horizon` del pronóstico en **horas**; `limit/offset` para paginar; `from`/`to` y `station_id` como query params.
-- Cuerpos de los `POST` de ingesta y de los datos de cada evento WS.
-- `bucket`: `5m` hasta 48 h de rango y `1h` por encima.
+- **Pantallas y mock:** usan los modelos de vista de [`src/app/core/models/rio.models.ts`](src/app/core/models/rio.models.ts).
+- **Respuestas reales:** están tipadas en [`src/app/core/api/backend.types.ts`](src/app/core/api/backend.types.ts) y se traducen a esos modelos en [`src/app/core/api/backend-mappers.ts`](src/app/core/api/backend-mappers.ts). Esta capa es una función pura por endpoint, más `mapLiveEvent` para el WebSocket.
+- [`HttpRioApi`](src/app/core/api/http-rio-api.ts) llama al backend y aplica esas traducciones. [`LiveStreamService`](src/app/core/services/live-stream.service.ts) traduce cada mensaje de `ws://…/ws/live`.
+- Las pruebas de los mappers ([`backend-mappers.spec.ts`](src/app/core/api/backend-mappers.spec.ts)) usan respuestas **reales** capturadas del backend ([`backend.fixtures.ts`](src/app/core/api/backend.fixtures.ts)).
+
+**Si el backend cambia un campo:** se ajustan `backend.types.ts` y `backend-mappers.ts` (y se regeneran los fixtures). Las pantallas no cambian.
+
+## Detalles de la traducción
+
+- **Simulador IoT:**
+  - `postReading` busca el `sensor_id` (estación + parámetro + posición) en `GET /sensors` y envía `{"readings":[…]}`.
+  - Un ciclo terminado se registra como `POST /centrifuge-cycles` + `PATCH {status}`.
+  - Los lotes y la basura cambian nombres de campos (`liters_in` → `volume_in_l`, `kg` → `weight_kg`…).
+- **Estado actual de la centrífuga:** sale del último ciclo (`GET /centrifuge-cycles?limit=1`).
+  - `running` → En operación
+  - `failed` → Falla
+  - otro → En espera
+- **`station_name` en alertas:** se resuelve con `GET /stations`, porque el backend solo manda `station_id`.
+- **Mejora de pH:** cuánto se acerca el agua a pH 7, como `(|entrada−7| − |salida−7|) / |entrada−7|`. Positivo significa que el tratamiento ayuda.
+- **Reglas de alerta:** el backend usa rangos (`min_value`/`max_value`). El texto completo llega en `condition` (p. ej. «fuera de 6.5–8.5 pH»).
+
+## Configuración local
+
+```bash
+cp src/environments/environment.example.ts src/environments/environment.development.ts
+# ingestApiKey: 'dev-ingest-key'  (debe coincidir con INGEST_API_KEY de backend/.env)
+```
 
 ## Modo simulado
-`?mock=1` (o `useMocks: true` en `environment.development.ts`) usa `MockRioApi` + un flujo en vivo simulado con los mismos esquemas,
-útil para demostrar sin backend. Con `useMocks: false` (por defecto) todo va contra el backend real.
+
+`?mock=1` (o `useMocks: true` en `environment.development.ts`) usa `MockRioApi` y un flujo en vivo simulado. Sirve para demostrar sin backend.
