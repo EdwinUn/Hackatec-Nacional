@@ -21,6 +21,7 @@ from app.application.read_models import (
     PhSeries,
     SensorHealthItem,
     SeriesPoint,
+    TrendPoint,
     WasteAnalytics,
     WasteByType,
     WastePoint,
@@ -60,14 +61,43 @@ class AnalyticsService:
             for sid, params in values.items()
         }
 
+    def _wqi_of_rows(self, rows: list[dict], locations: tuple[SensorLocation, ...]) -> WqiResult | None:
+        """WQI sobre el promedio de cada parámetro (varias sondas/estaciones se promedian)."""
+        values: dict[SensorType, list[float]] = defaultdict(list)
+        for row in rows:
+            if row["location"] in locations:
+                values[row["type"]].append(row["value"])
+        return compute_wqi({p: fmean(v) for p, v in values.items()}, self._wqi)
+
     def _wqi_combined(self, latest: list[dict], locations: tuple[SensorLocation, ...]) -> WqiOut | None:
-        per_station = [r for r in self._wqi_by_station(latest, locations).values() if r]
-        if not per_station:
-            return None
-        if len(per_station) == 1:
-            return WqiOut.from_result(per_station[0])
-        score = round(fmean(r.score for r in per_station), 1)
-        return WqiOut(score=score, category=self._wqi.categorize(score), components=[])
+        return WqiOut.from_result(self._wqi_of_rows(latest, locations))
+
+    async def _trend(self, station_id: UUID | None, tr: TimeRange) -> tuple[Bucket, list[TrendPoint]]:
+        bucket = Bucket.H1 if tr.end - tr.start <= timedelta(hours=48) else Bucket.D1
+        readings, water = await self._reader.overview_trend(station_id, tr.start, tr.end, bucket.delta)
+        by_bucket: dict = defaultdict(list)
+        for row in readings:
+            by_bucket[row["bucket"]].append(row)
+        clean = {row["bucket"]: row["water_clean_l"] for row in water}
+
+        def ph(rows: list[dict], location: SensorLocation) -> float | None:
+            v = [r["value"] for r in rows if r["type"] == SensorType.PH and r["location"] == location]
+            return round(fmean(v), 3) if v else None
+
+        points = []
+        for b in sorted(set(by_bucket) | set(clean)):
+            rows = by_bucket.get(b, [])
+            wqi = self._wqi_of_rows(rows, RAW_LOCATIONS)
+            points.append(
+                TrendPoint(
+                    bucket=b,
+                    wqi=wqi.score if wqi else None,
+                    ph_inlet=ph(rows, SensorLocation.INLET),
+                    ph_outlet=ph(rows, SensorLocation.OUTLET),
+                    water_clean_l=round(clean.get(b, 0.0), 2),
+                )
+            )
+        return bucket, points
 
     @staticmethod
     def _latest_ph(latest: list[dict], location: SensorLocation) -> LatestValue | None:
@@ -79,7 +109,10 @@ class AnalyticsService:
     async def overview(self, station_id: UUID | None, tr: TimeRange) -> Overview:
         latest = await self._reader.latest_values(station_id, tr.end)
         totals = await self._reader.overview_totals(station_id, tr.start, tr.end)
+        trend_bucket, trend = await self._trend(station_id, tr)
         return Overview(
+            trend_bucket=trend_bucket.value,
+            trend=trend,
             station_id=station_id,
             start=tr.start,
             end=tr.end,

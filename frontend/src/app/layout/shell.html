@@ -1,0 +1,101 @@
+<a class="skip-link" href="#main" (click)="focusMain($event)">Saltar al contenido</a>
+<div class="shell" [class.collapsed]="collapsed()" [class.mobile-open]="mobileOpen()">
+  <aside class="sidebar" aria-label="Navegación principal">
+    <a class="brand" routerLink="/resumen" aria-label="Río Monitor, inicio">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="30" height="30"><path d="M16 3C10 10 6 14.5 6 19a10 10 0 0 0 20 0c0-4.5-4-9-10-16Z" fill="#3ddc97"/><path d="M10 21c2.2-1.6 3.8 1.6 6 0s3.8 1.6 6 0" stroke="#112a22" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      </span>
+      <span class="brand-text"><strong>Río Monitor</strong><small>Cuenca del Alto Atoyac</small></span>
+    </a>
+
+    <nav>
+      <p class="group-label">Monitoreo</p>
+      <a routerLink="/resumen" routerLinkActive="active" class="nav-link" title="Resumen ejecutivo">
+        <i class="pi pi-objects-column" aria-hidden="true"></i><span>Resumen ejecutivo</span>
+      </a>
+      <a routerLink="/mapa" routerLinkActive="active" class="nav-link" title="Vista satelital">
+        <i class="pi pi-globe" aria-hidden="true"></i><span>Vista satelital</span>
+      </a>
+      <p class="group-label">Gestión</p>
+      <a routerLink="/alertas" routerLinkActive="active" class="nav-link" title="Alertamiento temprano">
+        <i class="pi pi-bell" aria-hidden="true"></i><span>Alertamiento</span>
+        @if (alertCounter.open() > 0) {
+          <span class="badge" [attr.aria-label]="alertCounter.open() + ' alertas abiertas'">{{ alertCounter.open() }}</span>
+        }
+      </a>
+      <a routerLink="/analitica" routerLinkActive="active" class="nav-link" title="Analítica predictiva">
+        <i class="pi pi-chart-line" aria-hidden="true"></i><span>Analítica predictiva</span>
+      </a>
+      @if (router.url.startsWith('/analitica')) {
+        <div class="sub">
+          <a routerLink="/analitica/pronostico" routerLinkActive="active" class="sub-link">Pronóstico de pH</a>
+          <a routerLink="/analitica/simulador" routerLinkActive="active" class="sub-link">Simulador IoT</a>
+        </div>
+      }
+    </nav>
+
+    <div class="sidebar-foot">
+      @switch (live.status()) {
+        @case ('connected') { <span class="live ok"><span class="dot"></span><span class="txt">En vivo{{ mock ? ' (simulado)' : '' }}</span></span> }
+        @case ('reconnecting') { <span class="live ok pulse"><span class="dot"></span><span class="txt">Reconectando…</span></span> }
+        @default { <span class="live off"><span class="dot"></span><span class="txt">Sin conexión</span></span> }
+      }
+    </div>
+  </aside>
+  <div class="scrim" (click)="mobileOpen.set(false)" aria-hidden="true"></div>
+
+  <div class="main">
+    <header class="topbar">
+      <p-button class="menu-btn" icon="pi pi-bars" [text]="true" severity="secondary" [rounded]="true" ariaLabel="Mostrar u ocultar menú" (onClick)="toggleSidebar()" />
+
+      <p-select
+        class="station-select"
+        [options]="stationOptions()"
+        [ngModel]="filters.stationId()"
+        (ngModelChange)="filters.setStation($event)"
+        optionLabel="name"
+        optionValue="id"
+        ariaLabel="Estación"
+        appendTo="body"
+        size="small"
+      >
+        <ng-template #selectedItem let-s><i class="pi pi-map-marker" aria-hidden="true"></i>&nbsp;{{ s?.name }}</ng-template>
+      </p-select>
+
+      <p-button class="range-btn" [label]="rangeText()" icon="pi pi-calendar" severity="secondary" [outlined]="true" size="small" ariaLabel="Seleccionar rango de fechas" (onClick)="pop.toggle($event)" />
+      <p-popover #pop>
+        <div class="range-pop">
+          <ul class="presets">
+            @for (p of presets; track p) {
+              <li><button type="button" [class.on]="filters.preset() === p" (click)="pickPreset(p, pop)">{{ presetLabel[p] }}</button></li>
+            }
+            <li><button type="button" [class.on]="filters.preset() === 'custom'" disabled>Rango personalizado</button></li>
+          </ul>
+          <div class="cal">
+            <p-datepicker
+              [inline]="true"
+              selectionMode="range"
+              [numberOfMonths]="2"
+              [maxDate]="maxDate"
+              [ngModel]="draftRange()"
+              (ngModelChange)="onRange($event, pop)"
+              dateFormat="dd/mm/yy"
+            />
+            <p class="muted hint">Elige día inicial y final.</p>
+          </div>
+        </div>
+      </p-popover>
+
+      <label class="compare"><p-toggleswitch [ngModel]="filters.compare()" (ngModelChange)="filters.compare.set($event)" ariaLabel="Comparar con el periodo anterior" /> <span class="cmp-full">Comparar periodo</span><span class="cmp-short">Comparar</span></label>
+
+      <p-button class="refresh" icon="pi pi-refresh" [loading]="refreshing()" [outlined]="true" severity="secondary" size="small" label="Actualizar" ariaLabel="Actualizar datos" (onClick)="refresh()" />
+    </header>
+
+    <main id="main" class="content" tabindex="-1"><router-outlet /></main>
+    <footer class="proto">
+      <i class="pi pi-info-circle" aria-hidden="true"></i>
+      Prototipo de demostración: los umbrales y las métricas de WQI son configurables y se muestran con fines demostrativos.
+    </footer>
+  </div>
+  <p-toast key="app" position="bottom-right" />
+</div>

@@ -333,3 +333,30 @@ async def test_rule_for_unknown_station_is_not_found(client):
         },
     )
     assert r.status_code == 404
+
+
+async def test_overview_has_trend_and_dominant_parameter(client, station, sensors):
+    ph_in, ph_out = sensors[("ph", "inlet")]["id"], sensors[("ph", "outlet")]["id"]
+    turb = sensors[("turbidity", "inlet")]["id"]
+    start = now() - timedelta(hours=3)
+    readings = []
+    for i in range(0, 180, 10):
+        ts = iso(start + timedelta(minutes=i))
+        readings += [
+            {"sensor_id": ph_in, "ts": ts, "value": 6.0 + i / 1000},
+            {"sensor_id": ph_out, "ts": ts, "value": 7.0 + (i % 20) / 1000},
+            {"sensor_id": turb, "ts": ts, "value": 150 + i % 7},  # turbidez alta → parámetro dominante
+        ]
+    await post_readings(client, readings)
+    await client.post(
+        f"{V1}/treatment-batches",
+        json={"station_id": station["id"], "volume_in_l": 500, "volume_clean_l": 450},
+    )
+
+    o = (await client.get(f"{V1}/dashboard/overview", params={"station_id": station["id"]})).json()
+    assert o["wqi"]["dominant_parameter"] == "turbidity"
+    assert o["trend_bucket"] == "1h"
+    points = [p for p in o["trend"] if p["wqi"] is not None]
+    assert 3 <= len(points) <= 4
+    assert all(p["ph_inlet"] is not None and p["ph_outlet"] is not None for p in points)
+    assert sum(p["water_clean_l"] for p in o["trend"]) == 450

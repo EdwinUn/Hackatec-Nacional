@@ -82,6 +82,29 @@ class SqlAnalyticsReader:
         [row] = await self._all(sql, start=start, end=end, station_id=station_id)
         return _rounded(row)
 
+    async def overview_trend(
+        self, station_id: UUID | None, start: datetime, end: datetime, bucket: timedelta
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        params = dict(start=start, end=end, bucket=bucket, station_id=station_id)
+        readings = await self._all(
+            f"""SELECT {_bin("r.ts")} AS bucket, s.type, s.location, avg(r.value) AS value
+                FROM readings r JOIN sensors s ON s.id = r.sensor_id
+                WHERE s.status <> 'fault' AND r.ts >= :start AND r.ts < :end{_station("r", station_id)}
+                GROUP BY 1, 2, 3""",
+            **params,
+        )
+        for row in readings:
+            row["type"] = SensorType(row["type"])
+            row["location"] = SensorLocation(row["location"])
+        water = await self._all(
+            f"""SELECT {_bin("b.ts")} AS bucket, sum(volume_clean_l) AS water_clean_l
+                FROM treatment_batches b
+                WHERE b.ts >= :start AND b.ts < :end{_station("b", station_id)}
+                GROUP BY 1""",
+            **params,
+        )
+        return readings, water
+
     async def ph_series(
         self, station_id: UUID | None, start: datetime, end: datetime, bucket: timedelta
     ) -> list[dict[str, Any]]:

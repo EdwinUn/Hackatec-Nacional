@@ -155,6 +155,12 @@ class AnalyticsReader(Protocol):
     async def overview_totals(
         self, station_id: UUID | None, start: datetime, end: datetime
     ) -> dict[str, Any]: ...
+    async def overview_trend(
+        self, station_id: UUID | None, start: datetime, end: datetime, bucket: timedelta
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """(promedios por bucket/tipo/ubicación de lecturas, litros limpios por bucket)."""
+        ...
+
     async def ph_series(
         self, station_id: UUID | None, start: datetime, end: datetime, bucket: timedelta
     ) -> list[dict[str, Any]]: ...

@@ -23,15 +23,20 @@ class WqiComponentOut(BaseModel):
 class WqiOut(BaseModel):
     score: float = Field(description="0–100 (valor de prototipo, ver README)")
     category: WqiCategory
+    dominant_parameter: SensorType | None = Field(
+        description="Parámetro con el sub-índice más bajo: el que más empeora la calidad"
+    )
     components: list[WqiComponentOut]
 
     @classmethod
     def from_result(cls, result: WqiResult | None) -> "WqiOut | None":
         if result is None:
             return None
+        worst = min(result.components.items(), key=lambda kv: kv[1].sub_index, default=(None, None))[0]
         return cls(
             score=result.score,
             category=result.category,
+            dominant_parameter=worst,
             components=[
                 WqiComponentOut(
                     parameter=p, value=round(c.value, 3), sub_index=c.sub_index, weight=round(c.weight, 4)
@@ -65,6 +70,16 @@ class Overview(BaseModel):
     cycles_running: int
     alerts_open: int
     alerts_critical_open: int
+    trend_bucket: str = Field(description="Tamaño de bucket de `trend` (1h hasta 48 h de rango, 1d después)")
+    trend: list["TrendPoint"] = Field(description="Serie corta para sparklines de los KPI")
+
+
+class TrendPoint(BaseModel):
+    bucket: datetime
+    wqi: float | None = Field(description="WQI del agua cruda (río + entrada) en el bucket")
+    ph_inlet: float | None
+    ph_outlet: float | None
+    water_clean_l: float
 
 
 class Agg(BaseModel):
