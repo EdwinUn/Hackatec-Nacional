@@ -1,0 +1,159 @@
+{
+  "_comentario": "Entrada de build_health_layers.py. Cada zona = tramos de río (recortados por bbox [lngMin, latMin, lngMax, latMax] sobre RIVERS de basin.ts) + comunidades ubicadas con la mediana de sus establecimientos en el DENUE. Los radios son de prototipo: la CNDH (Rec. 10/2017) cita afectaciones a la salud hasta ~2 km del río.",
+  "radio_rio_m": 1500,
+  "radio_comunidad_m": 1000,
+  "radio_presa_m": 800,
+  "fuentes": {
+    "cndh": {
+      "titulo": "CNDH, Recomendación 10/2017: contaminación de los ríos Atoyac y Xochiac y sus afluentes (San Martín Texmelucan, Huejotzingo, Tepetitla, Nativitas, Ixtacuixtla)",
+      "url": "https://www.cndh.org.mx/sites/default/files/doc/Recomendaciones/2017/Rec_2017_010.pdf",
+      "anio": 2017
+    },
+    "conahcyt": {
+      "titulo": "Conahcyt, Diagnóstico de la situación de salud pública ambiental en la Cuenca del Alto Atoyac (recomendaciones para el sector salud)",
+      "url": "https://repositorio-salud.conacyt.mx/jspui/bitstream/1000/424/1/Recomendaciones%20para%20el%20sector%20salud.%20Diagn%C3%B3stico%20de%20la%20situaci%C3%B3n%20de%20salud%20p%C3%BAblica%20ambiental%20en%20la%20Cuenca%20del%20Alto%20Atoyac.pdf"
+    },
+    "cronica": {
+      "titulo": "La Crónica de Hoy, «Cuenca Alto Atoyac: emergencia ambiental y de salud» (enfermedad renal crónica en jóvenes y leucemia aguda infantil)",
+      "url": "https://www.cronica.com.mx/academia/cuenca-alto-atoyac-emergencia-ambiental-salud.html"
+    },
+    "excelsior": {
+      "titulo": "Excélsior, «Contaminación detona leucemia y daños renales» (incidencia y mortalidad por ERC sobre el promedio nacional)",
+      "url": "https://www.excelsior.com.mx/nacional/contaminacion-detona-leucemia-y-danos-renales/1647569"
+    },
+    "rica": {
+      "titulo": "Revista Internacional de Contaminación Ambiental, vol. 41 (2025): percepción de riesgo por contaminación industrial en el Alto Atoyac (talleres de mezclilla; 37.1 % usa el agua para riego)",
+      "url": "https://www.scielo.org.mx/pdf/rica/v41/0188-4999-rica-41-55301.pdf",
+      "anio": 2025
+    },
+    "sandoval": {
+      "titulo": "Sandoval Villasana et al. (2009), UAEH: aguas residuales de Texmelucan, Moyotzingo y Puebla elevan sales y metales pesados del Atoyac; contaminación alta en Valsequillo",
+      "url": "https://www.uaeh.edu.mx/investigacion/icbi/LI_Helmintos/Griselda_Pulido/sandoval2009a.pdf",
+      "anio": 2009
+    },
+    "cuautlancingo": {
+      "titulo": "Ayuntamiento de Cuautlancingo, boletín «Arranque de brigada Atoyac» (8 km de río junto a San Lorenzo Almecatla y Sanctorum)",
+      "url": "https://transparencia.cuautlancingo.gob.mx/ccs/boletines/BOLET%C3%8DN%20ARRANQUE%20BRIGADA%20ATOYAC.docx",
+      "anio": 2025
+    },
+    "solpuebla": {
+      "titulo": "El Sol de Puebla, «Admiten Cuautlancingo y Atzompa contaminar al Atoyac»",
+      "url": "https://oem.com.mx/elsoldepuebla/local/admiten-cuautlancingo-y-atzompa-contaminar-al-atoyac-19464719",
+      "anio": 2016
+    }
+  },
+  "zonas": [
+    {
+      "id": "z1-tepetitla-nativitas",
+      "orden": 1,
+      "nombre": "Corredor Tepetitla – Nativitas",
+      "estado": "Tlaxcala",
+      "cve_ent": "29",
+      "municipios": ["Tepetitla de Lardizábal", "Nativitas"],
+      "comunidades": ["Villa Alta", "San Mateo Ayecac", "San Rafael Tenanyecac", "Nativitas (cabecera)", "Tepetitla"],
+      "nivel": "critico",
+      "evidencia": "documentada",
+      "exposiciones": ["aire_h2s_cov", "pozos_agua_potable", "riego_cultivos"],
+      "efectos_salud": [
+        "Enfermedad renal crónica (incidencia y mortalidad sobre el promedio nacional en la cuenca)",
+        "Leucemia aguda infantil",
+        "Abortos espontáneos (reportados por la comunidad)"
+      ],
+      "descripcion": "Considerada la «zona cero» de la crisis sanitaria de la cuenca. Confluyen descargas industriales (textil y química), aguas residuales urbanas y el río Zahuapan. Las viviendas y parcelas están pegadas al cauce y a sus canales: la población respira ácido sulfhídrico y compuestos orgánicos volátiles, riega con agua del río y reporta filtraciones a pozos de agua potable.",
+      "fuentes": ["cndh", "conahcyt", "cronica", "excelsior"],
+      "rios": [
+        { "rio": "Río Atoyac", "bbox": [-98.40, 19.18, -98.29, 19.27] },
+        { "rio": "Río Xochiac", "bbox": [-98.39, 19.20, -98.34, 19.24] }
+      ],
+      "lugares": [
+        { "campo": "localidad", "nombre": "VILLA ALTA", "municipio": "TEPETITLA DE LARDIZABAL" },
+        { "campo": "localidad", "nombre": "SAN MATEO AYECAC", "municipio": "TEPETITLA DE LARDIZABAL" },
+        { "campo": "localidad", "nombre": "SAN RAFAEL TENANYECAC", "municipio": "NATIVITAS" },
+        { "campo": "localidad", "nombre": "NATIVITAS", "municipio": "NATIVITAS" },
+        { "campo": "localidad", "nombre": "TEPETITLA", "municipio": "TEPETITLA DE LARDIZABAL" }
+      ]
+    },
+    {
+      "id": "z2-texmelucan-huejotzingo",
+      "orden": 2,
+      "nombre": "Corredor San Martín Texmelucan – Huejotzingo",
+      "estado": "Puebla",
+      "cve_ent": "21",
+      "municipios": ["San Martín Texmelucan", "Huejotzingo"],
+      "comunidades": ["Santa María Moyotzingo", "San Baltazar Temaxcalac", "San Lucas Atoyatenco", "Santa Ana Xalmimilulco"],
+      "nivel": "critico",
+      "evidencia": "documentada",
+      "exposiciones": ["descargas_colorantes", "riego_cultivos"],
+      "efectos_salud": [
+        "Exposición por alimentos (hortalizas, alfalfa, maíz) regados con agua del río",
+        "Daños a la salud por descargas irregulares de lavanderías de mezclilla (CNDH)"
+      ],
+      "descripcion": "El Atoyac recibe descargas petroquímicas, automotrices, metalmecánicas y de lavanderías de mezclilla sin tratamiento adecuado. El agua cambia de color (azul, rojo o negro) según los colorantes del día y forma espuma. El agua se desvía a canales de riego de cultivos que se consumen o venden en la región.",
+      "fuentes": ["cndh", "rica", "sandoval"],
+      "rios": [
+        { "rio": "Río Atoyac", "bbox": [-98.50, 19.265, -98.39, 19.35] },
+        { "rio": "Río Xochiac", "bbox": [-98.49, 19.18, -98.385, 19.22] }
+      ],
+      "lugares": [
+        { "campo": "localidad", "nombre": "SANTA MARIA MOYOTZINGO", "municipio": "SAN MARTIN TEXMELUCAN" },
+        { "campo": "nomb_asent", "nombre": "SAN BALTAZAR TEMAXCALAC", "municipio": "SAN MARTIN TEXMELUCAN" },
+        { "campo": "nomb_asent", "nombre": "SAN LUCAS ATOYATENCO", "municipio": "SAN MARTIN TEXMELUCAN" },
+        { "campo": "localidad", "nombre": "SANTA ANA XALMIMILULCO", "municipio": "HUEJOTZINGO" }
+      ]
+    },
+    {
+      "id": "z3-cuautlancingo-coronango",
+      "orden": 3,
+      "nombre": "Zona industrial Cuautlancingo – Coronango",
+      "estado": "Puebla",
+      "cve_ent": "21",
+      "municipios": ["Cuautlancingo", "Coronango"],
+      "comunidades": ["San Lorenzo Almecatla", "Sanctorum", "Fraccionamientos colindantes al río"],
+      "nivel": "atencion",
+      "evidencia": "parcial",
+      "exposiciones": ["inundacion_lodos", "olores_estancamiento"],
+      "efectos_salud": [
+        "Dolores de cabeza, sangrado nasal e infecciones respiratorias (reportados por vecinos; sin estudio publicado localizado)"
+      ],
+      "descripcion": "El río entra a la zona conurbada entre parques industriales y fraccionamientos que crecieron sin saneamiento suficiente. En lluvias, el desbordamiento arrastra lodos hacia calles y patios; en secas, el estancamiento genera olores fétidos intensos.",
+      "fuentes": ["cuautlancingo", "solpuebla", "cndh"],
+      "rios": [
+        { "rio": "Río Atoyac", "bbox": [-98.27, 19.094, -98.22, 19.166] }
+      ],
+      "lugares": [
+        { "campo": "localidad", "nombre": "SAN LORENZO ALMECATLA", "municipio": "CUAUTLANCINGO" },
+        { "campo": "localidad", "nombre": "SANCTORUM", "municipio": "CUAUTLANCINGO" }
+      ]
+    },
+    {
+      "id": "z4-puebla-valsequillo",
+      "orden": 4,
+      "nombre": "Poniente y sur de Puebla hasta Valsequillo",
+      "estado": "Puebla",
+      "cve_ent": "21",
+      "municipios": ["Puebla"],
+      "comunidades": ["La Constancia", "El Mayorazgo", "Ignacio Romero Vargas", "San Francisco Totimehuacán", "Localidades ribereñas de Valsequillo"],
+      "nivel": "critico",
+      "evidencia": "parcial",
+      "exposiciones": ["fauna_nociva_vectores", "aire_h2s_cov", "metales_pesados_lirio"],
+      "efectos_salud": [
+        "Leucemia aguda infantil (padecimiento predominante en la cuenca)",
+        "Riesgo de enfermedades por fauna nociva y vectores",
+        "Pérdida de pesca y turismo en la presa (impacto económico)"
+      ],
+      "descripcion": "El Atoyac llega con la carga acumulada de Tlaxcala y los municipios anteriores, más drenajes domésticos, rastros y hospitales, antes de desembocar en Valsequillo. En las colonias junto a las barrancas se reportan fauna nociva y vapores que corroen metales; en la presa, los metales pesados y nutrientes favorecen el lirio acuático y la muerte de fauna.",
+      "fuentes": ["conahcyt", "cronica", "sandoval"],
+      "rios": [
+        { "rio": "Río Atoyac", "bbox": [-98.29, 18.92, -98.18, 19.095] },
+        { "rio": "Río Alseseca", "bbox": [-98.20, 18.935, -98.17, 19.0] }
+      ],
+      "presa": true,
+      "lugares": [
+        { "campo": "nomb_asent", "nombre": "EL MAYORAZGO", "municipio": "PUEBLA" },
+        { "campo": "nomb_asent", "nombre": "IGNACIO ROMERO VARGAS", "municipio": "PUEBLA" },
+        { "campo": "nomb_asent", "nombre": "SAN FRANCISCO TOTIMEHUACAN", "municipio": "PUEBLA" },
+        { "campo": "nomb_asent", "nombre": "LA CONSTANCIA", "municipio": "PUEBLA" }
+      ]
+    }
+  ]
+}

@@ -2,7 +2,7 @@ import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
-import type { ExpressionSpecification, IControl, Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
+import type { ExpressionSpecification, GeoJSONSource, IControl, Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
 import { RioApi } from '../../core/api/rio-api';
 import { OpsApi } from '../../core/api/ops-api';
 import { REPORT_STATUS_META, REPORT_TYPE_META } from '../../shared/utils/ops.util';
@@ -14,6 +14,10 @@ import { FiltersService } from '../../core/services/filters.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
 import { LayoutService } from '../../core/services/layout.service';
 import { AuthService } from '../../core/auth/auth.service';
+import { HealthZone, School } from '../../core/models/health-zones.models';
+import { HealthZonesService } from '../../core/services/health-zones.service';
+import { HEALTH_ZONE_COLORS } from '../../shared/utils/health-zones.util';
+import { HealthDetail, HealthZonePanel } from './health-zone-panel';
 import { SkimmerSurvey } from '../operator/skimmer-survey';
 import { Pill } from '../../shared/components/pill';
 import { valueOrUndefined } from '../../shared/utils/resource.util';
@@ -57,6 +61,19 @@ const ZONE_COLOR: ExpressionSpecification = [
   'Zahuapan', ZONE_COLORS.Zahuapan,
   '#94a3b8',
 ];
+
+/**
+ * Documented health-impact zones and the schools inside them (`HealthZonesService`, static GeoJSON).
+ * The sources start empty and are filled once the files load.
+ */
+const HEALTH_ZONE_LAYERS = ['zonas-salud-fill', 'zonas-salud-line', 'zonas-salud-nombres'];
+const SCHOOL_LAYERS = ['escuelas-cluster', 'escuelas-cluster-count', 'escuelas', 'escuelas-nombres'];
+/** Layers whose features take the click over the zone polygon underneath. */
+const POINT_LAYERS = ['escuelas', 'escuelas-cluster', 'puntos-clave', 'puntos-clave-critico'];
+const SCHOOL_COLOR = '#facc15';
+const HEALTH_LEVEL_COLOR: ExpressionSpecification = ['match', ['get', 'nivel'], 'critico', HEALTH_ZONE_COLORS.critico, HEALTH_ZONE_COLORS.atencion];
+const EMPTY_FC = { type: 'FeatureCollection' as const, features: [] };
+type GeoJsonData = Parameters<GeoJSONSource['setData']>[0];
 const [SW, NE] = BASIN_BOUNDS.map(toLngLat);
 /** Raster tiles are only requested inside the basin, as before. */
 const TILE_BOUNDS: [number, number, number, number] = [SW[0], SW[1], NE[0], NE[1]];
@@ -78,6 +95,9 @@ function basinStyle(): StyleSpecification {
         data: { type: 'Feature', properties: { name: PRESA_NAME }, geometry: { type: 'Polygon', coordinates: [[...PRESA_VALSEQUILLO, PRESA_VALSEQUILLO[0]].map(toLngLat)] } },
       },
       'puntos-clave': { type: 'geojson', data: new URL(KEY_POINTS_URL, document.baseURI).href },
+      'zonas-salud': { type: 'geojson', data: EMPTY_FC },
+      // Hundreds of schools in the city of Puebla: grouped until zoom 14.
+      escuelas: { type: 'geojson', data: EMPTY_FC, cluster: true, clusterMaxZoom: 13, clusterRadius: 40 },
       rivers: {
         type: 'geojson',
         data: {
@@ -100,6 +120,21 @@ function basinStyle(): StyleSpecification {
       },
       { id: 'presa-fill', type: 'fill', source: 'presa', paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.28 } },
       { id: 'presa-line', type: 'line', source: 'presa', paint: { 'line-color': '#7dd3fc', 'line-width': 2 } },
+      // Health-impact zones under the rivers, so the river is still drawn on top.
+      {
+        id: 'zonas-salud-fill',
+        type: 'fill',
+        source: 'zonas-salud',
+        filter: ['==', ['get', 'tipo'], 'zona'],
+        paint: { 'fill-color': HEALTH_LEVEL_COLOR, 'fill-opacity': 0.18 },
+      },
+      {
+        id: 'zonas-salud-line',
+        type: 'line',
+        source: 'zonas-salud',
+        filter: ['==', ['get', 'tipo'], 'zona'],
+        paint: { 'line-color': HEALTH_LEVEL_COLOR, 'line-width': 1.6, 'line-dasharray': [3, 2], 'line-opacity': 0.9 },
+      },
       {
         id: 'rivers-glow',
         type: 'line',
@@ -168,6 +203,74 @@ function basinStyle(): StyleSpecification {
           'text-optional': true,
         },
         paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(4, 20, 14, 0.9)', 'text-halo-width': 1.6 },
+      },
+      {
+        id: 'zonas-salud-nombres',
+        type: 'symbol',
+        source: 'zonas-salud',
+        filter: ['==', ['get', 'tipo'], 'etiqueta'],
+        maxzoom: 14,
+        layout: {
+          'text-field': ['get', 'nombre'],
+          'text-font': ['Open Sans Semibold'],
+          'text-size': 12,
+          'text-max-width': 14,
+          'text-optional': true,
+        },
+        paint: { 'text-color': '#fecaca', 'text-halo-color': 'rgba(60, 8, 8, 0.9)', 'text-halo-width': 1.6 },
+      },
+      {
+        id: 'escuelas-cluster',
+        type: 'circle',
+        source: 'escuelas',
+        filter: ['has', 'point_count'],
+        layout: { visibility: 'none' },
+        paint: {
+          'circle-color': SCHOOL_COLOR,
+          'circle-opacity': 0.9,
+          'circle-radius': ['step', ['get', 'point_count'], 12, 20, 16, 80, 21],
+          'circle-stroke-color': '#1e293b',
+          'circle-stroke-width': 1.5,
+        },
+      },
+      {
+        id: 'escuelas-cluster-count',
+        type: 'symbol',
+        source: 'escuelas',
+        filter: ['has', 'point_count'],
+        layout: { visibility: 'none', 'text-field': ['get', 'point_count_abbreviated'], 'text-font': ['Open Sans Semibold'], 'text-size': 11 },
+        paint: { 'text-color': '#1e293b' },
+      },
+      {
+        id: 'escuelas',
+        type: 'circle',
+        source: 'escuelas',
+        filter: ['!', ['has', 'point_count']],
+        layout: { visibility: 'none' },
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 4, 16, 7],
+          'circle-color': SCHOOL_COLOR,
+          'circle-stroke-color': '#1e293b',
+          'circle-stroke-width': 1.5,
+        },
+      },
+      {
+        id: 'escuelas-nombres',
+        type: 'symbol',
+        source: 'escuelas',
+        filter: ['!', ['has', 'point_count']],
+        minzoom: 15,
+        layout: {
+          visibility: 'none',
+          'text-field': ['get', 'nombre'],
+          'text-font': ['Open Sans Semibold'],
+          'text-size': 10,
+          'text-anchor': 'top',
+          'text-offset': [0, 0.8],
+          'text-max-width': 10,
+          'text-optional': true,
+        },
+        paint: { 'text-color': '#fef9c3', 'text-halo-color': 'rgba(30, 41, 59, 0.9)', 'text-halo-width': 1.4 },
       },
     ],
     terrain: TERRAIN,
@@ -268,7 +371,7 @@ class TerrainToggle implements IControl {
 
 @Component({
   selector: 'app-satellite-page',
-  imports: [DecimalPipe, RouterLink, Pill, SkimmerSurvey],
+  imports: [DecimalPipe, RouterLink, Pill, SkimmerSurvey, HealthZonePanel],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './satellite-page.html',
   styleUrl: './satellite-page.scss',
@@ -303,6 +406,8 @@ export class SatellitePage {
   private buoyMarkers: Marker[] = [];
   private is3d = true;
   private readonly ready = signal(false);
+  /** Style layers/sources exist (`setLayoutProperty`/`setData` throw or no-op before this). */
+  private readonly styleReady = signal(false);
 
   /** All stations are always on the map, regardless of the header station filter (range still applies). */
   protected readonly hotspots = rxResource({
@@ -319,8 +424,17 @@ export class SatellitePage {
   protected readonly reportsOpen = signal(false);
   /** Station detail card (phone): collapsed to a pill until tapped. Never open together with the reports sheet. */
   protected readonly stationOpen = signal(false);
-  /** Side drawer for a tapped citizen report or key point (the station keeps its own card). */
-  protected readonly detail = signal<{ kind: 'report'; r: CitizenReport } | { kind: 'point'; p: Record<string, unknown>; lng: number; lat: number } | null>(null);
+  /** Side drawer for a tapped citizen report, key point, health zone or school (the station keeps its own card). */
+  protected readonly detail = signal<
+    | { kind: 'report'; r: CitizenReport }
+    | { kind: 'point'; p: Record<string, unknown>; lng: number; lat: number }
+    | { kind: 'health'; h: HealthDetail }
+    | null
+  >(null);
+  /** Health-impact zones (on by default) and the schools inside them (off: hundreds of points). */
+  protected readonly health = inject(HealthZonesService);
+  protected readonly showHealthZones = signal(true);
+  protected readonly showSchools = signal(false);
   protected readonly zoneLabels = Object.fromEntries(KEY_POINT_ZONES.map((z) => [z.zona, z.label])) as Record<string, string>;
   protected readonly typeMeta = REPORT_TYPE_META;
   protected readonly statusMeta = REPORT_STATUS_META;
@@ -429,8 +543,32 @@ export class SatellitePage {
             this.openPoint(f.properties ?? {}, lng, lat);
           });
         }
+        // Health zones: a click on the polygon opens its drawer, unless a point (school, key point)
+        // or a DOM marker (station, report, buoy) under the cursor already took it.
+        map.on('click', 'zonas-salud-fill', (e) => {
+          if (e.originalEvent.target !== map.getCanvas()) return;
+          if (map.queryRenderedFeatures(e.point, { layers: POINT_LAYERS.filter((id) => map.getLayoutProperty(id, 'visibility') !== 'none') }).length) return;
+          const zone = this.health.zone(String(e.features?.[0]?.properties?.['id'] ?? ''));
+          if (zone) this.openHealthZone(zone);
+        });
+        map.on('click', 'escuelas', (e) => {
+          const school = this.health.school(String(e.features?.[0]?.properties?.['id'] ?? ''));
+          if (school) this.openSchool(school);
+        });
+        map.on('click', 'escuelas-cluster', async (e) => {
+          const f = e.features?.[0];
+          if (!f) return;
+          const zoom = await (map.getSource('escuelas') as GeoJSONSource).getClusterExpansionZoom(Number(f.properties?.['cluster_id']));
+          const [lng, lat] = (f.geometry as unknown as { coordinates: [number, number] }).coordinates;
+          map.easeTo({ center: [lng, lat], zoom: zoom + 0.5, duration: 600 });
+        });
+        for (const layer of ['zonas-salud-fill', 'escuelas', 'escuelas-cluster']) {
+          map.on('mouseenter', layer, () => (map.getCanvas().style.cursor = 'pointer'));
+          map.on('mouseleave', layer, () => (map.getCanvas().style.cursor = ''));
+        }
 
         this.map = map;
+        map.once('style.load', () => this.styleReady.set(true));
         const ro = new ResizeObserver(() => map.resize());
         ro.observe(this.mapEl().nativeElement);
         destroyRef.onDestroy(() => ro.disconnect());
@@ -512,9 +650,28 @@ export class SatellitePage {
       for (const pin of this.markers.values()) pin.el.style.display = on ? '' : 'none';
     });
     effect(() => {
-      if (!this.ready()) return;
+      if (!this.styleReady()) return;
       const v = this.showKeyPoints() ? 'visible' : 'none';
       for (const id of KEY_POINT_LAYERS) this.map?.setLayoutProperty(id, 'visibility', v);
+    });
+
+    // Health zones and schools: data once loaded, visibility from their toggles.
+    effect(() => {
+      if (!this.styleReady()) return;
+      const zones = this.health.zonesGeoJson();
+      const schools = this.health.schoolsGeoJson();
+      if (zones) (this.map?.getSource('zonas-salud') as GeoJSONSource | undefined)?.setData(zones as GeoJsonData);
+      if (schools) (this.map?.getSource('escuelas') as GeoJSONSource | undefined)?.setData(schools as GeoJsonData);
+    });
+    effect(() => {
+      if (!this.styleReady()) return;
+      const v = this.showHealthZones() ? 'visible' : 'none';
+      for (const id of HEALTH_ZONE_LAYERS) this.map?.setLayoutProperty(id, 'visibility', v);
+    });
+    effect(() => {
+      if (!this.styleReady()) return;
+      const v = this.showSchools() ? 'visible' : 'none';
+      for (const id of SCHOOL_LAYERS) this.map?.setLayoutProperty(id, 'visibility', v);
     });
 
     // Buoys: square pin with its name; the popup links to /boyas/:id (3D model).
@@ -585,6 +742,19 @@ export class SatellitePage {
   protected openPoint(p: Record<string, unknown>, lng: number, lat: number): void {
     this.closePanels();
     this.detail.set({ kind: 'point', p, lng, lat });
+  }
+
+  protected openHealthZone(zone: HealthZone): void {
+    this.closePanels();
+    this.detail.set({ kind: 'health', h: { kind: 'zone', zone } });
+  }
+
+  /** Opens a school's drawer and centres it (turning the school layer on if it came from a zone's list). */
+  protected openSchool(school: School): void {
+    this.closePanels();
+    this.showSchools.set(true);
+    this.detail.set({ kind: 'health', h: { kind: 'school', school } });
+    this.map?.flyTo({ center: school.coordinates, zoom: Math.max(this.map.getZoom(), 15), duration: 800 });
   }
 
   private closePanels(): void {

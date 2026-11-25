@@ -45,3 +45,6 @@ Thumbs.db
 
 # Local secrets (PrimeNG license key, etc.)
 /src/environments/environment.development.ts
+
+# Raw downloads for scripts/build_health_layers.py (DENUE CSV)
+/scripts/raw/

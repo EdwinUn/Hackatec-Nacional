@@ -581,11 +581,11 @@ Roles: `technician` (técnico de campo), `supervisor`, `admin`. La ciudadanía *
 - **Desactivación:** si un usuario se desactiva, su token deja de servir (401).
 - **`GET /api/v1/auth/me`:** devuelve el `User` dueño del token.
 
-### Usuarios (solo `admin`)
+### Usuarios (gestión solo `admin`)
 
 | Método | Ruta | Cuerpo → respuesta |
 | --- | --- | --- |
-| GET | `/api/v1/users` | `User[]`, ordenados por nombre |
+| GET | `/api/v1/users` | `User[]`, ordenados por nombre. `supervisor` y `admin` (el supervisor necesita ver a los técnicos para asignar órdenes); técnico → 403 |
 | POST | `/api/v1/users` | `{ name, email, role, password }` → 201 `User`. 409 si el correo ya existe; contraseña mínima de 6 caracteres |
 | PATCH | `/api/v1/users/{id}` | `{ name?, role?, active? }` → `User`. Un admin no puede desactivarse ni quitarse el rol a sí mismo (409) |
 

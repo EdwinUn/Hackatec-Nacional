@@ -8,7 +8,7 @@ from app.adapters.inbound.http.schemas_ops import UserIn, UserOut, UserPatchIn
 router = APIRouter(tags=["operaciones · personal"])
 
 
-@router.get("/users", response_model=list[UserOut], summary="Listar personal (admin)")
+@router.get("/users", response_model=list[UserOut], summary="Listar personal (supervisor/admin)")
 async def list_users(c: ContainerDep, me: CurrentUser):
     return [UserOut.of(u) for u in await c.staff.list_users(me)]
 

@@ -74,11 +74,14 @@ async def test_missing_or_invalid_bearer_is_401(client, staff):
 
 
 # ── Usuarios ────────────────────────────────────
-async def test_users_are_admin_only(client, staff):
-    r = await client.get(f"{V1}/users", headers=staff["admin"]["h"])
-    assert [u["name"] for u in r.json()] == sorted(a["name"] for a in ACCOUNTS)
-    r = await client.get(f"{V1}/users", headers=staff["sup"]["h"])
+async def test_managers_list_users_but_only_admin_manages_them(client, staff):
+    for who in ("admin", "sup"):  # el supervisor necesita ver a los técnicos para asignar órdenes
+        r = await client.get(f"{V1}/users", headers=staff[who]["h"])
+        assert [u["name"] for u in r.json()] == sorted(a["name"] for a in ACCOUNTS)
+    r = await client.get(f"{V1}/users", headers=staff["tec"]["h"])
     assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden"
+    new = {"name": "X", "email": "x@demo.mx", "role": "technician", "password": "demo123"}
+    assert (await client.post(f"{V1}/users", json=new, headers=staff["sup"]["h"])).status_code == 403
 
 
 async def test_create_user_and_duplicates(client, staff):
