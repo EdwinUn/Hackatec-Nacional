@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { Buoy } from '../../core/models/buoy.models';
+import { BUOY_SATURATED_AT, BUOY_STATE_META, Buoy, BuoyState, buoyState } from '../../core/models/buoy.models';
 import { TelemetryPacket, deviceCodeFor } from '../../core/models/telemetry.models';
 import { AuthService } from '../../core/auth/auth.service';
 import { LayoutService } from '../../core/services/layout.service';
@@ -11,16 +11,6 @@ import { MapPoint, MiniMap } from '../../shared/components/mini-map';
 import { formatCoords } from '../../shared/utils/format.util';
 
 type Mode = 'map' | 'list';
-/** Displayed state of a buoy: its deployment status, or «saturada» when the ESP32 reports a nearly full basket. */
-type Shown = 'active' | 'saturated' | 'maintenance' | 'offline';
-
-const SHOWN_META: Record<Shown, { label: string; color: string; bg: string }> = {
-  active: { label: 'En operación', color: '#0f7a4d', bg: '#dcf5e8' },
-  saturated: { label: 'Saturada', color: '#b91c1c', bg: '#fbdcdc' },
-  maintenance: { label: 'Mantenimiento', color: '#a16207', bg: '#fcefc7' },
-  offline: { label: 'Sin conexión', color: '#475569', bg: '#e2e8f0' },
-};
-const SATURATED_AT = 80;
 
 /** Skimmer buoys: switch between the map and a list of cards; each one opens its telemetry or 3D model. */
 @Component({
@@ -102,7 +92,7 @@ const SATURATED_AT = 80;
             @for (b of buoys(); track b.id) {
               <button type="button" [class.on]="selectedId() === b.id" [attr.aria-pressed]="selectedId() === b.id" (click)="selectedId.set(b.id)">
                 <i [style.background]="shown(b).color"></i>
-                <span><b>{{ b.code }} · {{ device(b) }}</b><small>{{ b.name }}</small></span>
+                <span><b>{{ b.code }}</b><small>{{ b.name }}</small></span>
               </button>
             }
           </div>
@@ -116,16 +106,13 @@ const SATURATED_AT = 80;
           @if (shownSel(); as b) {
             <button type="button" class="x" (click)="selectedId.set(null)"><i class="pi pi-times" aria-hidden="true"></i>Ver todas</button>
             <div class="top">
-              <div><span class="code">{{ b.code }} · {{ device(b) }}</span><h2>{{ b.name }}</h2></div>
+              <div><span class="code">{{ b.code }}</span><h2>{{ b.name }}</h2></div>
               <span class="badge" [style.background]="shown(b).bg" [style.color]="shown(b).color">{{ shown(b).label }}</span>
             </div>
             <p class="where"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ b.river }} · {{ coords(b.latitude, b.longitude) }}</p>
-            <div class="badges">
-              @if (isLive(b)) { <span class="badge live"><i></i>EN VIVO · ESP32</span> } @else { <span class="badge"><i></i>{{ packet(b) ? 'SIN SEÑAL' : 'SIN DATOS' }}</span> }
-            </div>
             <div class="meters">
               <div class="meter">
-                <div class="lbl">Saturación <b>{{ pctText(packet(b)?.basket_fill_pct) }}</b></div>
+                <div class="lbl">Cesta <b>{{ pctText(packet(b)?.basket_fill_pct) }}</b></div>
                 <div class="track" aria-hidden="true"><span [style.width.%]="pct(packet(b)?.basket_fill_pct)" [style.background]="basketColor(packet(b)?.basket_fill_pct)"></span></div>
               </div>
               <div class="meter">
@@ -150,9 +137,6 @@ const SATURATED_AT = 80;
                 <span class="badge" [style.background]="shown(b).bg" [style.color]="shown(b).color">{{ shown(b).label }}</span>
               </div>
               <p class="where"><i class="pi pi-map-marker" aria-hidden="true"></i> {{ b.river }} · {{ coords(b.latitude, b.longitude) }}</p>
-              <div class="badges">
-                @if (isLive(b)) { <span class="badge live"><i></i>EN VIVO · ESP32</span> } @else { <span class="badge"><i></i>{{ packet(b) ? 'SIN SEÑAL' : 'SIN DATOS' }}</span> }
-              </div>
               <div class="meters">
                 <div class="meter">
                   <div class="lbl">Cesta <b>{{ pctText(packet(b)?.basket_fill_pct) }}</b></div>
@@ -178,8 +162,7 @@ export class BuoysPage {
   private readonly telemetry = inject(TelemetryService);
   protected readonly buoys = inject(BuoysService).buoys;
   protected readonly coords = formatCoords;
-  protected readonly device = (b: Buoy) => deviceCodeFor(b.code);
-  protected readonly legend = (['active', 'saturated', 'maintenance', 'offline'] as Shown[]).map((s) => SHOWN_META[s]);
+  protected readonly legend = (['live', 'saturated', 'stale', 'nodata'] as BuoyState[]).map((s) => BUOY_STATE_META[s]);
 
   protected readonly auth = inject(AuthService);
   private readonly layout = inject(LayoutService);
@@ -214,10 +197,9 @@ export class BuoysPage {
     return this.telemetry.isLive(deviceCodeFor(b.code))();
   }
 
+  /** State from the telemetry (the buoys only exist in Wokwi): live, saturated, no signal or no data. */
   protected shown(b: Buoy): { label: string; color: string; bg: string } {
-    const basket = this.packet(b)?.basket_fill_pct;
-    const state: Shown = b.status === 'active' && basket != null && basket >= SATURATED_AT ? 'saturated' : b.status;
-    return SHOWN_META[state];
+    return BUOY_STATE_META[buoyState(this.packet(b), this.isLive(b))];
   }
 
   protected lastReading(b: Buoy): string {
@@ -236,7 +218,7 @@ export class BuoysPage {
   }
 
   protected basketColor(v: number | null | undefined): string {
-    return v == null ? '#cbd5e1' : v >= SATURATED_AT ? '#e5484d' : v >= 50 ? '#f59e0b' : '#00b4d8';
+    return v == null ? '#cbd5e1' : v >= BUOY_SATURATED_AT ? '#e5484d' : v >= 50 ? '#f59e0b' : '#00b4d8';
   }
 
   protected batteryColor(v: number | null | undefined): string {

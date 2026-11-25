@@ -1,0 +1,8 @@
+{
+  "name": "ACS712 5A",
+  "author": "Río Monitor",
+  "pins": ["VCC", "GND", "IP", "VIOUT"],
+  "controls": [
+    { "id": "corriente", "label": "Corriente de la bomba encendida (A)", "type": "range", "min": 0, "max": 5, "step": 0.01 }
+  ]
+}

@@ -166,3 +166,32 @@ async def test_wokwi_message_with_bm_02_reaches_boat_rm_02(client, container, st
 
 async def test_iot_needs_device_id_or_boya(client, buoy):
     assert (await client.post(f"{V1}/telemetry/iot", json={"ph": 7})).status_code == 422
+
+
+async def test_full_electronics_message_saves_ph_out_and_device_state(client, container, buoy, sensors):
+    """Mensaje de firmware/boya-rm01/sketch.ino con ENVIAR_CAMPOS_NUEVOS 1."""
+    msg = PAYLOAD | {
+        "ts": None,
+        "ph": 6.7,
+        "ph_out": 6.81,
+        "caudal_lpm": 2.5,
+        "litros_total": 120.5,
+        "cesta_pct": 37,
+        "bomba_a": 0.4,
+        "ciclos_bomba": 3,
+        "inclinacion_deg": 2.3,
+        "golpe": False,
+        "senal_csq": 22,
+    }
+    r = await client.post(f"{V1}/devices/RM-01/telemetry", json=msg)
+    assert r.status_code == 200, r.text
+    assert r.json()["readings"]["accepted"] == 3  # pH entrada + pH salida + turbidez entrada
+    readings = [e for e in container.broker.published if e.type is EventType.READING]
+    ph_out = [e for e in readings if e.data["value"] == 6.81]
+    assert [e.data["sensor_id"] for e in ph_out] == [sensors[("ph", "outlet")]["id"]]
+
+    latest = (await client.get(f"{V1}/devices/RM-01/telemetry/latest")).json()
+    assert (latest["flow_rate_lpm"], latest["basket_fill_pct"], latest["pump_current_a"]) == (2.5, 37, 0.4)
+    assert (latest["water_liters_total"], latest["pump_cycles"], latest["tilt_deg"]) == (120.5, 3, 2.3)
+    assert (latest["shock"], latest["signal_csq"], latest["rssi_dbm"]) == (False, 22, -69)
+    assert latest["values"]["ph_out"] == 6.81

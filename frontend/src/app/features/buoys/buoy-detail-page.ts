@@ -1,25 +1,25 @@
-import { DatePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Button } from 'primeng/button';
 import { SelectButton } from 'primeng/selectbutton';
 import { ToggleSwitch } from 'primeng/toggleswitch';
-import { BUOY_STATUS_META } from '../../core/models/buoy.models';
+import { BUOY_SOURCE, BUOY_STATE_META, buoyState } from '../../core/models/buoy.models';
 import { deviceCodeFor } from '../../core/models/telemetry.models';
 import { TelemetryPanel } from '../../shared/components/telemetry-panel';
 import { BuoysService } from '../../core/services/buoys.service';
+import { TelemetryService } from '../../core/services/telemetry.service';
 import { formatCoords } from '../../shared/utils/format.util';
 import { BuoyView, BuoyViewer } from './buoy-viewer';
 
-/** Design B specs as listed in the design artifact (prototype values). */
+/** Specs of the v8 design artifact (prototype values; same electronics as firmware/boya-rm01). */
 const SPECS: { label: string; value: string }[] = [
   { label: 'Altura', value: '85 cm' },
   { label: 'Diámetro', value: '1.04 m' },
-  { label: 'Fijación', value: '3 cadenas con lastre' },
+  { label: 'Fijación', value: '3 anclas helicoidales con cadena y cuerda' },
   { label: 'Profundidad de operación', value: '0.8 a 3 m' },
-  { label: 'Electrónica', value: 'ESP32 + LoRa 915 MHz' },
-  { label: 'Tratamiento', value: '6 filtros + centrífuga' },
+  { label: 'Electrónica', value: 'ESP32 + módem 4G A7670SA' },
+  { label: 'Tratamiento', value: '4 capas de filtro + bomba 12 V' },
 ];
 
 /**
@@ -28,7 +28,7 @@ const SPECS: { label: string; value: string }[] = [
  */
 @Component({
   selector: 'app-buoy-detail-page',
-  imports: [DatePipe, FormsModule, RouterLink, Button, SelectButton, ToggleSwitch, BuoyViewer, TelemetryPanel],
+  imports: [FormsModule, RouterLink, Button, SelectButton, ToggleSwitch, BuoyViewer, TelemetryPanel],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .head { display: flex; align-items: center; gap: .5rem; }
@@ -91,16 +91,16 @@ const SPECS: { label: string; value: string }[] = [
             </label>
           </div>
           <div class="stage">
-            <app-buoy-viewer class="viewer" [design]="b.design" [view]="view()" [xray]="xray()" [ariaLabel]="'Modelo 3D interactivo de ' + b.name + ', boya anclada con tres cadenas'" />
+            <app-buoy-viewer class="viewer" [design]="b.design" [view]="view()" [xray]="xray()" [telemetry]="packet()" [source]="sceneSource()" [ariaLabel]="'Modelo 3D interactivo de ' + b.name + ', boya anclada con tres líneas'" />
             <dl class="cartouche" aria-label="Datos de la boya">
               <div class="cell"><dt>Código</dt><dd>{{ b.code }}</dd></div>
               <div class="cell">
                 <dt>Estado</dt>
-                <dd><span class="dot" [style.background]="meta[b.status].color" aria-hidden="true"></span>{{ meta[b.status].label }}</dd>
+                <dd><span class="dot" [style.background]="state().color" aria-hidden="true"></span>{{ state().label }}</dd>
               </div>
               <div class="cell"><dt>Coordenadas</dt><dd>{{ coords(b.latitude, b.longitude) }}</dd></div>
-              <div class="cell"><dt>Instalada</dt><dd>{{ b.installedAt | date: 'dd/MM/yyyy' }}</dd></div>
-              <div class="cell full"><dt>Diseño</dt><dd>B, boya con domo anclada con tres cadenas</dd></div>
+              <div class="cell"><dt>Origen</dt><dd>{{ source }}</dd></div>
+              <div class="cell full"><dt>Diseño</dt><dd>B, boya con domo anclada con tres líneas</dd></div>
             </dl>
           </div>
         </section>
@@ -131,10 +131,24 @@ const SPECS: { label: string; value: string }[] = [
 })
 export class BuoyDetailPage {
   private readonly service = inject(BuoysService);
+  private readonly telemetry = inject(TelemetryService);
   readonly id = input.required<string>();
 
   protected readonly buoy = computed(() => this.service.byId(this.id()));
-  protected readonly meta = BUOY_STATUS_META;
+  private readonly code = computed(() => this.buoy()?.code ?? '');
+  /** Last packet of the ESP32 (Wokwi), live or not: the 3D model shows exactly that state. */
+  protected readonly packet = computed(() => this.telemetry.packet(this.code())());
+  private readonly live = computed(() => this.telemetry.isLive(this.code())());
+  protected readonly state = computed(() => BUOY_STATE_META[buoyState(this.packet(), this.live())]);
+  /** Says where what the 3D scene shows comes from. */
+  protected readonly sceneSource = computed(() => {
+    const p = this.packet();
+    if (!p) return 'Sin datos · estado inicial del diseño';
+    if (this.live()) return 'EN VIVO · Wokwi';
+    const age = this.telemetry.ageSeconds(this.code())() ?? 0;
+    return `Último dato de Wokwi · ${age < 60 ? `hace ${age} s` : age < 3600 ? `hace ${Math.round(age / 60)} min` : `hace ${Math.round(age / 3600)} h`}`;
+  });
+  protected readonly source = BUOY_SOURCE;
   protected readonly specs = SPECS;
   protected readonly coords = formatCoords;
   protected readonly deviceCode = deviceCodeFor;

@@ -1,0 +1,1137 @@
+{
+  "version": 1,
+  "author": "Río Monitor · HackaTec InnovaTecNM 2026",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-esp32-devkit-v1",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_esp",
+      "top": -30,
+      "left": -10,
+      "attrs": {
+        "text": "ESP32 DevKit V1"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_titulo",
+      "top": -470,
+      "left": -760,
+      "attrs": {
+        "text": "Río Monitor · boya de bajo costo (misma electrónica que el modelo 3D)"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_zona1",
+      "top": -410,
+      "left": -760,
+      "attrs": {
+        "text": "SENSORES ANALÓGICOS (los potenciómetros hacen de sensor; en Wokwi dan 0–5 V: usar 0–675 = 0–3.3 V)"
+      }
+    },
+    {
+      "type": "chip-ads1115",
+      "id": "ads1",
+      "top": -150,
+      "left": -330,
+      "attrs": {
+        "address": "72"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_ads1",
+      "top": -180,
+      "left": -345,
+      "attrs": {
+        "text": "ADS1115 #1 (0x48)"
+      }
+    },
+    {
+      "type": "chip-ads1115",
+      "id": "ads2",
+      "top": 330,
+      "left": -330,
+      "attrs": {
+        "address": "73"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_ads2",
+      "top": 300,
+      "left": -345,
+      "attrs": {
+        "text": "ADS1115 #2 (0x49)"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_ph_in",
+      "top": -350,
+      "left": -720,
+      "attrs": {
+        "value": "352"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_pot_ph_in",
+      "top": -374,
+      "left": -730,
+      "attrs": {
+        "text": "pH entrada"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_ph_out",
+      "top": -230,
+      "left": -720,
+      "attrs": {
+        "value": "347"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_pot_ph_out",
+      "top": -254,
+      "left": -730,
+      "attrs": {
+        "text": "pH salida"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_tds",
+      "top": -110,
+      "left": -720,
+      "attrs": {
+        "value": "310"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_pot_tds",
+      "top": -134,
+      "left": -730,
+      "attrs": {
+        "text": "TDS"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_tin",
+      "top": 10,
+      "left": -720,
+      "attrs": {
+        "value": "620"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_pot_tin",
+      "top": -14,
+      "left": -730,
+      "attrs": {
+        "text": "Turbidez entrada"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_tout",
+      "top": 180,
+      "left": -720,
+      "attrs": {
+        "value": "660"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_pot_tout",
+      "top": 156,
+      "left": -730,
+      "attrs": {
+        "text": "Turbidez salida"
+      }
+    },
+    {
+      "type": "wokwi-slide-potentiometer",
+      "id": "sl_bat",
+      "top": 320,
+      "left": -760,
+      "attrs": {
+        "travelLength": "30",
+        "value": "603"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_sl_bat",
+      "top": 294,
+      "left": -760,
+      "attrs": {
+        "text": "Batería (divisor 100k/33k)"
+      }
+    },
+    {
+      "type": "wokwi-slide-potentiometer",
+      "id": "sl_gen",
+      "top": 430,
+      "left": -760,
+      "attrs": {
+        "travelLength": "30",
+        "value": "259"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_sl_gen",
+      "top": 404,
+      "left": -760,
+      "attrs": {
+        "text": "Voltaje del generador (100k/10k)"
+      }
+    },
+    {
+      "type": "chip-acs712",
+      "id": "acs1",
+      "top": 530,
+      "left": -720,
+      "attrs": {
+        "corriente": "0.4"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_acs",
+      "top": 506,
+      "left": -730,
+      "attrs": {
+        "text": "Corriente bomba (ACS712): 2.5 V = 0 A; solo hay corriente con la bomba prendida (IP = GPIO27)"
+      }
+    },
+    {
+      "type": "wokwi-hc-sr04",
+      "id": "sonar1",
+      "top": -330,
+      "left": -60,
+      "attrs": {
+        "distance": "44"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_sonar",
+      "top": -360,
+      "left": -70,
+      "attrs": {
+        "text": "Nivel de la cesta (JSN-SR04T)"
+      }
+    },
+    {
+      "type": "wokwi-mpu6050",
+      "id": "mpu1",
+      "top": -320,
+      "left": 260,
+      "attrs": {
+        "accelX": "0.04",
+        "accelZ": "1"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_mpu",
+      "top": -350,
+      "left": 240,
+      "attrs": {
+        "text": "Inclinación y golpes (MPU6050)"
+      }
+    },
+    {
+      "type": "wokwi-ds18b20",
+      "id": "temp1",
+      "top": -320,
+      "left": 560,
+      "attrs": {
+        "temperature": "19.4"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_temp",
+      "top": -350,
+      "left": 540,
+      "attrs": {
+        "text": "Temperatura (DS18B20)"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_ow",
+      "top": -240,
+      "left": 480,
+      "attrs": {
+        "value": "4700"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-microsd-card",
+      "id": "sd1",
+      "top": -60,
+      "left": 560,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_sd",
+      "top": -90,
+      "left": 540,
+      "attrs": {
+        "text": "Registro CSV (microSD)"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_zona2",
+      "top": 170,
+      "left": 270,
+      "attrs": {
+        "text": "SALIDAS (en la boya real van a MOSFET y transistores)"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_phin",
+      "top": 230,
+      "left": 290,
+      "attrs": {
+        "color": "white"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_phin",
+      "top": 320,
+      "left": 280,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_phin",
+      "top": 202,
+      "left": 276,
+      "attrs": {
+        "text": "pH ent."
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_phout",
+      "top": 230,
+      "left": 380,
+      "attrs": {
+        "color": "white"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_phout",
+      "top": 320,
+      "left": 370,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_phout",
+      "top": 202,
+      "left": 366,
+      "attrs": {
+        "text": "pH sal."
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_tds",
+      "top": 230,
+      "left": 470,
+      "attrs": {
+        "color": "yellow"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_tds",
+      "top": 320,
+      "left": 460,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_tds",
+      "top": 202,
+      "left": 456,
+      "attrs": {
+        "text": "TDS"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_bomba",
+      "top": 230,
+      "left": 560,
+      "attrs": {
+        "color": "blue"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_bomba",
+      "top": 320,
+      "left": 550,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_bomba",
+      "top": 202,
+      "left": 546,
+      "attrs": {
+        "text": "Bomba"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_freno",
+      "top": 230,
+      "left": 650,
+      "attrs": {
+        "color": "orange"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_freno",
+      "top": 320,
+      "left": 640,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_freno",
+      "top": 202,
+      "left": 636,
+      "attrs": {
+        "text": "Freno"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_alerta",
+      "top": 230,
+      "left": 740,
+      "attrs": {
+        "color": "red"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_alerta",
+      "top": 320,
+      "left": 730,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_alerta",
+      "top": 202,
+      "left": 726,
+      "attrs": {
+        "text": "Alerta"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_envio",
+      "top": 230,
+      "left": 830,
+      "attrs": {
+        "color": "green"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_envio",
+      "top": 320,
+      "left": 820,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_envio",
+      "top": 202,
+      "left": 816,
+      "attrs": {
+        "text": "Envío"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_zona3",
+      "top": 470,
+      "left": -60,
+      "attrs": {
+        "text": "CAUDALÍMETRO YF-S401: pulsos solo con la bomba prendida"
+      }
+    },
+    {
+      "type": "wokwi-clock-generator",
+      "id": "clock1",
+      "top": 530,
+      "left": -40,
+      "attrs": {
+        "frequency": "245"
+      }
+    },
+    {
+      "type": "wokwi-gate-and-2",
+      "id": "and1",
+      "top": 520,
+      "left": 120,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_clock",
+      "top": 590,
+      "left": -60,
+      "attrs": {
+        "text": "2.5 L/min = 245 Hz"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_zona4",
+      "top": 470,
+      "left": 350,
+      "attrs": {
+        "text": "MÓDEM 4G A7670SA + SIM (clic para quitar la SIM o la señal)"
+      }
+    },
+    {
+      "type": "chip-a7670sa",
+      "id": "modem1",
+      "top": 530,
+      "left": 380,
+      "attrs": {
+        "sim": "1",
+        "senal": "22",
+        "red": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_4g",
+      "top": 520,
+      "left": 640,
+      "attrs": {
+        "color": "limegreen"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_4g",
+      "top": 610,
+      "left": 630,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_4g",
+      "top": 492,
+      "left": 628,
+      "attrs": {
+        "text": "Red 4G"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_nota",
+      "top": 700,
+      "left": -760,
+      "attrs": {
+        "text": "Wokwi no simula la red celular: el módem contesta los comandos AT y decide si hay red; los datos salen por el WiFi de Wokwi."
+      }
+    }
+  ],
+  "connections": [
+    [
+      "ads1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "ads1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "ads1:SCL",
+      "esp:D22",
+      "gray",
+      []
+    ],
+    [
+      "ads1:SDA",
+      "esp:D21",
+      "purple",
+      []
+    ],
+    [
+      "ads1:ADDR",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "ads2:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "ads2:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "ads2:SCL",
+      "esp:D22",
+      "gray",
+      []
+    ],
+    [
+      "ads2:SDA",
+      "esp:D21",
+      "purple",
+      []
+    ],
+    [
+      "ads2:ADDR",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_ph_in:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_ph_in:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot_ph_in:SIG",
+      "ads1:A0",
+      "orange",
+      []
+    ],
+    [
+      "pot_ph_out:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_ph_out:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot_ph_out:SIG",
+      "ads1:A1",
+      "orange",
+      []
+    ],
+    [
+      "pot_tds:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_tds:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot_tds:SIG",
+      "ads1:A2",
+      "orange",
+      []
+    ],
+    [
+      "pot_tin:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_tin:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot_tin:SIG",
+      "ads1:A3",
+      "orange",
+      []
+    ],
+    [
+      "pot_tout:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_tout:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot_tout:SIG",
+      "ads2:A0",
+      "orange",
+      []
+    ],
+    [
+      "sl_bat:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "sl_bat:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "sl_bat:SIG",
+      "ads2:A1",
+      "orange",
+      []
+    ],
+    [
+      "sl_gen:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "sl_gen:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "sl_gen:SIG",
+      "ads2:A2",
+      "orange",
+      []
+    ],
+    [
+      "acs1:VCC",
+      "esp:VIN",
+      "red",
+      []
+    ],
+    [
+      "acs1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "acs1:IP",
+      "esp:D27",
+      "blue",
+      []
+    ],
+    [
+      "acs1:VIOUT",
+      "ads2:A3",
+      "orange",
+      []
+    ],
+    [
+      "sonar1:VCC",
+      "esp:VIN",
+      "red",
+      []
+    ],
+    [
+      "sonar1:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "sonar1:TRIG",
+      "esp:D15",
+      "blue",
+      []
+    ],
+    [
+      "sonar1:ECHO",
+      "esp:D34",
+      "green",
+      []
+    ],
+    [
+      "mpu1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "mpu1:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "mpu1:SCL",
+      "esp:D22",
+      "gray",
+      []
+    ],
+    [
+      "mpu1:SDA",
+      "esp:D21",
+      "purple",
+      []
+    ],
+    [
+      "mpu1:AD0",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "temp1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "temp1:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "temp1:DQ",
+      "esp:D5",
+      "blue",
+      []
+    ],
+    [
+      "r_ow:1",
+      "temp1:DQ",
+      "blue",
+      []
+    ],
+    [
+      "r_ow:2",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "sd1:CS",
+      "esp:D13",
+      "purple",
+      []
+    ],
+    [
+      "sd1:SCK",
+      "esp:D18",
+      "gray",
+      []
+    ],
+    [
+      "sd1:DO",
+      "esp:D19",
+      "yellow",
+      []
+    ],
+    [
+      "sd1:DI",
+      "esp:D23",
+      "cyan",
+      []
+    ],
+    [
+      "sd1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "sd1:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D32",
+      "r_led_phin:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_phin:2",
+      "led_phin:A",
+      "green",
+      []
+    ],
+    [
+      "led_phin:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D33",
+      "r_led_phout:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_phout:2",
+      "led_phout:A",
+      "green",
+      []
+    ],
+    [
+      "led_phout:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D26",
+      "r_led_tds:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_tds:2",
+      "led_tds:A",
+      "green",
+      []
+    ],
+    [
+      "led_tds:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D27",
+      "r_led_bomba:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_bomba:2",
+      "led_bomba:A",
+      "green",
+      []
+    ],
+    [
+      "led_bomba:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D14",
+      "r_led_freno:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_freno:2",
+      "led_freno:A",
+      "green",
+      []
+    ],
+    [
+      "led_freno:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D2",
+      "r_led_alerta:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_alerta:2",
+      "led_alerta:A",
+      "green",
+      []
+    ],
+    [
+      "led_alerta:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D25",
+      "r_led_envio:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_envio:2",
+      "led_envio:A",
+      "green",
+      []
+    ],
+    [
+      "led_envio:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "clock1:CLK",
+      "and1:A",
+      "blue",
+      []
+    ],
+    [
+      "esp:D27",
+      "and1:B",
+      "blue",
+      []
+    ],
+    [
+      "and1:OUT",
+      "esp:D35",
+      "blue",
+      []
+    ],
+    [
+      "modem1:VCC",
+      "esp:VIN",
+      "red",
+      []
+    ],
+    [
+      "modem1:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "modem1:TXD",
+      "esp:RX2",
+      "green",
+      []
+    ],
+    [
+      "modem1:RXD",
+      "esp:TX2",
+      "blue",
+      []
+    ],
+    [
+      "modem1:PWRKEY",
+      "esp:D4",
+      "purple",
+      []
+    ],
+    [
+      "modem1:NETLIGHT",
+      "r_led_4g:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_4g:2",
+      "led_4g:A",
+      "green",
+      []
+    ],
+    [
+      "led_4g:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:TX0",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX0",
+      "$serialMonitor:TX",
+      "",
+      []
+    ]
+  ],
+  "dependencies": {}
+}

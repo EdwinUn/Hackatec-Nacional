@@ -124,6 +124,12 @@ class DeviceTelemetryRow(Base):
     basket_fill_pct: Mapped[float | None]
     rssi_dbm: Mapped[float | None]
     gas_v: Mapped[float | None]
+    signal_csq: Mapped[int | None] = mapped_column(sa.SmallInteger)
+    pump_current_a: Mapped[float | None]
+    water_liters_total: Mapped[float | None]
+    pump_cycles: Mapped[int | None] = mapped_column(sa.Integer)
+    tilt_deg: Mapped[float | None]
+    shock: Mapped[bool | None]
     values: Mapped[dict | None] = mapped_column(sa.JSON)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=sa.func.now())
 

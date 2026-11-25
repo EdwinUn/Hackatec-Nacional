@@ -4,7 +4,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { APP_CONFIG } from './config/app-config';
-import { deviceCodeFor, linkQuality } from './models/telemetry.models';
+import { deviceCodeFor, linkQuality, liveWindowMs } from './models/telemetry.models';
 import { LiveStreamService } from './services/live-stream.service';
 import { TelemetryService } from './services/telemetry.service';
 
@@ -42,9 +42,37 @@ describe('TelemetryService', () => {
     raw$.next({ type: 'device_telemetry', data: { code: 'RM-01', station_id: 's', ts: new Date().toISOString(), seq: 3, battery_pct: 78, basket_fill_pct: 37, rssi_dbm: -61, values: { ph: 6.9 } } });
     expect(svc.packet('RM-01')()?.basket_fill_pct).toBe(37);
     expect(live()).toBe(true);
+    vi.advanceTimersByTime(30_000);
+    expect(live()).toBe(true); // a late packet (Wokwi slower than real time) is still live
     vi.advanceTimersByTime(20_000);
-    expect(live()).toBe(false); // no new packet: «SIN SEÑAL»
+    expect(live()).toBe(false); // three publish periods without packets: «Sin señal»
     vi.useRealTimers();
+  });
+
+  it('follows the real rhythm of the packets: a slow Wokwi does not flicker, a silent buoy goes «Sin señal»', () => {
+    vi.useFakeTimers();
+    const { svc, raw$ } = setup();
+    const live = svc.isLive('RM-01');
+    const send = (seq: number) => raw$.next({ type: 'device_telemetry', data: { code: 'RM-01', station_id: 's', ts: new Date().toISOString(), seq, values: {} } });
+    send(1);
+    vi.advanceTimersByTime(80_000); // Wokwi at ~20 % speed: next packet 80 s later
+    send(2);
+    expect(svc.packet('RM-01')()?.intervalMs).toBe(80_000);
+    vi.advanceTimersByTime(150_000); // < 2.5 × 80 s
+    expect(live()).toBe(true);
+    vi.advanceTimersByTime(60_000); // > 2.5 × 80 s without packets
+    expect(live()).toBe(false);
+    send(3); // queued packets arrive together after a reconnection: they keep the rhythm
+    send(4);
+    expect(svc.packet('RM-01')()?.intervalMs).toBe(210_000);
+    vi.useRealTimers();
+  });
+
+  it('caps the live window at 5 min', () => {
+    expect(liveWindowMs({ intervalMs: 10_000 })).toBe(45_000);
+    expect(liveWindowMs({ intervalMs: 80_000 })).toBe(200_000);
+    expect(liveWindowMs({ intervalMs: 600_000 })).toBe(300_000);
+    expect(liveWindowMs({})).toBe(45_000);
   });
 
   it('ignores other frames and seeds from the latest stored packet (shown, not live)', () => {

@@ -56,8 +56,9 @@ class Settings(BaseSettings):
     mqtt_url: SecretStr = SecretStr("")  # mqtt://[user:pass@]host[:1883] o mqtts://…
     mqtt_topic: str = "riomonitor/+/telemetria"  # el `+` es el código de la boya
     # Suscripción compartida ($share/<grupo>/…): con varios workers cada mensaje se ingiere una vez.
-    # Vacío = suscripción normal (solo con WEB_CONCURRENCY=1).
-    mqtt_shared_group: str = "rio-api"
+    # Vacío (default) = suscripción normal, para un solo worker. En un broker público no uses un grupo
+    # que otro backend del equipo también use: el broker repartiría los mensajes entre los dos.
+    mqtt_shared_group: str = ""
 
     # Visión artificial de los reportes ciudadanos (requiere `uv sync --extra vision`).
     vision_enabled: bool = True

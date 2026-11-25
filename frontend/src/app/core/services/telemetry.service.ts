@@ -3,12 +3,12 @@ import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core'
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { APP_CONFIG } from '../config/app-config';
 import { SILENT_ERRORS } from '../interceptors/api-error.interceptor';
-import { DeviceTelemetryDto, TELEMETRY_LIVE_MS, TelemetryPacket, deviceCodeFor } from '../models/telemetry.models';
+import { DeviceTelemetryDto, TELEMETRY_BURST_MS, TelemetryPacket, deviceCodeFor, liveWindowMs } from '../models/telemetry.models';
 import { LiveStreamService } from './live-stream.service';
 
 /**
  * Last packet of each buoy's ESP32. Fed by the `device_telemetry` frames of `/ws/live`
- * (the ESP32 / Wokwi posts to `POST /telemetry/iot`) and seeded with `GET /devices/{code}/telemetry/latest`.
+ * (the ESP32 in Wokwi publishes by MQTT; see API.md) and seeded with `GET /devices/{code}/telemetry/latest`.
  */
 @Injectable({ providedIn: 'root' })
 export class TelemetryService {
@@ -21,12 +21,14 @@ export class TelemetryService {
   /** Ticks every second so «live» and «hace X» expire without new packets. */
   private readonly now = signal(Date.now());
   private readonly loaded = new Set<string>();
+  /** Buoys with at least one packet from `/ws/live` (their `receivedAt` is a real arrival time). */
+  private readonly streamed = new Set<string>();
 
   constructor() {
     this.live.raw$.pipe(takeUntilDestroyed()).subscribe((m) => {
       if (m.type !== 'device_telemetry') return;
       const d = m.data as DeviceTelemetryDto;
-      if (d.code) this.set(d.code, d, Date.now());
+      if (d.code) this.set(d.code, d, Date.now(), true);
     });
     const timer = setInterval(() => this.now.set(Date.now()), 1000);
     inject(DestroyRef).onDestroy(() => clearInterval(timer));
@@ -36,11 +38,11 @@ export class TelemetryService {
     return computed(() => this._packets()[deviceCodeFor(code)] ?? null);
   }
 
-  /** `true` while the last packet is recent enough. */
+  /** `true` while the last packet is recent enough for the rhythm at which they arrive (see `liveWindowMs`). */
   isLive(code: string) {
     return computed(() => {
       const p = this._packets()[deviceCodeFor(code)];
-      return !!p && this.now() - p.receivedAt < TELEMETRY_LIVE_MS;
+      return !!p && this.now() - p.receivedAt < liveWindowMs(p);
     });
   }
 
@@ -67,8 +69,19 @@ export class TelemetryService {
     });
   }
 
-  private set(code: string, d: DeviceTelemetryDto, receivedAt: number): void {
-    this._packets.update((all) => ({ ...all, [deviceCodeFor(code)]: { ...d, receivedAt } }));
+  /** `streamed`: it came by `/ws/live` (not from the stored latest), so it tells the real rhythm. */
+  private set(code: string, d: DeviceTelemetryDto, receivedAt: number, streamed = false): void {
+    const key = deviceCodeFor(code);
+    this._packets.update((all) => {
+      const prev = all[key];
+      let intervalMs = prev?.intervalMs;
+      if (streamed && prev && this.streamed.has(key)) {
+        const gap = receivedAt - prev.receivedAt;
+        if (gap >= TELEMETRY_BURST_MS) intervalMs = gap; // a burst of queued packets keeps the last rhythm
+      }
+      return { ...all, [key]: { ...d, receivedAt, intervalMs } };
+    });
+    if (streamed) this.streamed.add(key);
   }
 }
 

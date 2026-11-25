@@ -1,0 +1,5 @@
+{
+  "name": "ADS1115",
+  "author": "Río Monitor",
+  "pins": ["VCC", "GND", "SCL", "SDA", "ADDR", "ALRT", "A0", "A1", "A2", "A3"]
+}

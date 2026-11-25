@@ -1,14 +1,10 @@
 import { Buoy } from '../models/buoy.models';
-import { MOCK_STATIONS } from './mock-backend';
-
-const [atoyac, alseseca, valsequillo] = MOCK_STATIONS;
 
 /**
- * Demo buoys (prototype data, not real deployments).
- * Placed a few dozen meters from each mock station so the markers don't overlap.
+ * The two buoys of the demo, with the same code, river and coordinates as the device stations of
+ * `backend/scripts/seed.py` (DEVICE_STATIONS). Their data comes from Wokwi (`firmware/boya-rm01`).
  */
 export const MOCK_BUOYS: Buoy[] = [
-  { id: 'boya-1', code: 'B-01', name: 'Boya 1', river: atoyac.river, latitude: atoyac.latitude + 0.0006, longitude: atoyac.longitude - 0.0008, status: 'active', design: 'anclada', stationId: atoyac.id, installedAt: '2026-09-15' },
-  { id: 'boya-2', code: 'B-02', name: 'Boya 2', river: alseseca.river, latitude: alseseca.latitude - 0.0005, longitude: alseseca.longitude + 0.0007, status: 'active', design: 'anclada', stationId: alseseca.id, installedAt: '2026-10-02' },
-  { id: 'boya-3', code: 'B-03', name: 'Boya 3', river: valsequillo.river, latitude: valsequillo.latitude + 0.0007, longitude: valsequillo.longitude + 0.0006, status: 'maintenance', design: 'anclada', stationId: valsequillo.id, installedAt: '2026-10-20' },
+  { id: 'rm-01', code: 'RM-01', name: 'Boya RM-01', river: 'Río Atoyac', site: 'Colector Panzacola (aguas abajo de la descarga)', latitude: 19.1561, longitude: -98.2373, design: 'anclada' },
+  { id: 'rm-02', code: 'RM-02', name: 'Boya RM-02', river: 'Río Atoyac', site: 'Estación testigo Tlahuapan (aguas arriba)', latitude: 19.3678, longitude: -98.5152, design: 'anclada' },
 ];

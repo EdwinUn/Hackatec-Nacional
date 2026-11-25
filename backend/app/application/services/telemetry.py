@@ -80,6 +80,12 @@ class TelemetryService:
             basket_fill_pct=data.basket_fill_pct,
             rssi_dbm=data.rssi_dbm,
             gas_v=data.gas_v,
+            signal_csq=data.signal_csq,
+            pump_current_a=data.pump_current_a,
+            water_liters_total=data.water_liters_total,
+            pump_cycles=data.pump_cycles,
+            tilt_deg=data.tilt_deg,
+            shock=data.shock,
             values={k: float(v) for k, v in values.items()} or None,
         )
         async with self._uow_factory() as uow:

@@ -92,7 +92,7 @@ Plantilla completa en [`../.env.example`](../.env.example). Se leen de `backend/
 | `LOGIN_RATE_LIMIT` / `LOGIN_RATE_WINDOW_MIN` | `10` / `10` | Intentos de login por IP y por correo |
 | `MAX_BODY_KB` | `2048` | Tope del cuerpo de cualquier petición (413 antes de parsear) |
 | `MQTT_URL` | vacío | Broker de la telemetría de las boyas (`mqtt://host:1883`, `mqtts://user:pass@host:8883`). Vacío = puente MQTT apagado |
-| `MQTT_TOPIC` / `MQTT_SHARED_GROUP` | `riomonitor/+/telemetria` / `rio-api` | Tópico (el `+` es el `code` de la estación) y grupo de suscripción compartida (vacío = normal, solo con 1 worker) |
+| `MQTT_TOPIC` / `MQTT_SHARED_GROUP` | `riomonitor/+/telemetria` / vacío | Tópico (el `+` es el `code` de la estación) y grupo de suscripción compartida. Vacío = suscripción normal (1 worker); con varios workers pon un grupo propio, nunca uno que otro backend use en el mismo broker |
 | `SIMULATION_ENABLED` | `false` | Simulador en vivo dentro de la API (sin script aparte) |
 | `SIMULATION_INTERVAL_S` / `SIMULATION_SEED` | `5` / `42` | Ritmo y semilla del simulador |
 | `MAX_READINGS_PER_REQUEST` / `MAX_RANGE_DAYS` / `MAX_BUCKETS` | `1000` / `90` / `5000` | Límites de consultas |
@@ -195,7 +195,7 @@ tests/unit, tests/integration
 - simulador en vivo si `SIMULATION_ENABLED=true`;
 - puente MQTT de telemetría de las boyas si `MQTT_URL` tiene valor (reconecta solo, con backoff hasta 30 s).
 
-El simulador solo alimenta estaciones **sin** `code`; las que tienen `code` (boyas RM-01 y RM-02 del seed) las alimenta su ESP32 por MQTT. Con varios workers, el barrido y el simulador toman un lock en Redis (`SET NX EX`) para que solo corra uno. El puente MQTT corre en cada worker, pero con suscripción compartida (`$share/rio-api/…`): el broker entrega cada mensaje a uno solo.
+El simulador solo alimenta estaciones **sin** `code`; las que tienen `code` (boyas RM-01 y RM-02 del seed) las alimenta su ESP32 por MQTT. Con varios workers, el barrido y el simulador toman un lock en Redis (`SET NX EX`) para que solo corra uno. El puente MQTT corre en cada worker; con varios workers define `MQTT_SHARED_GROUP` (suscripción compartida `$share/<grupo>/…`) para que el broker entregue cada mensaje a uno solo. Con un solo worker déjalo vacío: en un broker público, otro backend con el mismo grupo se llevaría parte de los mensajes.
 
 ## Modelo de datos
 
@@ -208,7 +208,7 @@ Todas las tablas usan `id` UUID y fechas `timestamptz` en UTC. Todas tienen `cre
 | `readings` | sensor_id, station_id, ts, value, quality (0–1) | **único (sensor_id, ts DESC)** · (station_id, ts) · **BRIN(ts)** · CHECK quality |
 | `centrifuge_cycles` | station_id, started_at, ended_at, status, rpm_avg/max, vibration_mm_s, power_w, water_in_l, water_out_clean_l, sludge_kg, failure_reason | (station_id, started_at) |
 | `treatment_batches` | station_id, cycle_id, **ts**, volume_in_l, volume_clean_l, **sludge_kg**, ph_in/out, turbidity_in/out_ntu, efficiency_pct | (station_id, ts) · cycle_id |
-| `device_telemetry` | station_id, ts, seq, battery_v/pct, river_speed_ms, generator_w/v, pump_on, brake_on, alarm_on, device_efficiency_pct | (station_id, ts DESC) |
+| `device_telemetry` | station_id, ts, seq, battery_v/pct, river_speed_ms, generator_w/v, pump_on, brake_on, alarm_on, device_efficiency_pct, flow_rate_lpm, basket_fill_pct, rssi_dbm, signal_csq, gas_v, pump_current_a, water_liters_total, pump_cycles, tilt_deg, shock, values | (station_id, ts DESC) |
 | `waste_collections` | station_id, ts, weight_kg, items_count, waste_type, collector_id | (station_id, ts) |
 | `alert_rules` | name, kind, severity, parameter, location, station_id (null = todas), min_value, max_value, enabled, description | station_id |
 | `tasks` | title, kind, description, priority, status, assigned_to → users, station_id, buoy_code, closing_note, resolved_at, resolved_by → users | (status, priority) · (assigned_to, status) |
@@ -264,7 +264,7 @@ La eficiencia de agua recuperada ronda 86–95 %. En `--live`, a los 2 min se pr
 
 ### Emulador de la boya ESP32
 
-Wokwi en línea solo da WiFi a una simulación a la vez. Para tener las dos boyas en vivo, una corre en Wokwi y la otra con [`scripts/buoy.py`](scripts/buoy.py), que publica por MQTT el mismo JSON que el firmware, con sus mismas reglas de bomba, freno y alerta:
+No hay boya física: el firmware ([`firmware/boya-rm01/`](../firmware/boya-rm01/README.md)) corre en Wokwi. Wokwi en línea solo da WiFi a una simulación a la vez. Para tener las dos boyas en vivo, una corre en Wokwi y la otra con [`scripts/buoy.py`](scripts/buoy.py), que publica por MQTT las mismas claves que el firmware (incluidas `ph_out`, caudal, cesta, corriente de la bomba, inclinación y señal), con sus mismas reglas de bomba, freno y alerta, y el filtrado del modelo 3D (sin bomba no se filtra; la calcita solo sube el pH ácido):
 
 ```bash
 make boya                                  # RM-01, agua contaminada, cada 15 s
@@ -294,7 +294,7 @@ curl -s -X POST $API/waste-collections -H "X-API-Key: $KEY" -H 'Content-Type: ap
 
 # Telemetría de la boya (lo mismo que publica el ESP32 por MQTT)
 curl -s -X POST $API/devices/RM-01/telemetry -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
-  -d '{"boya":"RM-01","n":1,"ph":6.9,"tds_ppm":410,"temp_c":22,"turb_in_ntu":180,"turb_out_ntu":12,"bat_pct":78,"bomba":true}'
+  -d '{"boya":"RM-01","n":1,"ph":6.7,"ph_out":6.8,"tds_ppm":690,"temp_c":19.4,"turb_in_ntu":82,"turb_out_ntu":22,"bat_pct":80,"bomba":true,"caudal_lpm":2.5,"bomba_a":0.4}'
 curl -s $API/devices/RM-01/telemetry/latest | jq
 mosquitto_pub -h localhost -t riomonitor/RM-01/telemetria -m '{"ph":7.1,"turb_in_ntu":150,"turb_out_ntu":9}'
 

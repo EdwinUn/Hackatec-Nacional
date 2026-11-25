@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, afterNextRender, effect, inject, input, signal, viewChild } from '@angular/core';
 import { Message } from 'primeng/message';
 import type { BuoyDesign } from '../../core/models/buoy.models';
+import type { DeviceTelemetryDto } from '../../core/models/telemetry.models';
 import type { BuoyModel } from './three/buoy-model';
 
 export type BuoyView = 'iso' | 'front' | 'side' | 'under' | 'elec' | 'filtros';
@@ -8,7 +9,7 @@ export type BuoyView = 'iso' | 'front' | 'side' | 'under' | 'elec' | 'filtros';
 /** Riverbed and water surface of the reference scene (meters; same depth as the artifact: 1.8 m). */
 const BED_Y = -1.8;
 const WATER_Y = 0;
-/** River current used to animate the turbine and centrifuge (prototype value, m/s). */
+/** River current used to animate the water wheel when the packet has no generator voltage (prototype value, m/s). */
 const CURRENT = 0.9;
 const BG = 0x10303a;
 
@@ -32,7 +33,9 @@ const VIEWS: Record<Exclude<BuoyView, 'elec' | 'filtros'>, [[number, number, num
     :host { display: block; position: relative; overflow: hidden; border-radius: 12px; background: #10303a; min-height: 320px; }
     .stage { position: absolute; inset: 0; }
     .overlay { position: absolute; inset: 0; display: grid; place-items: center; color: #eaf7fa; font-size: .9rem; gap: .5rem; pointer-events: none; }
-    .hint { position: absolute; left: .6rem; bottom: .6rem; background: rgb(9 28 34 / .72); color: #eaf7fa; border: 1px solid rgb(255 255 255 / .2); border-radius: 8px; font-size: .75rem; padding: .3rem .6rem; pointer-events: none; }
+    .hint, .source { position: absolute; background: rgb(9 28 34 / .72); color: #eaf7fa; border: 1px solid rgb(255 255 255 / .2); border-radius: 8px; font-size: .75rem; padding: .3rem .6rem; pointer-events: none; }
+    .hint { left: .6rem; bottom: .6rem; }
+    .source { right: .6rem; top: .6rem; }
     .error { position: absolute; inset: 1rem; display: grid; place-items: center; }
     @media (max-width: 600px) { .hint { display: none; } }
   `,
@@ -44,6 +47,7 @@ const VIEWS: Record<Exclude<BuoyView, 'elec' | 'filtros'>, [[number, number, num
       }
       @case ('ready') {
         <span class="hint">Arrastra para girar · rueda o pellizco para acercar</span>
+        @if (source()) { <span class="source" role="status">{{ source() }}</span> }
       }
       @case ('error') {
         <div class="error">
@@ -58,6 +62,15 @@ export class BuoyViewer {
   readonly view = input<BuoyView>('iso');
   readonly xray = input(false);
   readonly ariaLabel = input('Modelo 3D interactivo de la boya Río Monitor');
+  /**
+   * Last packet of the buoy's ESP32 (Wokwi), live or not. The model shows exactly that state
+   * (battery, pump, brake, generator, basket, tilt, measured filtering); with `null` it shows the
+   * design's initial state (the same as Wokwi's). The state never evolves on its own: only the water,
+   * the wheel and the fish are animated.
+   */
+  readonly telemetry = input<DeviceTelemetryDto | null>(null);
+  /** Where what the scene shows comes from (e.g. «EN VIVO · Wokwi»); shown over the scene. */
+  readonly source = input<string | null>(null);
 
   protected readonly state = signal<'loading' | 'ready' | 'error'>('loading');
   private readonly stage = viewChild.required<ElementRef<HTMLElement>>('stage');
@@ -116,6 +129,7 @@ export class BuoyViewer {
           const model = createBuoyModel({ diseno: this.design(), bedY: BED_Y });
           scene.add(model.root);
           model.setRayosX(this.xray());
+          model.aplicarTelemetria(this.telemetry());
           this.model = model;
 
           const camera = new THREE.PerspectiveCamera(42, 1, 0.02, 60);
@@ -235,6 +249,10 @@ export class BuoyViewer {
     effect(() => {
       const on = this.xray();
       if (this.state() === 'ready') this.model?.setRayosX(on);
+    });
+    effect(() => {
+      const packet = this.telemetry();
+      if (this.state() === 'ready') this.model?.aplicarTelemetria(packet);
     });
   }
 }

@@ -49,6 +49,10 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://hackatec:hackatec@db:5432/hackatec
       REDIS_URL: redis://redis:6379/0
+      # La imagen corre 2 workers: comparten la suscripción MQTT para no guardar cada mensaje dos
+      # veces. El grupo lleva tu usuario para no competir con el backend de otro compañero en un
+      # broker público.
+      MQTT_SHARED_GROUP: rio-api-${USER:-local}
     ports:
       - "8000:8000"
     volumes:

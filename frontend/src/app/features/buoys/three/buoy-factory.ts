@@ -1,60 +1,78 @@
 // @ts-nocheck
 // =====================================================================
 //  Río Monitor buoy · 3D core ported from the design artifact
-//  ("Boya Río Monitor: dos diseños", v7). Untyped on purpose: ~700 lines of
-//  procedural geometry copied almost verbatim so it stays easy to resync
-//  with the artifact. The typed API lives in `buoy-model.ts`.
-//  Changes vs the artifact: ES module `three` import instead of the global,
-//  and `colorSpace` instead of the removed `sRGBEncoding` (three r152+).
+//  ("Boya Río Monitor: la misma electrónica que Wokwi", v8). Untyped on purpose:
+//  procedural geometry copied almost verbatim so it stays easy to resync with
+//  the artifact. The typed API lives in `buoy-model.ts`.
+//  Changes vs the artifact:
+//   - ES module `three` import instead of the global; `colorSpace` instead of
+//     the removed `sRGBEncoding` (three r152+).
+//   - `aplicarTelemetria(packet)`: the ESP32's packet (Wokwi) drives the model
+//     (battery, pump, brake, generator, basket, tilt, liters, and the water's
+//     color from the measured turbidity in vs out).
+//   - `opts.congelado`: battery, filter saturation and liters don't evolve on
+//     their own (the app uses it, so the scene only shows what Wokwi sent);
+//     the artifact's accelerated simulation (1 s = 10 min) stays available.
+//   - Starts at 80 % battery (pump on), the same initial state as
+//     firmware/boya-rm01/diagram.json.
+//   - SENSORES_BOYA lists the firmware's JSON keys instead of text sensor_ids
+//     (the backend assigns UUIDs; see API.md).
 // =====================================================================
 import * as THREE from 'three';
 
 export const BOYA_CFG = {
   ringR: 0.46, ringTube: 0.06, ringTopY: 0.0, ringBotY: -0.24,
   colR: 0.2, deck: 0.04, colTop: -0.14, colBottom: -0.4,
-  bowl: [[0.2, -0.41], [0.2, -0.44], [0.12, -0.48], [0.05, -0.5]],
+  bowl: [[0.2, -0.41], [0.2, -0.44], [0.12, -0.48], [0.05, -0.5]],   // cámara de salida con las sondas de salida
   nozzleBottom: -0.55,
   wheel: { rIn: 0.24, rOut: 0.38, yTop: -0.05, yBot: -0.19, blades: 10, cp: 0.2, tsr: 0.8, gapArea: 0.091 },
-  box: { w: 0.2, d: 0.15, h: 0.075 },                                  // caja estanca de KnowFlow: 200×150×75 mm
-  duct: { a: 92, r: 0.16 },                                            // ducto interno de cables (grados, radio)
-  cut: [70, 115],                                                      // corte para ver el interior de los discos
-  legAngles: [0, 120, 240], legTopR: 0.56, legTipR: 0.9, legSleeve: 0.6, augerLen: 0.2, legBaseAnchor: 0.35,
-  bedClearance: 0.12, freeboard: 0.0, digRate: 0.12,
-  moor: { angles: [35, -35, 180], ringR: 0.34, anchorR: 3.0, maxDepth: 3.0, slack: 1.08, cageR: 0.3, cageBottom: -0.56, dragCd: 1.0, dragArea: 0.62 },
-  battery: { wh: 77, v: 12.8 },                                        // LiFePO4 4S (4 celdas 32700 de 6 Ah)
-  genEff: 0.7, maxGenW: 25,
-  loads: { base: 2.2, uv: 3, centri: 6, augers: 15 },
+  box: { w: 0.2, d: 0.15, h: 0.075 },                                  // caja estanca (frasco/tupper) ≈ 200×150×75 mm
+  duct: { a: 92, r: 0.16 },
+  cut: [70, 115],
+  bedClearance: 0.12, freeboard: 0.0,
+  moor: { angles: [35, -35, 180], ringR: 0.34, anchorR: 3.0, maxDepth: 3.0, slack: 1.08, cageR: 0.3, cageBottom: -0.56, dragCd: 1.0, dragArea: 0.62, chainM: 1.5 },
+  // ---- Mismos valores que el firmware (sketch.ino) ----
+  battery: { wh: 40, vMin: 9.0, vMax: 12.6 },                          // 6 × 18650 recicladas en 3S2P
+  genEff: 0.7, cutIn: 0.35, genVPerMs: 15.5, genVMax: 36,
+  brake: { genOn: 26, genOff: 22, batOn: 12.5, batOff: 12.3 }, maxChargeW: 25,
+  loads: { base: 1.0, pump: 5.0 },                                     // W: ESP32+módem+sensores · bomba 12 V
   cycle: { stopBelow: 0.35, startAbove: 0.75 },
-  pumpLpm: 3,
+  pumpLpm: 2.5, pumpA: 0.4,
+  sonar: { mast: 0.3, distEmpty: 44, distFull: 30 },
   basket: { x0: -0.62, len: 0.8, halfW: 0.36, top: 0.14, bottom: -0.25, lip: -0.04, holeX: -1.17, holeR: 0.07, capKg: 4 },
   vane: { x0: -1.48, len: 0.5, yTop: -0.04, yBot: -0.4 },
   timeScale: 600, satSpeed: 0.006
 };
 
+// Cuatro etapas, sin sensor propio: se sabe que se saturan por lo que miden las sondas de salida.
 export const ETAPAS_FILTRO = [
-  { key: 'sed', nombre: 'Malla + sedimentos 50→5 µm', contaminante: 'Sólidos suspendidos y arena', sensor: 'Turbidez · DFRobot SEN0189', ind: 'turb', unidad: 'NTU', dec: 1, color: 0xeae3cf, base: 0.72, rate: 1.0, sat0: 0.32, tex: 'fibra' },
-  { key: 'gac', nombre: 'Carbón activado granular', contaminante: 'Químicos orgánicos, colorantes textiles, plaguicidas', sensor: 'Absorbancia UV 254 nm (opcional)', ind: 'uv254', unidad: '1/m', dec: 1, color: 0x2a2d30, base: 0.7, rate: 0.8, sat0: 0.48, tex: ['#141516', '#2b2e31', '#3b3f43', '#0c0c0d'] },
-  { key: 'res', nombre: 'Zeolita + resina quelante', contaminante: 'Metales pesados: Pb, Cd, Cr, Ni', sensor: 'Electrodo selectivo Pb²⁺ (opcional)', ind: 'pb', unidad: 'µg/L', dec: 1, color: 0xc98a2b, base: 0.85, rate: 1.3, sat0: 0.62, tex: ['#c98a2b', '#e0a443', '#a86d1c', '#d8c7a6', '#bfb39a'] },
-  { key: 'kdf', nombre: 'KDF-55 (cobre-zinc)', contaminante: 'Metales disueltos residuales, cloro, oxidantes', sensor: 'Conductividad · DFR0300 (KnowFlow)', ind: 'ec', unidad: 'µS/cm', dec: 0, color: 0xb87333, base: 0.6, rate: 0.6, sat0: 0.38, tex: ['#b87333', '#d4a25a', '#8f8a7a', '#c7b07a'] },
-  { key: 'cal', nombre: 'Calcita / dolomita', contaminante: 'pH fuera de rango por descargas industriales', sensor: 'pH · SEN0161-V2 (KnowFlow)', ind: 'ph', unidad: '', dec: 2, color: 0xefece4, base: 0.8, rate: 0.5, sat0: 0.22, tex: ['#f3f1ea', '#e0dbcf', '#cfc8b8', '#ffffff'] },
-  { key: 'uv', nombre: 'UV-C LED 275 nm', contaminante: 'Coliformes fecales y E. coli', sensor: 'Fotodiodo UV-C (GUVC-S10GD)', ind: 'uvi', unidad: 'mW/cm²', dec: 2, color: 0x8f6bff, base: 0.99, rate: 0.4, sat0: 0.15, tex: null }
+  { key: 'sed', nombre: 'Arena y grava del río', contaminante: 'Sólidos suspendidos y sedimento', indicador: 'La turbidez de salida se acerca a la de entrada', color: 0xcbb994, base: 0.7, rate: 1.0, sat0: 0.3, tex: ['#cbb994', '#a8956d', '#e0d3b0', '#8a7b5c', '#d9c9a0'] },
+  { key: 'gac', nombre: 'Carbón activado', contaminante: 'Químicos orgánicos, color y olor', indicador: 'Turbidez y color de salida suben (cambio mensual)', color: 0x2a2d30, base: 0.6, rate: 0.9, sat0: 0.45, tex: ['#141516', '#2b2e31', '#3b3f43', '#0c0c0d'] },
+  { key: 'zeo', nombre: 'Zeolita', contaminante: 'Parte de metales y amonio', indicador: 'No se mide: se regenera o cambia cada mes', color: 0xd8c7a6, base: 0.5, rate: 0.7, sat0: 0.4, tex: ['#d8c7a6', '#bfb39a', '#e8dcc0', '#a89a7f'] },
+  { key: 'cal', nombre: 'Calcita', contaminante: 'Acidez: sube el pH del agua ácida hacia 7', indicador: 'Con agua ácida, el pH de salida deja de subir', color: 0xefece4, base: 0.6, rate: 0.5, sat0: 0.2, tex: ['#f3f1ea', '#e0dbcf', '#cfc8b8', '#ffffff'] }
 ];
 
-export const SENSORES_KNOWFLOW = [
-  { key: 'ph', type: 'ph', nombre: 'pH', unidad: '', dec: 2, modulo: 'Gravity pH V2 (SEN0161-V2) · ADS1115 A1', color: 0x2f6fd6 },
-  { key: 'orp', type: 'orp', nombre: 'ORP', unidad: 'mV', dec: 0, modulo: 'Gravity ORP (SEN0165) · ADS1115 A2', color: 0x7b61d9 },
-  { key: 'ec', type: 'conductivity', nombre: 'Conductividad', unidad: 'µS/cm', dec: 0, modulo: 'Gravity EC K=1 (DFR0300) · ADS1115 A0', color: 0x12a37f },
-  { key: 'tds', type: 'tds', nombre: 'TDS', unidad: 'ppm', dec: 0, modulo: 'Calculado de EC', color: 0x12a37f },
-  { key: 'do', type: 'dissolved_oxygen', nombre: 'Oxígeno disuelto', unidad: 'mg/L', dec: 2, modulo: 'Gravity DO (SEN0237) · GPIO33', color: 0xe0533d },
-  { key: 'temp', type: 'temperature', nombre: 'Temperatura', unidad: '°C', dec: 1, modulo: 'DS18B20 sumergible · GPIO5 (OneWire)', color: 0xd9dde0 },
-  { key: 'turb', type: 'turbidity', nombre: 'Turbidez', unidad: 'NTU', dec: 1, modulo: 'SEN0189 · ADS1115 A3', color: 0xf0f0f0 },
-  { key: 'uv254', type: 'uv254', nombre: 'Orgánicos (UV 254)', unidad: '1/m', dec: 1, modulo: 'Sensor UV254 (opcional) · ADS1115 #2', color: 0x444444 },
-  { key: 'pb', type: 'lead', nombre: 'Plomo (Pb²⁺)', unidad: 'µg/L', dec: 1, modulo: 'ISE Pb²⁺ (opcional) · ADS1115 #2', color: 0x999999 }
+// Los 14 datos de la boya, la clave con la que los manda el firmware (sketch.ino) y la pieza que los mide.
+export const SENSORES_BOYA = [
+  { key: 'ph_in', firmware: 'ph', nombre: 'pH entrada', unidad: '', dec: 2, modulo: 'PH-4502C · ADS1115 #1 A0', color: 0x2f6fd6 },
+  { key: 'ph_out', firmware: 'ph_out', nombre: 'pH salida', unidad: '', dec: 2, modulo: 'PH-4502C · ADS1115 #1 A1', color: 0x2f6fd6 },
+  { key: 'tds', firmware: 'tds_ppm', nombre: 'TDS', unidad: 'ppm', dec: 0, modulo: 'TDS Meter V1.0 · ADS1115 #1 A2', color: 0x12a37f },
+  { key: 'turb_in', firmware: 'turb_in_ntu', nombre: 'Turbidez entrada', unidad: 'NTU aprox.', dec: 0, modulo: 'Turbidez genérico · ADS1115 #1 A3', color: 0xf0f0f0 },
+  { key: 'turb_out', firmware: 'turb_out_ntu', nombre: 'Turbidez salida', unidad: 'NTU aprox.', dec: 0, modulo: 'Turbidez genérico · ADS1115 #2 A0', color: 0xf0f0f0 },
+  { key: 'temp', firmware: 'temp_c', nombre: 'Temperatura', unidad: '°C', dec: 1, modulo: 'DS18B20 · GPIO5', color: 0xd9dde0 },
+  { key: 'caudal_lpm', firmware: 'caudal_lpm', nombre: 'Caudal', unidad: 'L/min', dec: 2, modulo: 'YF-S401 · GPIO35', color: 0x35d0e0 },
+  { key: 'litros', firmware: 'litros_total', nombre: 'Agua procesada', unidad: 'L', dec: 0, modulo: 'Suma del caudal', color: 0x35d0e0 },
+  { key: 'cesta_pct', firmware: 'cesta_pct', nombre: 'Cesta llena', unidad: '%', dec: 0, modulo: 'JSN-SR04T · GPIO15/34', color: 0xe8742c },
+  { key: 'bat_pct', firmware: 'bat_pct', nombre: 'Batería', unidad: '%', dec: 0, modulo: 'Divisor 100k/33k · ADS1115 #2 A1', color: 0x34d17a },
+  { key: 'gen_v', firmware: 'gen_v', nombre: 'Voltaje del generador', unidad: 'V', dec: 1, modulo: 'Divisor 100k/10k · ADS1115 #2 A2', color: 0xf2a516 },
+  { key: 'bomba_a', firmware: 'bomba_a', nombre: 'Corriente de la bomba', unidad: 'A', dec: 2, modulo: 'ACS712 5 A · ADS1115 #2 A3', color: 0xc0392b },
+  { key: 'bomba_on', firmware: 'bomba', nombre: 'Bomba encendida', unidad: '', dec: 0, modulo: 'MOSFET D4184 · GPIO27', color: 0x2f6fd6 },
+  { key: 'inclinacion', firmware: 'inclinacion_deg', nombre: 'Inclinación', unidad: '°', dec: 1, modulo: 'MPU6050 · I2C 0x68', color: 0x5b3a9a }
 ];
 
 export function createBoyaRioMonitor(opts = {}) {
   const C = BOYA_CFG, W = C.wheel, B = C.basket, MO = C.moor, BX = C.box, VN = C.vane;
-  const bedY = opts.bedY ?? -3.2, D = opts.diseno === 'anclada' ? 'anclada' : 'patas';
+  const bedY = opts.bedY ?? -3.2, D = 'anclada';
   const V3 = (x, y, z) => new THREE.Vector3(x, y, z), deg = d => d * Math.PI / 180;
   const M = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.55, metalness: 0.1, ...o });
   const glass = (c, op) => new THREE.MeshPhysicalMaterial({ color: c, transparent: true, opacity: op, roughness: 0.1, metalness: 0, side: THREE.DoubleSide, depthWrite: false });
@@ -67,23 +85,22 @@ export function createBoyaRioMonitor(opts = {}) {
   const lerpProfile = (prof, y) => { for (let i = 0; i < prof.length - 1; i++) { const [r0, y0] = prof[i], [r1, y1] = prof[i + 1]; if (y <= y0 && y >= y1) return y0 === y1 ? r0 : r0 + (r1 - r0) * (y - y0) / (y1 - y0); } return prof[prof.length - 1][0]; };
   const cable = (pts, r, color, p, seg = 40) => { const c = new THREE.CatmullRomCurve3(pts.map(q => q.isVector3 ? q : V3(...q))); mesh(new THREE.TubeGeometry(c, seg, r, 6, false), M(color, { roughness: 0.6 }), p); return c; };
 
-  // Texturas de medios filtrantes (granulado o fibra). Si no hay DOM, color liso.
   const texCache = {};
   function mediaTex(spec, key) {
     if (!spec || typeof document === 'undefined') return null;
     if (texCache[key]) return texCache[key];
     const cv = document.createElement('canvas'); cv.width = cv.height = 128; const g = cv.getContext('2d');
-    let seed = key.length * 97; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-    if (spec === 'fibra') { g.fillStyle = '#efe9d8'; g.fillRect(0, 0, 128, 128); for (let i = 0; i < 260; i++) { g.strokeStyle = rnd() > 0.5 ? '#ffffff' : '#d9d0b8'; g.lineWidth = 0.6 + rnd(); g.beginPath(); const y = rnd() * 128; g.moveTo(0, y); g.bezierCurveTo(40, y + (rnd() - 0.5) * 8, 90, y + (rnd() - 0.5) * 8, 128, y + (rnd() - 0.5) * 4); g.stroke(); } }
-    else { g.fillStyle = spec[0]; g.fillRect(0, 0, 128, 128); for (let i = 0; i < 1100; i++) { g.fillStyle = spec[Math.floor(rnd() * spec.length)]; g.beginPath(); g.arc(rnd() * 128, rnd() * 128, 0.8 + rnd() * 2.2, 0, Math.PI * 2); g.fill(); } }
+    let seed = key.length * 97 + key.charCodeAt(0); const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    g.fillStyle = spec[0]; g.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 1100; i++) { g.fillStyle = spec[Math.floor(rnd() * spec.length)]; g.beginPath(); g.arc(rnd() * 128, rnd() * 128, 0.8 + rnd() * 2.2, 0, Math.PI * 2); g.fill(); }
     const t = new THREE.CanvasTexture(cv); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 1);
     t.colorSpace = THREE.SRGBColorSpace;
     return (texCache[key] = t);
   }
 
-  const root = new THREE.Group(); root.name = 'BoyaRioMonitorV7';
+  const root = new THREE.Group(); root.name = 'BoyaRioMonitorV8';
   const body = new THREE.Group(); body.name = 'cuerpo'; root.add(body);
-  const mount = new THREE.Group(); mount.name = 'anillo-giratorio'; root.add(mount);   // no gira con la veleta
+  const mount = new THREE.Group(); mount.name = 'anillo-giratorio'; root.add(mount);
   const anchors = {};
   const anchor = (name, parent, x, y, z) => { const o = new THREE.Object3D(); o.position.set(x, y, z); parent.add(o); anchors[name] = o; return o; };
 
@@ -91,10 +108,11 @@ export function createBoyaRioMonitor(opts = {}) {
   const steel = M(0x5c6870, { metalness: 0.6, roughness: 0.35 }), inox = M(0xc9ced2, { metalness: 0.85, roughness: 0.25 });
   const rimMat = M(0x3d4a52, { metalness: 0.4 }), dark = M(0x2b3238, { metalness: 0.4, roughness: 0.35 });
   const black = M(0x18191a, { roughness: 0.6 }), red = M(0xc0392b), brass = M(0xc9a24a, { metalness: 0.8, roughness: 0.3 });
-  const pcbBlue = M(0x1f5fbf, { roughness: 0.5 }), pcbBlack = M(0x1b1d1f, { roughness: 0.5 }), pcbGreen = M(0x1f7a3a), pcbPurple = M(0x5b3a9a);
+  const alu = M(0xd4b24c, { metalness: 0.75, roughness: 0.35 });
+  const pcbBlue = M(0x1f5fbf, { roughness: 0.5 }), pcbBlack = M(0x1b1d1f, { roughness: 0.5 }), pcbGreen = M(0x1f7a3a), pcbPurple = M(0x5b3a9a), pcbRed = M(0xb3261e), pcbProto = M(0xc9a35a);
   const gland = (p, x, y, z, dir = -1) => { const g = new THREE.Group(); g.position.set(x, y, z); p.add(g); mesh(new THREE.CylinderGeometry(0.0075, 0.0075, 0.004, 6), black, g, 0, dir * 0.002, 0); cyl(0.006, 0.01, black, g, 0, dir * 0.009, 0, 10); return g; };
 
-  // ---------- Dos tubos de PET con hueco ----------
+  // ---------- Dos anillos de botellas PET con hueco ----------
   [C.ringTopY, C.ringBotY].forEach(y => {
     torusH(C.ringR, C.ringTube, floatMat, body, y, 64);
     for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; const b = mesh(new THREE.TorusGeometry(C.ringTube + 0.003, 0.005, 6, 18), bandMat, body, Math.cos(a) * C.ringR, y, Math.sin(a) * C.ringR); b.rotation.y = -a; }
@@ -108,15 +126,15 @@ export function createBoyaRioMonitor(opts = {}) {
   [gapTop, gapBot].forEach(y => torusH(C.ringR, 0.005, steel, body, y, 96));
   anchor('rejilla', body, Math.cos(0.6) * C.ringR, (gapTop + gapBot) / 2, Math.sin(0.6) * C.ringR + 0.02);
 
-  // ---------- Molino Savonius (aro apoyado en 3 rodillos, sin rayos: deja libre el paso de cables) ----------
+  // ---------- Molino (aspas de PVC partido) apoyado en 3 rodillos ----------
   const wheel = new THREE.Group(); body.add(wheel);
-  const bladeMat = M(0xf2b544, { side: THREE.DoubleSide, roughness: 0.45 }), wh = W.yTop - W.yBot, rMid = (W.rIn + W.rOut) / 2;
+  const bladeMat = M(0xe9eef0, { side: THREE.DoubleSide, roughness: 0.45 }), wh = W.yTop - W.yBot, rMid = (W.rIn + W.rOut) / 2;
   for (let i = 0; i < W.blades; i++) { const a = i / W.blades * Math.PI * 2; const b = mesh(new THREE.CylinderGeometry(0.04, 0.04, wh - 0.01, 12, 1, true, 0, Math.PI), bladeMat, wheel, Math.cos(a) * rMid, (W.yTop + W.yBot) / 2, Math.sin(a) * rMid); b.rotation.y = Math.PI / 2 - a; }
   [W.yTop, W.yBot].forEach(y => { torusH(W.rOut, 0.006, steel, wheel, y); torusH(W.rIn, 0.006, steel, wheel, y); });
   [40, 160, 280].forEach(a => { const p = polar(a, W.rOut + 0.013, W.yBot); const r = cyl(0.012, 0.012, black, body, p.x, p.y, p.z, 12); r.rotation.x = Math.PI / 2; spoke(W.rOut + 0.02, C.ringR - C.ringTube, deg(a), W.yBot, steel, body, 0.01); });
   anchor('molino', body, Math.cos(1.95) * C.ringR, W.yBot + 0.02, Math.sin(1.95) * C.ringR);
 
-  // Generador: motor DC 775 (12 V) usado como generador, con piñón de latón sobre el aro interior
+  // Generador: motor DC RS-775 reciclado, con piñón sobre el aro interior
   const gen = new THREE.Group(); gen.position.set(0.275, 0.0, 0); body.add(gen);
   cyl(0.021, 0.066, inox, gen, 0, 0.0, 0, 20); cyl(0.021, 0.008, black, gen, 0, 0.037, 0, 20);
   box(0.003, 0.008, 0.006, brass, gen, 0.008, 0.045, 0); box(0.003, 0.008, 0.006, brass, gen, -0.008, 0.045, 0);
@@ -126,43 +144,36 @@ export function createBoyaRioMonitor(opts = {}) {
   cable([[0.267, 0.048, -0.002], [0.262, 0.075, 0.012], [0.2, 0.082, 0.022], [0.1, C.deck + 0.028, 0.012]], 0.0022, 0x161616, body);
   anchor('generador', body, 0.3, 0.03, 0.03);
 
-  // ---------- Tubo central (corte para ver el interior) ----------
+  // ---------- Cuerpo central (cubeta/tambo) con corte para ver el interior ----------
   const shellMat = glass(0xcfeef4, 0.14);
   mesh(new THREE.CylinderGeometry(C.colR, C.colR, C.deck - C.colBottom, 48, 1, true), shellMat, body, 0, (C.deck + C.colBottom) / 2, 0);
   torusH(C.colR, 0.008, rimMat, body, C.deck);
-  // toma lateral con rejilla fina (16 ventanas con malla)
   for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; const w = box(0.006, 0.035, 0.04, M(0x7f9aa3, { metalness: 0.5, wireframe: true }), body, Math.cos(a) * C.colR, -0.025, Math.sin(a) * C.colR); w.rotation.y = -a; }
   anchor('toma', body, Math.cos(0.9) * C.colR, -0.025, Math.sin(0.9) * C.colR);
 
-  // Placa porta-sondas y SONDAS DE ENTRADA (formas reales)
-  const holder = mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.006, 32), M(0x9aa6ad, { transparent: true, opacity: 0.85 }), body, 0, 0.01, 0);
-  void holder;
-  const probeSlots = [['ph', 20], ['orp', 80], ['ec', 140], ['do', 200], ['temp', 250], ['turb', 310]];
+  // Sondas reales
   function probe(kind, p, x, y, z) {   // y = parte superior de la sonda
     const g = new THREE.Group(); g.position.set(x, y, z); p.add(g);
-    if (kind === 'ph' || kind === 'orp' || kind === 'pb' || kind === 'phS') {
-      cyl(0.006, 0.1, black, g, 0, -0.05, 0, 14);
-      cyl(0.0062, 0.012, M(kind === 'orp' ? 0x3a5fc8 : kind === 'pb' ? 0x7a7a7a : 0xd7dbe0), g, 0, -0.02, 0, 14);
-      if (kind === 'orp') cyl(0.0042, 0.006, inox, g, 0, -0.103, 0, 12); else mesh(new THREE.SphereGeometry(0.0052, 12, 8), glass(0xe9f8ff, 0.75), g, 0, -0.102, 0);
-    } else if (kind === 'ec' || kind === 'ecS') {
+    if (kind === 'ph') {                // electrodo E-201-C
+      cyl(0.006, 0.1, black, g, 0, -0.05, 0, 14); cyl(0.0062, 0.012, M(0xd7dbe0), g, 0, -0.02, 0, 14);
+      mesh(new THREE.SphereGeometry(0.0052, 12, 8), glass(0xe9f8ff, 0.75), g, 0, -0.102, 0);
+    } else if (kind === 'tds') {        // sonda TDS de dos pines
       cyl(0.0075, 0.09, black, g, 0, -0.045, 0, 14); box(0.002, 0.012, 0.006, inox, g, 0.003, -0.095, 0); box(0.002, 0.012, 0.006, inox, g, -0.003, -0.095, 0);
-    } else if (kind === 'do') {
-      cyl(0.009, 0.075, M(0x9aa1a7, { metalness: 0.5 }), g, 0, -0.0375, 0, 16); cyl(0.0095, 0.016, black, g, 0, -0.082, 0, 16); torusH(0.0095, 0.0015, red, g, -0.074, 16);
-    } else if (kind === 'temp') {
+    } else if (kind === 'temp') {       // DS18B20 en funda de acero
       cyl(0.003, 0.05, inox, g, 0, -0.025, 0, 10); cyl(0.0035, 0.01, black, g, 0, 0.0, 0, 10);
-    } else if (kind === 'turb' || kind === 'turbS') {
+    } else if (kind === 'turb') {       // sensor de turbidez en U, parte de arriba sellada con resina
       box(0.022, 0.03, 0.012, M(0xf0f0f0, { transparent: true, opacity: 0.92 }), g, 0, -0.015, 0);
       box(0.007, 0.022, 0.012, M(0xf0f0f0, { transparent: true, opacity: 0.92 }), g, 0.0075, -0.041, 0); box(0.007, 0.022, 0.012, M(0xf0f0f0, { transparent: true, opacity: 0.92 }), g, -0.0075, -0.041, 0);
-    } else if (kind === 'uv254') {
-      cyl(0.008, 0.035, black, g, 0, -0.0175, 0, 14); cyl(0.005, 0.004, glass(0x9fd8ff, 0.8), g, 0, -0.036, 0, 12);
-    } else if (kind === 'photo') {
-      box(0.016, 0.003, 0.012, pcbGreen, g, 0, -0.004, 0); box(0.004, 0.002, 0.004, M(0xdddddd), g, 0, -0.0065, 0);
+      box(0.023, 0.004, 0.013, M(0x6b4f2a, { roughness: 0.3 }), g, 0, 0.0, 0);
     }
     return g;
   }
-  probeSlots.forEach(([k, a]) => {
-    const p = polar(a, 0.1, 0.008); probe(k, body, p.x, p.y, p.z);
-    const s = SENSORES_KNOWFLOW.find(q => q.key === k); torusH(0.0075, 0.002, M(s.color), body, p.y - 0.012).position.set(p.x, p.y - 0.012, p.z);
+  mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.006, 32), M(0x9aa6ad, { transparent: true, opacity: 0.85 }), body, 0, 0.01, 0);
+  const sondasEntrada = [['ph', 'ph_in', 30], ['tds', 'tds', 120], ['temp', 'temp', 210], ['turb', 'turb_in', 300]];
+  const dp = polar(C.duct.a, C.duct.r, 0), probeObj = {};
+  sondasEntrada.forEach(([kind, key, a]) => {
+    const p = polar(a, 0.1, 0.008); probeObj[key] = probe(kind, body, p.x, p.y, p.z);
+    const s = SENSORES_BOYA.find(q => q.key === key); torusH(0.0075, 0.002, M(s.color), body, p.y - 0.012).position.set(p.x, p.y - 0.012, p.z);
     gland(body, p.x, 0.013, p.z, 1);
     const q = polar(C.duct.a, C.duct.r, 0.05);
     cable([[p.x, 0.03, p.z], [p.x * 0.7 + q.x * 0.3, 0.045, p.z * 0.7 + q.z * 0.3], [q.x, 0.055, q.z]], 0.0018, 0x161616, body, 16);
@@ -170,47 +181,37 @@ export function createBoyaRioMonitor(opts = {}) {
   anchor('sensores', body, -0.12, -0.05, 0.05);
 
   // Ducto interno de cables (tubo corrugado)
-  const dp = polar(C.duct.a, C.duct.r, 0);
   cyl(0.011, C.deck + 0.02 - (C.colBottom + 0.01), black, body, dp.x, (C.deck + 0.02 + C.colBottom + 0.01) / 2, dp.z, 12);
   const corr = new THREE.InstancedMesh(new THREE.TorusGeometry(0.0115, 0.0016, 4, 12), black, 40);
   for (let i = 0; i < 40; i++) { dm.position.set(dp.x, C.colBottom + 0.02 + i * 0.011, dp.z); dm.rotation.set(Math.PI / 2, 0, 0); dm.updateMatrix(); corr.setMatrixAt(i, dm.matrix); }
   body.add(corr);
   anchor('ducto', body, dp.x + 0.02, -0.08, dp.z + 0.02);
 
-  // Discos filtrantes con textura, mallas inox y o-rings; sensor por etapa en el corte
+  // ---------- Cuatro capas filtrantes con mallas de costal y mosquitero ----------
   const colH = C.colTop - C.colBottom, stH = colH / ETAPAS_FILTRO.length, stageMeshes = [];
   const thetaStart = deg(90 - C.cut[0]), thetaLen = Math.PI * 2 - deg(C.cut[1] - C.cut[0]);
   ETAPAS_FILTRO.forEach((e, i) => {
     const yc = C.colTop - stH * (i + 0.5), tex = mediaTex(e.tex, e.key);
-    let mat;
-    if (e.key === 'uv') {
-      mat = new THREE.MeshStandardMaterial({ color: 0xd9ccff, emissive: 0x6a3cff, emissiveIntensity: 0.9, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
-      mesh(new THREE.CylinderGeometry(C.colR - 0.012, C.colR - 0.012, stH - 0.008, 40, 1, true), M(0xd0d4d8, { metalness: 0.9, roughness: 0.2, side: THREE.BackSide }), body, 0, yc, 0);
-      for (let k = 0; k < 14; k++) { const a = k / 14 * 360; if (a > C.cut[0] - 8 && a < C.cut[1] + 8) continue; const p = polar(a, C.colR - 0.016, yc); const l = box(0.006, 0.006, 0.004, new THREE.MeshBasicMaterial({ color: 0xb59bff }), body, p.x, p.y, p.z); l.rotation.y = -deg(a); }
-      mesh(new THREE.CylinderGeometry(0.03, 0.03, stH - 0.01, 20), glass(0xf2f7ff, 0.5), body, 0, yc, 0);
-    } else mat = M(tex ? 0xffffff : e.color, { map: tex, roughness: e.key === 'kdf' ? 0.45 : 0.95, metalness: e.key === 'kdf' ? 0.5 : 0.0, side: THREE.DoubleSide });
+    const mat = M(tex ? 0xffffff : e.color, { map: tex, roughness: 0.95, metalness: 0.0, side: THREE.DoubleSide });
     mesh(new THREE.CylinderGeometry(C.colR - 0.012, C.colR - 0.012, stH - 0.01, 44, 1, false, thetaStart, thetaLen), mat, body, 0, yc, 0);
     const ys = C.colTop - stH * i;
-    const ms = mesh(new THREE.RingGeometry(0.02, C.colR - 0.006, 28, 3), M(0xc9ced2, { metalness: 0.8, wireframe: true }), body, 0, ys - 0.003, 0); ms.rotation.x = -Math.PI / 2;
+    const ms = mesh(new THREE.RingGeometry(0.02, C.colR - 0.006, 28, 3), M(0xd9cfb3, { wireframe: true }), body, 0, ys - 0.003, 0); ms.rotation.x = -Math.PI / 2;
     torusH(C.colR - 0.009, 0.0035, black, body, ys - 0.003, 48);
-    // sonda de la etapa dentro del corte (forma real) + cable al ducto
-    const kinds = ['turbS', 'uv254', 'pb', 'ecS', 'phS', 'photo'], sp = polar(82, 0.13, yc + stH / 2 - 0.004);
-    probe(kinds[i], body, sp.x, sp.y, sp.z).scale.setScalar(0.42);
-    cable([[sp.x, sp.y + 0.002, sp.z], [(sp.x + dp.x) / 2, sp.y + 0.004, (sp.z + dp.z) / 2], [dp.x, sp.y + 0.003, dp.z]], 0.0015, 0x161616, body, 8);
-    const ledP = polar(58, C.colR + 0.004, yc);
-    const ledS = mesh(new THREE.SphereGeometry(0.006, 8, 6), new THREE.MeshBasicMaterial({ color: 0x34d17a }), body, ledP.x, ledP.y, ledP.z);
     anchor('etapa' + (i + 1), body, Math.cos(deg(58)) * (C.colR + 0.03), yc, Math.sin(deg(58)) * (C.colR + 0.03));
-    stageMeshes.push({ mat, led: ledS });
+    stageMeshes.push({ mat });
   });
   torusH(C.colR - 0.009, 0.0035, black, body, C.colBottom + 0.002, 48);
   anchor('filtros', body, -0.24, -0.27, 0.02);
 
-  // ---------- Batería: tubo sellado con 4 celdas LiFePO4 32700 + BMS 4S ----------
+  // ---------- Batería: tubo sellado con 6 celdas 18650 recicladas (3S2P) + BMS 3S ----------
   const bat = new THREE.Group(); bat.position.set(0.26, -0.31, 0); body.add(bat);
-  const batShell = mesh(new THREE.CapsuleGeometry(0.045, 0.13, 6, 18), glass(0xdfe8ec, 0.3), bat);
-  void batShell;
-  [[-0.0165, -0.034], [0.0165, -0.034], [-0.0165, 0.034], [0.0165, 0.034]].forEach(([x, y]) => { cyl(0.016, 0.064, M(0x2a5db0, { roughness: 0.4 }), bat, x, y, 0, 18); cyl(0.0165, 0.003, inox, bat, x, y + 0.033, 0, 18); });
-  box(0.04, 0.003, 0.03, pcbGreen, bat, 0, 0.072, 0); box(0.008, 0.004, 0.006, black, bat, 0.01, 0.075, 0.006);
+  mesh(new THREE.CapsuleGeometry(0.045, 0.13, 6, 18), glass(0xdfe8ec, 0.3), bat);
+  const cellCol = [0x2a5db0, 0x7a3fa0, 0x2f8f5a];
+  [-0.034, 0.034].forEach((y, row) => [-0.019, 0, 0.019].forEach((x, k) => {
+    cyl(0.009, 0.065, M(cellCol[(k + row) % 3], { roughness: 0.4 }), bat, x, y, 0.0, 16); cyl(0.0092, 0.002, inox, bat, x, y + 0.033, 0, 16);
+  }));
+  box(0.07, 0.003, 0.02, M(0x222222), bat, 0, 0, -0.012);                         // dos portapilas 3×18650
+  box(0.04, 0.003, 0.03, pcbGreen, bat, 0, 0.072, 0); box(0.008, 0.004, 0.006, black, bat, 0.01, 0.075, 0.006);   // BMS 3S
   cyl(0.008, 0.012, black, bat, 0, 0.11, 0, 10);
   const batBar = box(0.006, 1, 0.003, new THREE.MeshBasicMaterial({ color: 0x34d17a }), bat, 0.0, 0, 0.047);
   box(0.009, 0.11, 0.002, new THREE.MeshBasicMaterial({ color: 0x111518 }), bat, 0, 0, 0.0465);
@@ -218,99 +219,115 @@ export function createBoyaRioMonitor(opts = {}) {
   cable([[0.258, -0.19, -0.003], [0.222, -0.12, -0.004], [0.221, -0.02, -0.004], [0.2, 0.03, -0.004], [0.09, C.deck + 0.023, 0.02]], 0.003, 0x161616, body);
   anchor('bateria', body, 0.31, -0.31, 0.04);
 
-  // ---------- Centrífuga de salida (motor BLDC de bomba 12 V) ----------
-  cyl(0.022, 0.025, black, body, 0, C.colBottom - 0.008, 0, 16);
-  const bowlMat = glass(0xa9d8e2, 0.22);
-  mesh(new THREE.LatheGeometry(C.bowl.map(([r, y]) => new THREE.Vector2(r, y)), 40), bowlMat, body);
-  const centri = new THREE.Group(); body.add(centri);
-  for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; box(0.12, 0.05, 0.004, M(0x9aa9b0, { metalness: 0.5 }), centri, Math.cos(a) * 0.09, -0.445, Math.sin(a) * 0.09).rotation.y = -a; }
-  const purge = cyl(0.012, 0.08, rimMat, body, -0.24, -0.43, 0, 8); purge.rotation.z = Math.PI / 2;
-  box(0.03, 0.03, 0.03, red, body, -0.285, -0.43, 0);
-  anchor('centrifuga', body, -0.2, -0.46, 0.08);
-  mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.05, 14), rimMat, body, 0, -0.525, 0);
-  [['ph', 45], ['do', 135], ['turb', 225], ['ec', 315]].forEach(([k, a]) => {
-    const p = polar(a, 0.085, -0.47); probe(k, body, p.x, p.y, p.z).scale.setScalar(0.6);
+  // ---------- Resistencia de descarga 10 Ω 50 W (freno), sumergida para que el río la enfríe ----------
+  const brakeG = new THREE.Group(); brakeG.position.set(0.3, -0.44, 0.06); body.add(brakeG);
+  box(0.05, 0.016, 0.028, alu, brakeG, 0, 0, 0);
+  for (let i = 0; i < 4; i++) box(0.05, 0.004, 0.002, alu, brakeG, 0, 0.004, -0.01 + i * 0.0066);
+  box(0.006, 0.006, 0.004, inox, brakeG, -0.028, 0, 0); box(0.006, 0.006, 0.004, inox, brakeG, 0.028, 0, 0);
+  const brakeGlow = box(0.052, 0.002, 0.03, new THREE.MeshBasicMaterial({ color: 0xff7a2a, transparent: true, opacity: 0 }), brakeG, 0, 0.0095, 0);
+  cable([[0.27, -0.44, 0.06], [0.24, -0.36, 0.05], [0.222, -0.12, 0.03], [0.2, 0.03, 0.02], [0.09, C.deck + 0.026, 0.035]], 0.0022, 0x3a3a3a, body);
+  anchor('freno', body, 0.34, -0.46, 0.08);
+
+  // ---------- Cámara de salida con sondas de salida → bomba 12 V → caudalímetro → río ----------
+  mesh(new THREE.LatheGeometry(C.bowl.map(([r, y]) => new THREE.Vector2(r, y)), 40), glass(0xa9d8e2, 0.22), body);
+  const bowlMat = body.children[body.children.length - 1].material;
+  [['ph', 'ph_out', 60], ['turb', 'turb_out', 240]].forEach(([kind, key, a]) => {
+    const p = polar(a, 0.085, -0.45); probeObj[key] = probe(kind, body, p.x, p.y, p.z); probeObj[key].scale.setScalar(0.6);
+    const s = SENSORES_BOYA.find(q => q.key === key); torusH(0.0075, 0.002, M(s.color), body, p.y - 0.008).position.set(p.x, p.y - 0.008, p.z);
     cable([[p.x, p.y + 0.004, p.z], [p.x * 1.5, -0.43, p.z * 1.5], [dp.x * 1.3, -0.41, dp.z * 1.3], [dp.x, C.colBottom + 0.01, dp.z]], 0.0016, 0x161616, body, 16);
   });
   gland(body, dp.x * 1.3, C.colBottom - 0.005, dp.z * 1.3, -1);
-  anchor('salida', body, 0.06, -0.54, 0.05);
+  anchor('salida', body, 0.06, -0.47, 0.1);
+  // mini bomba sumergible 12 V (800 L/h)
+  const pumpG = new THREE.Group(); pumpG.position.set(0, -0.525, 0); body.add(pumpG);
+  cyl(0.024, 0.05, black, pumpG, 0, 0, 0, 18); cyl(0.026, 0.006, M(0x2f6fd6), pumpG, 0, 0.02, 0, 18);
+  const imp = new THREE.Group(); pumpG.add(imp);
+  for (let i = 0; i < 4; i++) box(0.03, 0.004, 0.002, M(0x9aa9b0), imp, 0, 0.026, 0).rotation.y = i * Math.PI / 4;
+  const pOut = cyl(0.007, 0.06, black, pumpG, -0.05, -0.01, 0, 10); pOut.rotation.z = Math.PI / 2;
+  cable([[0.0, -0.5, 0.02], [0.05, -0.45, 0.05], [dp.x * 1.3, -0.41, dp.z * 1.3], [dp.x, C.colBottom + 0.01, dp.z]], 0.002, 0x2a2a2a, body, 16);
+  anchor('bomba', body, 0.02, -0.56, 0.06);
+  // caudalímetro YF-S401 en la descarga
+  const fm = new THREE.Group(); fm.position.set(-0.1, -0.535, 0); body.add(fm);
+  const fmb = cyl(0.011, 0.035, M(0x1d1f22, { transparent: true, opacity: 0.9 }), fm, 0, 0, 0, 14); fmb.rotation.z = Math.PI / 2;
+  box(0.018, 0.01, 0.012, black, fm, 0, 0.013, 0);
+  const fOut = cyl(0.006, 0.05, black, fm, -0.04, 0, 0, 10); fOut.rotation.z = Math.PI / 2;
+  cable([[-0.1, -0.52, 0.0], [-0.06, -0.47, 0.06], [dp.x * 1.3, -0.41, dp.z * 1.3], [dp.x, C.colBottom + 0.01, dp.z]], 0.0015, 0xf2c230, body, 16);
+  anchor('caudal', body, -0.11, -0.55, 0.04);
 
-  // ---------- Caja estanca con la electrónica ----------
-  let led; const TOP = 0.3, boxY = D === 'patas' ? 0.08 : 0.05;
+  // ---------- Caja estanca con la electrónica (la misma de Wokwi) ----------
+  const TOP = 0.3, boxY = 0.05;
   const ebox = new THREE.Group(); ebox.position.set(0, boxY, 0); body.add(ebox);
-  const boxGlass = glass(0xeef6f8, 0.22);
-  mesh(new THREE.BoxGeometry(BX.w, BX.h, BX.d), boxGlass, ebox, 0, BX.h / 2, 0);
+  mesh(new THREE.BoxGeometry(BX.w, BX.h, BX.d), glass(0xeef6f8, 0.22), ebox, 0, BX.h / 2, 0);
   ebox.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(BX.w, BX.h, BX.d)), new THREE.LineBasicMaterial({ color: 0x6b757b })).translateY(BX.h / 2));
   box(BX.w - 0.004, 0.004, BX.d - 0.004, M(0x6b757b), ebox, 0, 0.002, 0);
   const plateY = 0.008, upperY = 0.042;
-  // planta baja: potencia, control y comunicación
-  const esp = new THREE.Group(); esp.position.set(-0.055, plateY, -0.045); ebox.add(esp);
-  box(0.055, 0.0016, 0.028, pcbBlack, esp, 0, 0.0008, 0); box(0.018, 0.003, 0.025, inox, esp, 0.016, 0.003, 0); box(0.006, 0.0015, 0.016, M(0x1a1a1a), esp, 0.026, 0.0035, 0);
-  box(0.008, 0.003, 0.007, inox, esp, -0.027, 0.0025, 0); [-0.0125, 0.0125].forEach(z => box(0.048, 0.008, 0.0025, black, esp, -0.002, -0.004, z));
-  const lora = new THREE.Group(); lora.position.set(0.004, plateY, -0.05); ebox.add(lora);
-  box(0.016, 0.0012, 0.016, pcbGreen, lora, 0, 0.0006, 0); box(0.012, 0.0025, 0.012, inox, lora, 0, 0.002, 0);
-  const rtc = new THREE.Group(); rtc.position.set(0.035, plateY, -0.045); ebox.add(rtc);
-  box(0.038, 0.0016, 0.022, pcbBlue, rtc, 0, 0.0008, 0); cyl(0.008, 0.003, inox, rtc, -0.008, 0.003, 0, 16); box(0.008, 0.002, 0.008, black, rtc, 0.01, 0.002, 0);
-  const sd = new THREE.Group(); sd.position.set(0.075, plateY, -0.045); ebox.add(sd);
-  box(0.024, 0.0016, 0.02, pcbBlue, sd, 0, 0.0008, 0); box(0.012, 0.002, 0.012, inox, sd, 0.004, 0.0025, 0);
-  const buck = new THREE.Group(); buck.position.set(-0.065, plateY, 0.002); ebox.add(buck);
-  box(0.043, 0.0016, 0.021, pcbBlue, buck, 0, 0.0008, 0); cyl(0.006, 0.006, black, buck, 0.006, 0.004, 0, 14); cyl(0.004, 0.008, M(0x222222), buck, -0.012, 0.005, 0.004, 12); box(0.004, 0.004, 0.006, M(0x2f6fd6), buck, 0.016, 0.003, 0.006);
-  const chg = new THREE.Group(); chg.position.set(-0.015, plateY, 0.002); ebox.add(chg);
-  box(0.04, 0.0016, 0.025, pcbBlue, chg, 0, 0.0008, 0); for (let i = 0; i < 6; i++) box(0.0015, 0.01, 0.016, M(0xb8bec4, { metalness: 0.8 }), chg, -0.008 + i * 0.0035, 0.006, 0);
-  const fets = new THREE.Group(); fets.position.set(0.04, plateY, 0.002); ebox.add(fets);
-  box(0.05, 0.0016, 0.024, pcbBlue, fets, 0, 0.0008, 0); for (let i = 0; i < 4; i++) { box(0.007, 0.008, 0.002, black, fets, -0.018 + i * 0.012, 0.005, -0.004); box(0.006, 0.0015, 0.006, inox, fets, -0.018 + i * 0.012, 0.009, -0.004); }
-  [[-0.035, 0.052], [0.035, 0.052]].forEach(([x, z]) => { const tb = box(0.045, 0.01, 0.009, M(0x2f8f3a), ebox, x, plateY + 0.005, z); void tb; for (let i = 0; i < 6; i++) cyl(0.0018, 0.002, inox, ebox, x - 0.019 + i * 0.0076, plateY + 0.011, z, 8); });
-  // planta alta (acrílico sobre separadores de latón): tarjetas Gravity con BNC + 2× ADS1115
-  box(0.19, 0.003, 0.14, glass(0xffffff, 0.35), ebox, 0, upperY, 0);
+  const upperG = new THREE.Group(); ebox.add(upperG);                       // planta alta (se oculta para ver la de abajo)
+  const board = (w, d, m, x, z, y = plateY, par = ebox) => { const g = new THREE.Group(); g.position.set(x, y, z); par.add(g); box(w, 0.0016, d, m, g, 0, 0.0008, 0); return g; };
+  // planta baja: control, comunicación y potencia
+  const esp = board(0.052, 0.028, pcbBlack, -0.06, -0.045);                 // ESP32 DevKit V1
+  box(0.018, 0.003, 0.025, inox, esp, 0.014, 0.003, 0); box(0.008, 0.003, 0.007, inox, esp, -0.025, 0.0025, 0);
+  [-0.0125, 0.0125].forEach(z => box(0.046, 0.008, 0.0025, black, esp, -0.002, -0.004, z));
+  const modem = board(0.05, 0.03, pcbBlue, 0.005, -0.045);                   // A7670SA con ranura SIM
+  box(0.024, 0.003, 0.024, inox, modem, -0.008, 0.0025, 0); box(0.014, 0.002, 0.012, M(0xc9a24a), modem, 0.016, 0.002, 0);
+  cyl(0.003, 0.004, brass, modem, 0.022, 0.003, -0.011, 8);
+  const sd = board(0.024, 0.02, pcbBlue, 0.065, -0.05); box(0.012, 0.002, 0.012, inox, sd, 0.004, 0.0025, 0);   // microSD
+  const xl = board(0.054, 0.026, pcbBlue, -0.065, 0.0);                      // XL4015 con disipador
+  for (let i = 0; i < 6; i++) box(0.0015, 0.01, 0.018, M(0xb8bec4, { metalness: 0.8 }), xl, -0.012 + i * 0.0035, 0.006, 0);
+  cyl(0.006, 0.006, black, xl, 0.016, 0.004, 0, 14);
+  const buck5 = board(0.043, 0.021, pcbBlue, -0.012, 0.0);                    // LM2596 a 5 V
+  cyl(0.006, 0.006, black, buck5, 0.006, 0.004, 0, 14); box(0.004, 0.004, 0.006, M(0x2f6fd6), buck5, 0.016, 0.003, 0.006);
+  const buck4 = board(0.043, 0.021, pcbBlue, 0.038, 0.0);                     // LM2596 a 4 V + capacitor 1000 µF
+  cyl(0.006, 0.006, black, buck4, 0.006, 0.004, 0, 14); cyl(0.005, 0.016, M(0x223a8a), buck4, -0.014, 0.0095, 0, 14);
+  const fetB = board(0.022, 0.016, pcbBlue, 0.078, 0.0); box(0.007, 0.008, 0.002, black, fetB, 0, 0.005, -0.004);   // MOSFET D4184 bomba
+  const fetF = board(0.022, 0.016, pcbBlue, 0.078, 0.022); box(0.007, 0.008, 0.002, black, fetF, 0, 0.005, -0.004); // MOSFET D4184 freno
+  const acs = board(0.031, 0.013, pcbRed, 0.035, 0.03); box(0.008, 0.006, 0.008, M(0x2f8f3a), acs, 0.009, 0.004, 0);   // ACS712
+  const fuse = board(0.03, 0.012, black, -0.02, 0.03); box(0.016, 0.006, 0.006, M(0xe0b020), fuse, 0, 0.004, 0);      // fusible 5 A
+  const diodo = cyl(0.0025, 0.008, black, ebox, -0.065, plateY + 0.004, 0.03, 10); diodo.rotation.z = Math.PI / 2;   // diodo Schottky
+  const tvs = cyl(0.0022, 0.007, M(0x111111), ebox, -0.075, plateY + 0.004, 0.03, 10); tvs.rotation.z = Math.PI / 2; // TVS
+  [[-0.035, 0.058], [0.035, 0.058]].forEach(([x, z]) => { box(0.045, 0.01, 0.009, M(0x2f8f3a), ebox, x, plateY + 0.005, z); for (let i = 0; i < 6; i++) cyl(0.0018, 0.002, inox, ebox, x - 0.019 + i * 0.0076, plateY + 0.011, z, 8); });
+  // planta alta (acrílico sobre separadores): tarjetas de las sondas, ADS1115, MPU6050 y transistores
+  box(0.19, 0.003, 0.14, glass(0xffffff, 0.35), upperG, 0, upperY, 0);
   [[-0.088, -0.063], [0.088, -0.063], [-0.088, 0.063], [0.088, 0.063]].forEach(([x, z]) => cyl(0.003, upperY - plateY, brass, ebox, x, (upperY + plateY) / 2, z, 8));
-  const gnames = []; let gi = 0;
-  [-0.045, -0.008, 0.029].forEach(z => [-0.069, -0.023, 0.023, 0.069].forEach(x => {
-    const g = new THREE.Group(); g.position.set(x, upperY + 0.0015, z); ebox.add(g); gi++;
-    box(0.042, 0.0016, 0.032, pcbBlue, g, 0, 0.0008, 0); box(0.006, 0.003, 0.008, M(0xf2f2f2), g, 0.015, 0.0025, -0.01);
-    const bnc = cyl(0.0055, 0.012, inox, g, -0.012, 0.0062, 0.016, 14); bnc.rotation.x = Math.PI / 2; cyl(0.0035, 0.004, M(0xe0e0e0), g, -0.012, 0.0062, 0.023, 10).rotation.x = Math.PI / 2;
-    box(0.008, 0.002, 0.006, black, g, 0.006, 0.0025, 0.004); gnames.push(g);
-  }));
-  [[-0.06, 0.06], [0, 0.06], [0.06, 0.06]].forEach(([x, z]) => { box(0.028, 0.0016, 0.017, pcbPurple, ebox, x, upperY + 0.0023, z); box(0.004, 0.0015, 0.004, black, ebox, x, upperY + 0.004, z); });
-  // cableado interior (jumpers) y cables BNC hacia los prensaestopas
+  const up = (w, d, m, x, z) => board(w, d, m, x, z, upperY + 0.0015, upperG);
+  const phBoard = (x, z) => { const g = up(0.042, 0.032, pcbBlue, x, z); const b = cyl(0.0055, 0.012, inox, g, -0.012, 0.0062, 0.016, 14); b.rotation.x = Math.PI / 2; [0.004, 0.012].forEach(px => cyl(0.003, 0.004, M(0x2f6fd6), g, px, 0.003, -0.006, 10)); return g; };
+  const ph1B = phBoard(-0.06, -0.04), ph2B = phBoard(0.0, -0.04);              // 2× PH-4502C
+  const tdsB = up(0.042, 0.032, pcbBlack, 0.06, -0.04); box(0.008, 0.004, 0.006, M(0xf2f2f2), tdsB, 0.01, 0.003, 0.01);   // TDS
+  const tb1 = up(0.028, 0.038, pcbBlue, -0.065, 0.01), tb2 = up(0.028, 0.038, pcbBlue, -0.03, 0.01);                     // 2× turbidez
+  const sondas = [ph1B, ph2B, tdsB, tb1, tb2];
+  const ads1 = up(0.028, 0.017, pcbPurple, 0.012, 0.0), ads2 = up(0.028, 0.017, pcbPurple, 0.05, 0.0);                // 2× ADS1115
+  [ads1, ads2].forEach(a => box(0.004, 0.0015, 0.004, black, a, 0, 0.0025, 0));
+  const mpu = up(0.021, 0.016, pcbBlue, 0.012, 0.035); box(0.004, 0.001, 0.004, black, mpu, 0, 0.002, 0);             // MPU6050
+  const proto = up(0.03, 0.02, pcbProto, 0.055, 0.035);                                                                 // transistores + divisores
+  for (let i = 0; i < 3; i++) box(0.004, 0.005, 0.0015, black, proto, -0.01 + i * 0.01, 0.003, 0);
   const jc = [0xd23b2e, 0x161616, 0xf2c230, 0x2f9e44, 0x2f6fd6, 0xf2f2f2];
-  gnames.forEach((g, k) => { const a = g.position; cable([[a.x + 0.015, upperY + 0.004, a.z - 0.01], [a.x * 0.6, upperY + 0.016, (a.z + 0.06) / 2], [k % 2 ? 0.03 : -0.03, upperY + 0.005, 0.06]], 0.0008, jc[k % jc.length], ebox, 10); });
-  [[0.0, -0.045], [0.004, -0.05], [-0.015, 0.002], [0.04, 0.002], [-0.065, 0.002], [0.035, -0.045]].forEach(([x, z], k) => cable([[-0.035, plateY + 0.006, -0.045], [(x - 0.035) / 2, plateY + 0.014, (z - 0.045) / 2], [x, plateY + 0.003, z]], 0.0008, jc[(k + 2) % jc.length], ebox, 10));
-  cable([[-0.03, upperY + 0.004, 0.06], [-0.04, (upperY + plateY) / 2 + 0.01, 0.03], [-0.05, plateY + 0.006, -0.045]], 0.0009, 0xf2c230, ebox, 10);
-  cable([[0.03, upperY + 0.004, 0.06], [0.0, (upperY + plateY) / 2 + 0.012, 0.02], [-0.045, plateY + 0.006, -0.04]], 0.0009, 0x2f9e44, ebox, 10);
+  [...sondas, mpu, proto].forEach((g, k) => { const a = g.position; cable([[a.x + 0.01, upperY + 0.004, a.z], [(a.x + ads1.position.x) / 2, upperY + 0.016, (a.z + ads1.position.z) / 2], [k % 2 ? ads2.position.x : ads1.position.x, upperY + 0.004, 0]], 0.0008, jc[k % jc.length], upperG, 10); });
+  [[0.005, -0.045], [0.065, -0.05], [-0.065, 0.0], [-0.012, 0.0], [0.038, 0.0], [0.078, 0.0], [0.078, 0.022], [0.035, 0.03]].forEach(([x, z], k) => cable([[-0.06, plateY + 0.006, -0.045], [(x - 0.06) / 2, plateY + 0.014, (z - 0.045) / 2], [x, plateY + 0.003, z]], 0.0008, jc[(k + 2) % jc.length], ebox, 10));
+  cable([[0.012, upperY + 0.004, 0.0], [-0.03, (upperY + plateY) / 2 + 0.01, -0.02], [-0.055, plateY + 0.006, -0.045]], 0.0009, 0xf2c230, upperG, 10);
   const glandPos = [[-0.07, -0.05], [-0.035, -0.05], [0.0, -0.05], [0.035, -0.05], [0.07, -0.05], [-0.07, 0.05], [0.0, 0.05], [0.07, 0.05]];
   glandPos.forEach(([x, z]) => gland(ebox, x, 0, z, -1));
-  gnames.slice(0, 8).forEach((g, k) => { const a = g.position, [gx, gz] = glandPos[k % glandPos.length]; cable([[a.x - 0.012, upperY + 0.0062, a.z + 0.022], [a.x - 0.012, upperY + 0.0062, a.z + 0.04], [(a.x + gx) / 2, 0.02, (a.z + gz) / 2], [gx, 0.003, gz]], 0.0012, 0x161616, ebox, 14); });
-  // antena LoRa (SMA + látigo) y LED de estado
-  cyl(0.004, 0.008, brass, ebox, 0.07, BX.h + 0.004, -0.05, 10);
-  const antTop = TOP - boxY - 0.005; cyl(0.0045, antTop - BX.h - 0.008, black, ebox, 0.07, (BX.h + 0.008 + antTop) / 2, -0.05, 10);
-  cable([[0.07, BX.h - 0.002, -0.05], [0.04, 0.05, -0.055], [0.004, plateY + 0.004, -0.05]], 0.0008, 0x9a8a5a, ebox, 8);
+  sondas.forEach((g, k) => { const a = g.position, [gx, gz] = glandPos[k % glandPos.length]; cable([[a.x - 0.012, upperY + 0.0062, a.z + 0.022], [a.x - 0.012, upperY + 0.0062, a.z + 0.04], [(a.x + gx) / 2, 0.02, (a.z + gz) / 2], [gx, 0.003, gz]], 0.0012, 0x161616, upperG, 14); });
+  // antena LTE 4G del módem
+  const antG = new THREE.Group(); ebox.add(antG);
+  cyl(0.004, 0.008, brass, antG, 0.07, BX.h + 0.004, -0.05, 10);
+  const antTop = TOP - boxY - 0.005; cyl(0.0055, antTop - BX.h - 0.008, black, antG, 0.07, (BX.h + 0.008 + antTop) / 2, -0.05, 10);
+  cable([[0.07, BX.h - 0.002, -0.05], [0.045, 0.05, -0.052], [0.027, plateY + 0.004, -0.056]], 0.0008, 0x9a8a5a, ebox, 8);
   anchor('antena', ebox, 0.075, antTop - 0.03, -0.05);
   anchor('control', ebox, 0, BX.h * 0.6, 0);
   anchor('electronica', ebox, BX.w / 2, BX.h * 0.7, BX.d / 2);
 
-  // Conducto corrugado de la caja al ducto interno + cables de potencia hacia la caja
   const dTop = polar(C.duct.a, C.duct.r, C.deck + 0.02);
   cable([[0.0, boxY - 0.012, 0.05], [0.0, (boxY + C.deck) / 2, 0.11], [dTop.x, C.deck + 0.03, dTop.z], [dTop.x, C.deck + 0.012, dTop.z]], 0.008, 0x1a1a1a, body, 20);
   gland(body, dTop.x, C.deck + 0.008, dTop.z, 1);
   cable([[0.09, C.deck + 0.025, 0.025], [0.08, (boxY + C.deck) / 2, -0.02], [0.07, boxY - 0.012, -0.05]], 0.0035, 0x1a1a1a, body, 12);
 
-  // Parte superior por diseño
-  if (D === 'patas') {
-    mesh(new THREE.CylinderGeometry(0.205, 0.205, 0.008, 40), M(0x9aa6ad), body, 0, C.deck + 0.004, 0);
-    [[-0.08, -0.06], [0.08, -0.06], [-0.08, 0.06], [0.08, 0.06]].forEach(([x, z]) => cyl(0.006, boxY - C.deck - 0.008, steel, body, x, (boxY + C.deck + 0.008) / 2, z, 8));
-    led = mesh(new THREE.SphereGeometry(0.008, 10, 8), new THREE.MeshBasicMaterial({ color: 0x34d17a }), ebox, -0.08, BX.h + 0.006, 0.06);
-  } else {
-    const capH = 0.18;
-    const domeMat = M(0xf2c230, { roughness: 0.45, transparent: true, opacity: 1 });
-    mesh(new THREE.CylinderGeometry(0.06, 0.21, capH, 32, 1, true), domeMat, body, 0, C.deck + capH / 2, 0);
-    cyl(0.06, 0.004, M(0xf2c230), body, 0, C.deck + capH, 0, 24);
-    torusH(0.21, 0.01, M(0xd9a81e), body, C.deck + 0.004);
-    torusH(0.21 - 0.15 * 0.07 / capH + 0.002, 0.009, M(0xf7f7f7, { emissive: 0x444444 }), body, C.deck + 0.07);
-    cyl(0.03, 0.03, dark, body, 0, C.deck + capH + 0.017, 0, 12);
-    led = mesh(new THREE.SphereGeometry(0.025, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf2a516 }), body, 0, TOP - 0.025, 0);
-    anchor('faro', body, 0.02, TOP - 0.02, 0);
-    body.userData.dome = domeMat;
-  }
+  // Domo protector: garrafón/cono sobre una jaula de varilla
+  const capH = 0.18, domeMat = M(0xf2c230, { roughness: 0.45, transparent: true, opacity: 1 }), domeG = new THREE.Group(); body.add(domeG);
+  mesh(new THREE.CylinderGeometry(0.06, 0.21, capH, 32, 1, true), domeMat, domeG, 0, C.deck + capH / 2, 0);
+  cyl(0.06, 0.004, M(0xf2c230), domeG, 0, C.deck + capH, 0, 24);
+  torusH(0.21, 0.01, M(0xd9a81e), domeG, C.deck + 0.004);
+  torusH(0.21 - 0.15 * 0.07 / capH + 0.002, 0.009, M(0xf7f7f7, { emissive: 0x444444 }), domeG, C.deck + 0.07);
+  anchor('domo', body, 0.12, C.deck + capH * 0.8, 0.05);
+  body.userData.dome = domeMat;
 
   // ---------- Barreras guía con faldón de 10 cm ----------
   const boomMat = M(0xe8742c, { roughness: 0.5 });
@@ -326,7 +343,7 @@ export function createBoyaRioMonitor(opts = {}) {
   });
   anchor('barreras', body, -0.25, 0.04, 0.66);
 
-  // ---------- Cesta grande con compuertas de no retorno, tapa de malla y sensor de llenado ----------
+  // ---------- Cesta (huacal) con compuertas de no retorno, tapa de malla y ultrasónico en mástil ----------
   const basket = new THREE.Group(); body.add(basket);
   const netMat = new THREE.MeshBasicMaterial({ color: 0xe3eef0, wireframe: true, transparent: true, opacity: 0.55 });
   const fillMat = new THREE.MeshStandardMaterial({ color: 0xcfe6ea, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
@@ -335,11 +352,10 @@ export function createBoyaRioMonitor(opts = {}) {
   panel(B.len, bh, 16, 8, bx, by, B.halfW, 0, 0); panel(B.len, bh, 16, 8, bx, by, -B.halfW, 0, 0);
   panel(B.halfW * 2, bh, 14, 8, B.x0 - B.len, by, 0, 0, Math.PI / 2);
   panel(B.len, B.halfW * 2, 16, 14, bx, B.bottom, 0, -Math.PI / 2, 0);
-  panel(B.len, B.halfW * 2, 16, 14, bx, B.top, 0, -Math.PI / 2, 0);                          // tapa de malla: la basura no brinca fuera
+  panel(B.len, B.halfW * 2, 16, 14, bx, B.top, 0, -Math.PI / 2, 0);
   const frameEdges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(B.len, bh, B.halfW * 2)), new THREE.LineBasicMaterial({ color: 0x5c6870 }));
   frameEdges.position.set(bx, by, 0); basket.add(frameEdges);
   const lip = mesh(new THREE.PlaneGeometry(B.halfW * 2, B.lip - B.bottom), M(0x3d4a52, { side: THREE.DoubleSide, transparent: true, opacity: 0.85 }), basket, B.x0, (B.lip + B.bottom) / 2, 0); lip.rotation.y = Math.PI / 2;
-  // compuertas de no retorno: 6 aletas colgadas de una barra; se abren hacia adentro y se cierran solas
   box(0.012, 0.012, B.halfW * 2, steel, basket, B.x0, B.top - 0.01, 0);
   const flaps = [];
   for (let i = 0; i < 6; i++) {
@@ -351,11 +367,14 @@ export function createBoyaRioMonitor(opts = {}) {
   [0.2, -0.2].forEach(z => box(-0.5 - B.x0 + 0.06, 0.014, 0.014, steel, basket, (B.x0 - 0.5) / 2 + 0.02, 0.04, z));
   torusH(B.holeR, 0.008, M(0x35d0e0, { emissive: 0x0f5f6a, emissiveIntensity: 0.6 }), basket, B.bottom).position.x = B.holeX;
   mesh(new THREE.CylinderGeometry(B.holeR, B.holeR + 0.025, 0.08, 16, 1, true), M(0x35d0e0, { side: THREE.DoubleSide, transparent: true, opacity: 0.5 }), basket, B.holeX, B.bottom - 0.04, 0);
-  // sensor ultrasónico impermeable JSN-SR04T en la tapa, mirando hacia abajo
-  const usX = B.x0 - B.len * 0.55;
-  cyl(0.012, 0.016, black, basket, usX, B.top + 0.006, 0, 16); cyl(0.0095, 0.002, inox, basket, usX, B.top - 0.003, 0, 16);
-  cable([[usX, B.top + 0.016, 0], [usX + 0.15, B.top + 0.03, 0.02], [B.x0 + 0.05, 0.07, 0.2], [-0.3, 0.07, 0.12], [-0.08, boxY - 0.012, 0.05]], 0.0022, 0x161616, body);
-  anchor('nivel', basket, usX, B.top + 0.03, 0.02);
+  // JSN-SR04T 30 cm sobre la tapa (su zona ciega es de ~20 cm)
+  const usX = B.x0 - B.len * 0.55, usY = B.top + C.sonar.mast;
+  cyl(0.006, C.sonar.mast, steel, basket, usX, B.top + C.sonar.mast / 2, 0, 8);
+  box(0.03, 0.006, 0.006, steel, basket, usX, usY, 0);
+  const sonarG = new THREE.Group(); basket.add(sonarG);
+  cyl(0.012, 0.016, black, sonarG, usX, usY - 0.011, 0, 16); cyl(0.0095, 0.002, inox, sonarG, usX, usY - 0.02, 0, 16); box(0.04, 0.003, 0.02, pcbGreen, sonarG, usX + 0.03, usY + 0.006, 0);
+  cable([[usX, usY + 0.004, 0], [usX + 0.1, usY - 0.05, 0.02], [B.x0 + 0.05, 0.12, 0.2], [-0.3, 0.07, 0.12], [-0.08, boxY - 0.012, 0.05]], 0.0022, 0x161616, body);
+  anchor('nivel', basket, usX, usY, 0.02);
   const trashColors = [0xe8742c, 0x2f6fd6, 0x5fae5a, 0xd8c9a3, 0xc0392b, 0xf2f2f2], trashIn = [];
   for (let i = 0; i < 36; i++) {
     const g = i % 3 ? new THREE.BoxGeometry(0.06, 0.02, 0.045) : new THREE.CylinderGeometry(0.016, 0.016, 0.09, 8);
@@ -366,10 +385,9 @@ export function createBoyaRioMonitor(opts = {}) {
   anchor('compuerta', body, B.x0, 0.06, -B.halfW + 0.05);
   anchor('escape', body, B.holeX, B.bottom - 0.15, 0.04);
 
-  // ---------- Veleta hidrodinámica (aleta trasera sumergida) ----------
+  // ---------- Veleta (lámina de garrafón o latas aplanadas) ----------
   const vs = new THREE.Shape(); vs.moveTo(0, VN.yTop); vs.lineTo(-VN.len, VN.yTop + 0.02); vs.lineTo(-VN.len, VN.yBot); vs.lineTo(0, VN.yBot + 0.06); vs.closePath();
-  const vane = mesh(new THREE.ExtrudeGeometry(vs, { depth: 0.008, bevelEnabled: false }), M(0xf4f4f4, { roughness: 0.5 }), body, VN.x0, 0, -0.004);
-  void vane;
+  mesh(new THREE.ExtrudeGeometry(vs, { depth: 0.008, bevelEnabled: false }), M(0xdfe3e6, { roughness: 0.4, metalness: 0.3 }), body, VN.x0, 0, -0.004);
   const vEdge = new THREE.Shape(); vEdge.moveTo(-VN.len + 0.06, VN.yTop + 0.015); vEdge.lineTo(-VN.len, VN.yTop + 0.02); vEdge.lineTo(-VN.len, VN.yBot); vEdge.lineTo(-VN.len + 0.06, VN.yBot + 0.005); vEdge.closePath();
   mesh(new THREE.ExtrudeGeometry(vEdge, { depth: 0.0084, bevelEnabled: false }), M(0xe8742c), body, VN.x0, 0, -0.0042);
   const armL = -0.5 - (VN.x0 + 0.05);
@@ -378,62 +396,38 @@ export function createBoyaRioMonitor(opts = {}) {
   box(0.02, 0.06, 0.02, steel, body, VN.x0 + 0.02, -0.27, 0);
   anchor('veleta', body, VN.x0 - VN.len * 0.6, VN.yBot + 0.04, 0.02);
 
-  // ---------- Anillo giratorio (no gira con la veleta): A sostiene patas, B sostiene cadenas ----------
-  const mountR = D === 'patas' ? C.legTopR : MO.ringR;
-  torusH(mountR, 0.012, M(0x48525a, { metalness: 0.6, roughness: 0.35 }), mount, 0, 72);
-  [60, 180, 300].forEach(a => { const p = polar(a, mountR - 0.022, 0); cyl(0.01, 0.022, black, mount, p.x, 0, p.z, 12); });
-  anchor('giro', mount, Math.cos(deg(250)) * mountR, 0.01, Math.sin(deg(250)) * mountR);
+  // ---------- Anillo giratorio: las líneas de anclaje se sujetan aquí y no giran ----------
+  torusH(MO.ringR, 0.012, M(0x48525a, { metalness: 0.6, roughness: 0.35 }), mount, 0, 72);
+  [60, 180, 300].forEach(a => { const p = polar(a, MO.ringR - 0.022, 0); cyl(0.01, 0.022, black, mount, p.x, 0, p.z, 12); });
+  anchor('giro', mount, Math.cos(deg(250)) * MO.ringR, 0.01, Math.sin(deg(250)) * MO.ringR);
 
-  // ---------- A: 3 patas telescópicas con barrena y motor tipo limpiaparabrisas ----------
-  const legs = (D === 'patas' ? C.legAngles : []).map(dg => {
-    const a = deg(dg), g = new THREE.Group(); root.add(g);
-    const mot = new THREE.Group(); mot.position.y = 0.035; g.add(mot);
-    box(0.06, 0.04, 0.05, M(0x3a3f44, { metalness: 0.4 }), mot, 0, 0, 0); const mc = cyl(0.022, 0.065, black, mot, 0.0, 0.0, 0.045, 14); mc.rotation.x = Math.PI / 2;
-    cyl(0.028, C.legSleeve, steel, g, 0, -C.legSleeve / 2, 0, 12);
-    const inner = cyl(0.019, 1, M(0x9aa6ad, { metalness: 0.7, roughness: 0.25 }), g, 0, 0, 0, 10);
-    const auger = new THREE.Group(); g.add(auger);
-    const cone = mesh(new THREE.ConeGeometry(0.032, C.augerLen, 14), M(0x6e7880, { metalness: 0.7 }), auger, 0, -C.augerLen / 2, 0); cone.rotation.x = Math.PI;
-    const hel = []; for (let i = 0; i <= 50; i++) { const u = i / 50, an = u * Math.PI * 6, r = 0.06 * (1 - u) + 0.012; hel.push(V3(Math.cos(an) * r, -u * C.augerLen, Math.sin(an) * r)); }
-    mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(hel), 70, 0.006, 6, false), M(0x8b969d, { metalness: 0.7 }), auger);
-    const p0 = polar(dg, C.legTopR, 0.03), p1 = polar(dg + 40, C.legTopR, 0.02), p2 = polar(dg + 80, C.legTopR, 0.02);
-    cable([p0, p1, p2], 0.0025, 0x161616, mount, 16);
-    return { a, g, inner, auger };
+  // ---------- Jaula de varilla + 3 líneas: cuerda de polipropileno, 1.5 m de cadena y ancla helicoidal con cubeta de concreto ----------
+  [30, 150, 270].forEach(dg => {
+    const a = deg(dg), x = Math.cos(a) * MO.cageR, z = Math.sin(a) * MO.cageR, h = C.ringBotY - MO.cageBottom;
+    cyl(0.008, h, steel, body, x, MO.cageBottom + h / 2, z, 8);
+    spoke(MO.cageR, C.ringR - C.ringTube + 0.01, a, C.ringBotY, steel, body, 0.01);
   });
-  if (legs.length) anchors.patas = legs[0].auger;
-  const pitProf = []; for (let i = 0; i <= 12; i++) { const u = i / 12; pitProf.push(new THREE.Vector2(0.85 * Math.cos(u * Math.PI / 2), -Math.sin(u * Math.PI / 2))); }
-  const pit = mesh(new THREE.LatheGeometry(pitProf.reverse(), 32), new THREE.MeshStandardMaterial({ color: 0x2a1e13, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false }), root, 0, bedY + 0.005, 0);
-  pit.renderOrder = 1; pit.visible = false;
-  const berm = torusH(0.9, 0.04, M(0x5a4630, { roughness: 1 }), root, bedY, 40); berm.visible = false;
-
-  // ---------- B: jaula con lastre + 3 cadenas (al anillo giratorio) a anclas helicoidales ----------
-  const moor = [];
-  if (D === 'anclada') {
-    [30, 150, 270].forEach(dg => {
-      const a = deg(dg), x = Math.cos(a) * MO.cageR, z = Math.sin(a) * MO.cageR, h = C.ringBotY - MO.cageBottom;
-      cyl(0.012, h, steel, body, x, MO.cageBottom + h / 2, z, 8);
-      spoke(MO.cageR, C.ringR - C.ringTube + 0.01, a, C.ringBotY, steel, body, 0.014);
-      box(0.1, 0.05, 0.06, M(0x55585a, { roughness: 0.95 }), body, x, MO.cageBottom + 0.03, z).rotation.y = -a;
-    });
-    torusH(MO.cageR, 0.014, steel, body, MO.cageBottom);
-    anchor('jaula', body, -MO.cageR, MO.cageBottom + 0.04, 0.08);
-    const chainMat = M(0x4a5157, { metalness: 0.7, roughness: 0.4 }), NL = 70;
-    MO.angles.forEach((dg, li) => {
-      const a = deg(dg), ca = Math.cos(a), sa = Math.sin(a);
-      const pad = new THREE.Object3D(); pad.position.set(ca * (MO.ringR + 0.012), 0, sa * (MO.ringR + 0.012)); mount.add(pad);
-      mesh(new THREE.TorusGeometry(0.018, 0.005, 6, 12), steel, mount, ca * (MO.ringR + 0.012), 0, sa * (MO.ringR + 0.012)).rotation.y = -a;
-      const ag = new THREE.Group(); ag.position.set(ca * MO.anchorR, bedY, sa * MO.anchorR); root.add(ag);
-      const eye = mesh(new THREE.TorusGeometry(0.025, 0.007, 8, 14), steel, ag, 0, 0.03, 0); eye.rotation.y = -a;
-      cyl(0.012, 0.7, steel, ag, 0, -0.33, 0, 8);
-      mesh(new THREE.TorusGeometry(0.06, 0.012, 6, 20), steel, ag, 0, -0.62, 0).rotation.x = Math.PI / 2 + 0.25;
-      const sinker = box(0.12, 0.09, 0.12, M(0x8a8f8c, { roughness: 1 }), root, 0, 0, 0);
-      const links = new THREE.InstancedMesh(new THREE.TorusGeometry(0.014, 0.0045, 6, 10), chainMat, NL); links.frustumCulled = false; root.add(links);
-      const m = { a, pad, links, sinker, NL, len: 0 };
-      if (li === 0) { anchors.ancla = eye; anchors.lastre = sinker; m.lm = new THREE.Object3D(); root.add(m.lm); anchors.linea = m.lm; }
-      const p0 = V3(ca * MO.ringR, bedY + MO.maxDepth + MO.cageBottom, sa * MO.ringR), p2 = V3(ca * MO.anchorR, bedY, sa * MO.anchorR);
-      m.len = p0.distanceTo(p2) * MO.slack; moor.push(m);
-    });
-  }
-  const _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _s = V3(1, 1, 1), _up = V3(0, 0, 1), _t = V3(0, 0, 0), _p = V3(0, 0, 0), _p2 = V3(0, 0, 0), _rq = new THREE.Quaternion();
+  torusH(MO.cageR, 0.009, steel, body, MO.cageBottom);
+  anchor('jaula', body, -MO.cageR, MO.cageBottom + 0.04, 0.08);
+  const chainMat = M(0x4a5157, { metalness: 0.7, roughness: 0.4 }), ropeMat = M(0xf2c230, { roughness: 0.8 }), NL = 80, moor = [];
+  MO.angles.forEach((dg, li) => {
+    const a = deg(dg), ca = Math.cos(a), sa = Math.sin(a);
+    const pad = new THREE.Object3D(); pad.position.set(ca * (MO.ringR + 0.012), 0, sa * (MO.ringR + 0.012)); mount.add(pad);
+    mesh(new THREE.TorusGeometry(0.018, 0.005, 6, 12), steel, mount, ca * (MO.ringR + 0.012), 0, sa * (MO.ringR + 0.012)).rotation.y = -a;
+    const ag = new THREE.Group(); ag.position.set(ca * MO.anchorR, bedY, sa * MO.anchorR); root.add(ag);
+    const eye = mesh(new THREE.TorusGeometry(0.025, 0.007, 8, 14), steel, ag, 0, 0.03, 0); eye.rotation.y = -a;
+    cyl(0.012, 0.7, steel, ag, 0, -0.33, 0, 8);
+    mesh(new THREE.TorusGeometry(0.06, 0.012, 6, 20), steel, ag, 0, -0.62, 0).rotation.x = Math.PI / 2 + 0.25;
+    const bucket = mesh(new THREE.CylinderGeometry(0.15, 0.13, 0.3, 18), M(0x8a8f8c, { roughness: 1 }), ag, -ca * 0.25 - sa * 0.15, 0.15, -sa * 0.25 + ca * 0.15);   // cubeta con concreto
+    torusH(0.15, 0.006, M(0x5c6870), bucket, 0.15);
+    const links = new THREE.InstancedMesh(new THREE.TorusGeometry(0.014, 0.0045, 6, 10), chainMat, NL); links.frustumCulled = false; root.add(links);
+    const rope = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.006, 0.006, 1, 6), ropeMat, NL); rope.frustumCulled = false; root.add(rope);
+    const m = { a, pad, links, rope, NL, len: 0 };
+    if (li === 0) { anchors.ancla = eye; anchors.lastre = bucket; m.lm = new THREE.Object3D(); m.lc = new THREE.Object3D(); root.add(m.lm); root.add(m.lc); anchors.linea = m.lm; anchors.cadena = m.lc; }
+    const p0 = V3(ca * MO.ringR, bedY + MO.maxDepth + MO.cageBottom, sa * MO.ringR), p2 = V3(ca * MO.anchorR, bedY, sa * MO.anchorR);
+    m.len = p0.distanceTo(p2) * MO.slack; moor.push(m);
+  });
+  const _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _s = V3(1, 1, 1), _s0 = V3(0, 0, 0), _sr = V3(1, 1, 1), _up = V3(0, 0, 1), _upY = V3(0, 1, 0), _t = V3(0, 0, 0), _p = V3(0, 0, 0), _p2 = V3(0, 0, 0), _mid = V3(0, 0, 0), _rq = new THREE.Quaternion();
   function updateMoor() {
     mount.updateMatrix();
     moor.forEach(m => {
@@ -442,17 +436,90 @@ export function createBoyaRioMonitor(opts = {}) {
       const mid = P0.clone().add(P2).multiplyScalar(0.5); mid.y -= sag;
       const ctrl = mid.clone().multiplyScalar(2).sub(P0.clone().add(P2).multiplyScalar(0.5));
       const curve = new THREE.QuadraticBezierCurve3(P0, ctrl, P2);
+      const chainFrom = Math.max(0, 1 - MO.chainM / m.len);
       for (let i = 0; i < m.NL; i++) {
-        curve.getPoint(i / (m.NL - 1), _p); curve.getPoint(Math.min(1, i / (m.NL - 1) + 0.01), _p2);
+        const u = i / (m.NL - 1), u2 = Math.min(1, u + 1 / (m.NL - 1));
+        curve.getPoint(u, _p); curve.getPoint(u2, _p2);
         _p.y = Math.max(_p.y, bedY + 0.015); _p2.y = Math.max(_p2.y, bedY + 0.015);
-        _t.copy(_p2).sub(_p); if (_t.lengthSq() < 1e-10) _t.set(1, 0, 0); _t.normalize();
-        _q.setFromUnitVectors(_up, _t); if (i % 2) { _rq.setFromAxisAngle(_t, Math.PI / 2); _q.premultiply(_rq); }
-        _m.compose(_p, _q, _s); m.links.setMatrixAt(i, _m);
+        _t.copy(_p2).sub(_p); const segLen = _t.length(); if (segLen < 1e-6) _t.set(1, 0, 0); _t.normalize();
+        if (u >= chainFrom) {
+          _q.setFromUnitVectors(_up, _t); if (i % 2) { _rq.setFromAxisAngle(_t, Math.PI / 2); _q.premultiply(_rq); }
+          _m.compose(_p, _q, _s); m.links.setMatrixAt(i, _m); _m.compose(_p, _q, _s0); m.rope.setMatrixAt(i, _m);
+        } else {
+          _q.setFromUnitVectors(_upY, _t); _mid.copy(_p).add(_p2).multiplyScalar(0.5); _sr.set(1, segLen, 1);
+          _m.compose(_mid, _q, _sr); m.rope.setMatrixAt(i, _m); _m.compose(_p, _q, _s0); m.links.setMatrixAt(i, _m);
+        }
       }
-      m.links.instanceMatrix.needsUpdate = true;
-      curve.getPoint(0.55, _p); _p.y = Math.max(_p.y, bedY + 0.045); m.sinker.position.copy(_p);
-      if (m.lm) { curve.getPoint(0.3, _p); _p.y = Math.max(_p.y, bedY + 0.02); m.lm.position.copy(_p); }
+      m.links.instanceMatrix.needsUpdate = true; m.rope.instanceMatrix.needsUpdate = true;
+      if (m.lm) { curve.getPoint(Math.max(0.05, chainFrom * 0.5), _p); m.lm.position.copy(_p); curve.getPoint(Math.min(0.97, chainFrom + (1 - chainFrom) * 0.5), _p); _p.y = Math.max(_p.y, bedY + 0.03); m.lc.position.copy(_p); }
     });
+  }
+
+
+  // ---------- Componentes electrónicos, uno por uno (los mismos de Wokwi y del BOM) ----------
+  const componentes = [
+    ['Control y comunicación', 'esp32', 'Microcontrolador', 'ESP32 DevKit V1 (WiFi y Bluetooth)', 'I2C SDA 21, SCL 22 · lee todos los sensores', 'ESP32 DevKit V1', esp],
+    ['Control y comunicación', 'ads1', 'Convertidor analógico #1', 'ADS1115 (0x48)', 'A0 pH entrada · A1 pH salida · A2 TDS · A3 turbidez entrada', 'Chip propio ads1115', ads1],
+    ['Control y comunicación', 'ads2', 'Convertidor analógico #2', 'ADS1115 (0x49)', 'A0 turbidez salida · A1 batería · A2 generador · A3 corriente bomba', 'Chip propio ads1115', ads2],
+    ['Control y comunicación', 'modem', 'Módem 4G con ranura SIM', 'SIMCom A7670SA + chip SIM', 'UART2: RX 16, TX 17 · PWRKEY 4 · alimentado a 4 V', 'Chip propio a7670sa', modem],
+    ['Control y comunicación', 'antena', 'Antena LTE', 'Antena de látigo SMA', 'Conectada al módem A7670SA', 'Parte del chip a7670sa', antG],
+    ['Control y comunicación', 'sd', 'Respaldo de datos', 'Módulo microSD', 'SPI: CS 13, SCK 18, MISO 19, MOSI 23', 'microSD', sd],
+    ['Control y comunicación', 'mpu', 'Inclinación y golpes', 'MPU6050', 'I2C 0x68', 'MPU6050', mpu],
+    ['Control y comunicación', 'proto', 'Encendido por turnos', '3 transistores + divisores 10k/20k', 'GPIO32 pH entrada · GPIO33 pH salida · GPIO26 TDS', 'LEDs pH ent., pH sal. y TDS', proto],
+    ['Sensores', 'ph_in', 'Electrodo de pH (entrada)', 'E-201-C (BNC)', 'Va a la tarjeta PH-4502C #1', 'Potenciómetro pH entrada', probeObj.ph_in],
+    ['Sensores', 'ph1b', 'Tarjeta de pH (entrada)', 'PH-4502C', 'ADS1115 #1 A0, con divisor 10k/20k', 'Potenciómetro pH entrada', ph1B],
+    ['Sensores', 'ph_out', 'Electrodo de pH (salida)', 'E-201-C (BNC)', 'Va a la tarjeta PH-4502C #2', 'Potenciómetro pH salida', probeObj.ph_out],
+    ['Sensores', 'ph2b', 'Tarjeta de pH (salida)', 'PH-4502C', 'ADS1115 #1 A1, con divisor 10k/20k', 'Potenciómetro pH salida', ph2B],
+    ['Sensores', 'tds', 'Sonda TDS', 'Sonda de dos pines', 'Va a la tarjeta TDS', 'Potenciómetro TDS', probeObj.tds],
+    ['Sensores', 'tdsb', 'Tarjeta TDS', 'TDS Meter V1.0', 'ADS1115 #1 A2', 'Potenciómetro TDS', tdsB],
+    ['Sensores', 'turb_in', 'Sensor de turbidez (entrada)', 'Turbidez genérico', 'Va a su tarjeta adaptadora', 'Potenciómetro turbidez entrada', probeObj.turb_in],
+    ['Sensores', 'tb1', 'Tarjeta de turbidez (entrada)', 'Adaptador del sensor de turbidez', 'ADS1115 #1 A3, con divisor 10k/20k', 'Potenciómetro turbidez entrada', tb1],
+    ['Sensores', 'turb_out', 'Sensor de turbidez (salida)', 'Turbidez genérico', 'Va a su tarjeta adaptadora', 'Potenciómetro turbidez salida', probeObj.turb_out],
+    ['Sensores', 'tb2', 'Tarjeta de turbidez (salida)', 'Adaptador del sensor de turbidez', 'ADS1115 #2 A0, con divisor 10k/20k', 'Potenciómetro turbidez salida', tb2],
+    ['Sensores', 'temp', 'Temperatura', 'DS18B20 sumergible + 4.7 kΩ', 'GPIO5 (OneWire)', 'DS18B20', probeObj.temp],
+    ['Sensores', 'caudal', 'Caudalímetro', 'YF-S401 (0.3–6 L/min)', 'GPIO35 (pulsos)', 'Reloj 245 Hz + compuerta AND', fm],
+    ['Sensores', 'acs', 'Corriente de la bomba', 'ACS712 5 A', 'ADS1115 #2 A3', 'Potenciómetro corriente bomba', acs],
+    ['Sensores', 'sonar', 'Nivel de la cesta', 'JSN-SR04T (30 cm sobre la tapa)', 'TRIG GPIO15 · ECHO GPIO34 (divisor 10k/20k)', 'HC-SR04', sonarG],
+    ['Energía', 'gen', 'Generador', 'Motor DC RS-775 reciclado', 'Lo mueve el molino · divisor 100k/10k a ADS1115 #2 A2', 'Deslizador generador', gen],
+    ['Energía', 'diodo', 'Diodo Schottky', 'SR1060 (10 A)', 'Evita que la batería regrese corriente al motor', '—', diodo],
+    ['Energía', 'tvs', 'Supresor de picos', 'Diodo TVS 1.5KE33A', 'Corta picos de voltaje del generador', '—', tvs],
+    ['Energía', 'xl', 'Cargador', 'XL4015 CC/CV 5 A', 'Tope de 12.6 V; aguanta hasta 36 V de entrada', '—', xl],
+    ['Energía', 'bat', 'Batería', '6 celdas 18650 recicladas (3S2P) + BMS 3S', '≈40 Wh · divisor 100k/33k a ADS1115 #2 A1', 'Deslizador batería', bat],
+    ['Energía', 'buck5', 'Reductor a 5 V', 'LM2596', 'Alimenta el ESP32 y los sensores', '—', buck5],
+    ['Energía', 'buck4', 'Reductor a 4 V', 'LM2596 + capacitor 1000 µF', 'Alimenta el módem (picos de 2 A)', '—', buck4],
+    ['Energía', 'fuse', 'Fusible', 'Fusible automotriz 5 A', 'Salida de la batería', '—', fuse],
+    ['Energía', 'freno', 'Freno del molino', 'Resistencia 10 Ω 50 W (aluminio)', 'En paralelo al generador, sumergida', 'LED naranja (GPIO14)', brakeG],
+    ['Actuadores', 'bomba', 'Bomba', 'Mini bomba sumergible 12 V (800 L/h)', 'Por MOSFET en GPIO27', 'LED azul', pumpG],
+    ['Actuadores', 'fetb', 'MOSFET de la bomba', 'D4184', 'GPIO27', 'LED azul', fetB],
+    ['Actuadores', 'fetf', 'MOSFET del freno', 'D4184', 'GPIO14', 'LED naranja', fetF]
+  ].map(([grupo, key, nombre, modelo, conexion, wokwi, obj]) => ({ grupo, key, nombre, modelo, conexion, wokwi, obj }));
+
+  const selBox = new THREE.Box3(), selHelper = new THREE.Box3Helper(selBox, 0x35d0e0);
+  selHelper.visible = false; root.add(selHelper);
+  const selFill = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0x35d0e0, transparent: true, opacity: 0.18, depthWrite: false }));
+  selFill.visible = false; selFill.renderOrder = 5; root.add(selFill);
+  const dentro = (o, g) => { let p = o; while (p) { if (p === g) return true; p = p.parent; } return false; };
+  const enCaja = o => dentro(o, ebox);
+  let sel = null, selMats = [];
+  function seleccionarComponente(key) {
+    selMats.forEach(([m, orig]) => { m.material = orig; }); selMats = [];
+    sel = componentes.find(c => c.key === key) || null;
+    selHelper.visible = selFill.visible = !!sel;
+    domeG.visible = !(sel && enCaja(sel.obj));          // el domo tapa la caja: se oculta mientras se revisa
+    upperG.visible = !(sel && enCaja(sel.obj) && !dentro(sel.obj, upperG));   // la planta alta tapa la de abajo
+    if (!sel) return null;
+    sel.obj.traverse(o => { if (o.isMesh && o.material && 'emissive' in o.material) { const c = o.material.clone(); c.emissive = new THREE.Color(0x35d0e0); selMats.push([o, o.material]); o.material = c; } });
+    return sel;
+  }
+  function vistaComponente(key) {
+    const c = componentes.find(q => q.key === key); if (!c) return null;
+    body.updateMatrixWorld(true);
+    const b = new THREE.Box3().setFromObject(c.obj), center = b.getCenter(V3(0, 0, 0)), size = b.getSize(V3(0, 0, 0)).length();
+    const local = body.worldToLocal(center.clone());
+    const box_ = enCaja(c.obj), dir = box_ ? V3(0.3, 1, 0.45) : local.y > 0.03 ? V3(0.45, 0.85, 0.6) : local.y < -0.3 ? V3(0.75, 0.05, 0.9) : V3(0.8, 0.35, 0.75);
+    const dist = Math.min(0.8, Math.max(box_ ? 0.09 : 0.14, size * (box_ ? 2.2 : 3)));
+    const cam = body.localToWorld(local.clone().add(dir.normalize().multiplyScalar(dist)));
+    return { target: center, cam };
   }
 
   // ---------- Peces ----------
@@ -467,121 +534,132 @@ export function createBoyaRioMonitor(opts = {}) {
   const fishes = Array.from({ length: 8 }, (_, i) => ({ ...makeFish(0.8 + Math.random() * 0.6, root), x: -4 + i, z0: (Math.random() - 0.5) * 3, d: Math.random(), sp: 0.15 + Math.random() * 0.12, ph: Math.random() * 6 }));
   const escapeFish = makeFish(0.7, body);
 
-  // ---------- Partículas ----------
+  // ---------- Partículas: toma → filtros → cámara de salida → bomba → caudalímetro → río ----------
   const PN = 360, pGeo = new THREE.BufferGeometry(), pPos = new Float32Array(PN * 3), pCol = new Float32Array(PN * 3);
   const parts = Array.from({ length: PN }, () => ({ u: Math.random(), th: Math.random() * Math.PI * 2, j: Math.random() }));
   pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3)); pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
   const points = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.012, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false }));
   points.frustumCulled = false; body.add(points);
   const dirty = new THREE.Color(0x9a7440), clean = new THREE.Color(0x6fe3f5), tmpC = new THREE.Color();
-  const U = { fun: 0.12, col: 0.6, bowl: 0.78, noz: 0.86 };
+  const U = { fun: 0.12, col: 0.62, bowl: 0.78, noz: 0.86 };
   function particlePos(p, out) {
     const { u, th, j } = p; let r, y, a = th;
     if (u < U.fun) { const k = u / U.fun; y = -0.025 - k * 0.115; r = k < 0.15 ? C.colR + 0.03 * (1 - k / 0.15) : C.colR * (1 - 0.7 * k) * (0.3 + 0.65 * j); a += k * 0.4; }
-    else if (u < U.col) { const k = (u - U.fun) / (U.col - U.fun); y = C.colTop - k * (C.colTop - C.colBottom); r = (C.colR - 0.03) * (0.15 + 0.8 * j); a += 0.4 + k * 2; }
-    else if (u < U.bowl) { const k = (u - U.col) / (U.bowl - U.col); y = -0.41 - k * 0.09; r = lerpProfile(C.bowl, y) * (0.3 + 0.55 * j); a += 2.4 + k * 16; }
-    else if (u < U.noz) { const k = (u - U.bowl) / (U.noz - U.bowl); y = -0.5 - k * 0.05; r = 0.025 * j; a += 18; }
-    else { const k = (u - U.noz) / (1 - U.noz); out.set(Math.cos(a) * 0.04 * j - k * 0.9, C.nozzleBottom - k * 0.08 - j * 0.05 * k, Math.sin(a) * (0.04 + k * 0.2) * j); return; }
+    else if (u < U.col) { const k = (u - U.fun) / (U.col - U.fun); y = C.colTop - k * (C.colTop - C.colBottom); r = (C.colR - 0.03) * (0.15 + 0.8 * j); a += 0.4 + k * 0.6; }
+    else if (u < U.bowl) { const k = (u - U.col) / (U.bowl - U.col); y = -0.41 - k * 0.09; r = lerpProfile(C.bowl, y) * (0.3 + 0.55 * j) * (1 - 0.6 * k); a += 1.0 + k * 1.5; }
+    else if (u < U.noz) { const k = (u - U.bowl) / (U.noz - U.bowl); out.set(-k * 0.14, -0.525 - 0.01 * k, (j - 0.5) * 0.008); return; }
+    else { const k = (u - U.noz) / (1 - U.noz); out.set(-0.14 - k * 0.8, C.nozzleBottom - k * 0.06 - j * 0.04 * k, Math.sin(a) * (0.01 + k * 0.15) * j); return; }
     out.set(Math.cos(a) * r, y, Math.sin(a) * r);
   }
 
-  // ---------- Pulsos de energía y datos sobre los cables reales ----------
+  // ---------- Pulsos de energía y datos sobre los cables ----------
   const flows = [];
   function flow(pts, color, kind, n = 3) {
     const curve = new THREE.CatmullRomCurve3(pts.map(q => q.isVector3 ? q : V3(...q)));
     const dots = Array.from({ length: n }, () => mesh(new THREE.SphereGeometry(0.008, 8, 6), new THREE.MeshBasicMaterial({ color }), body));
     flows.push({ curve, dots, kind, ph: Math.random() });
   }
-  flow([[0.283, 0.05, 0], [0.2, 0.085, 0.03], [0.1, C.deck + 0.03, 0.02], [0.07, boxY - 0.01, -0.05], [-0.015, boxY + 0.012, 0.002]], 0xf2a516, 'gen');
-  flow([[-0.015, boxY + 0.012, 0.002], [0.07, boxY - 0.01, -0.05], [0.09, C.deck + 0.025, 0.03], [0.2, 0.03, 0.01], [0.221, -0.06, 0.01], [0.262, -0.19, 0.003]], 0xf2a516, 'charge');
-  flow([[0.0, boxY - 0.012, 0.05], [dTop.x, C.deck + 0.03, dTop.z], [dp.x, -0.1, dp.z], [dp.x, -0.38, dp.z], [0.02, C.colBottom - 0.008, 0.01]], 0x35d0e0, 'centri');
+  flow([[0.283, 0.05, 0], [0.2, 0.085, 0.03], [0.1, C.deck + 0.03, 0.02], [0.07, boxY - 0.01, -0.05], [-0.065, boxY + 0.012, 0.0]], 0xf2a516, 'gen');
+  flow([[-0.065, boxY + 0.012, 0.0], [0.07, boxY - 0.01, -0.05], [0.09, C.deck + 0.025, 0.03], [0.2, 0.03, 0.01], [0.221, -0.06, 0.01], [0.262, -0.19, 0.003]], 0xf2a516, 'charge');
+  flow([[0.09, C.deck + 0.026, 0.035], [0.2, 0.03, 0.02], [0.222, -0.12, 0.03], [0.24, -0.36, 0.05], [0.27, -0.44, 0.06]], 0xff5a2a, 'brake');
+  flow([[0.0, boxY - 0.012, 0.05], [dTop.x, C.deck + 0.03, dTop.z], [dp.x, -0.1, dp.z], [dp.x, -0.38, dp.z], [0.05, -0.45, 0.05], [0.0, -0.5, 0.02]], 0x35d0e0, 'pump');
   flow([[dp.x, -0.3, dp.z], [dp.x, -0.1, dp.z], [dTop.x, C.deck + 0.03, dTop.z], [0.0, (boxY + C.deck) / 2, 0.11], [0.0, boxY + 0.01, 0.03]], 0xffffff, 'data');
 
-  // ---------- Simulación ----------
-  const sim = { t: 0, omega: 0, batWh: C.battery.wh * 0.62, pit: 0, digging: false, pGen: 0, load: 0, trash: 0, kg: 0, bodyY: 0, water: 0,
-    sat: ETAPAS_FILTRO.map(e => e.sat0), treating: true, mode: 'tratando', resting: false, tension: 0, centriRpm: 0, flow: 0, hi: -1,
-    yaw: opts.flowAngle || 0, flowAngle: 0, drift: 0, tilt: 0, flapK: 0 };
+  // ---------- Simulación (mismas reglas que sketch.ino) ----------
+  const sim = { t: 0, omega: 0, batWh: C.battery.wh * 0.8, pGen: 0, pCharge: 0, load: 0, genV: 0, brake: false, pump: true, cycles: 1, liters: 0,
+    trash: 0, kg: 0, bodyY: 0, water: 0, sat: ETAPAS_FILTRO.map(e => e.sat0), mode: 'filtrando', resting: false, tension: 0, flow: 0, hi: -1,
+    yaw: opts.flowAngle || 0, flowAngle: 0, drift: 0, tilt: 0, flapK: 0, v: 0 };
   let bodyInit = false;
+
+  // Paquete en vivo del ESP32 (DeviceTelemetryDto del backend). Cuando llega, manda sobre la
+  // simulación local: el modelo enseña lo mismo que sale de Wokwi. `null` = simular solo.
+  let ext = null;
+  const has = x => typeof x === 'number' && Number.isFinite(x);
+  function aplicarTelemetria(t) { ext = t ?? null; }
+  const congelado = !!opts.congelado;
+  // Filtrado medido por el ESP32 (turbidez entrada vs salida); null si no vino (p. ej., sin flujo).
+  function eficienciaMedida() {
+    const tin = ext?.values?.turb_in_ntu, tout = ext?.values?.turb_out_ntu;
+    return has(tin) && has(tout) && tin > 0 ? Math.min(1, Math.max(0, 1 - tout / tin)) : null;
+  }
+  const batV = () => C.battery.vMin + (C.battery.vMax - C.battery.vMin) * sim.batWh / C.battery.wh;
 
   function update(dt, s = {}) {
     dt = Math.min(dt, 0.05); sim.t += dt;
-    const v = Math.max(0, s.current ?? 0.8), water = s.waterLevel ?? 0, ts = s.timeScale ?? C.timeScale, fa = s.flowAngle ?? 0;
-    sim.water = water; sim.flowAngle = fa;
-    const target = W.tsr * v / rMid;
+    const v = Math.max(0, has(ext?.generator_v) ? ext.generator_v / (ext.brake_on ? 0.75 : 1) / C.genVPerMs : (s.current ?? 0.8)), water = s.waterLevel ?? 0, ts = s.timeScale ?? C.timeScale, fa = s.flowAngle ?? 0;
+    sim.water = water; sim.flowAngle = fa; sim.v = v;
+
+    // Freno (resistencia de descarga): mismos umbrales que controlarFreno()
+    // El voltaje medido baja cuando la resistencia carga al generador.
+    const vb = batV(), open = v < C.cutIn ? 0 : Math.min(C.genVMax, C.genVPerMs * v);
+    const meas = sim.brake ? 0.75 * open : open;
+    if (!sim.brake && (meas > C.brake.genOn || (vb >= C.brake.batOn && meas > vb))) sim.brake = true;
+    if (sim.brake && meas < C.brake.genOff && vb < C.brake.batOff) sim.brake = false;
+    sim.genV = sim.brake ? 0.75 * open : open;
+    if (typeof ext?.brake_on === 'boolean') sim.brake = ext.brake_on;
+    if (has(ext?.generator_v)) sim.genV = ext.generator_v;
+
+    const target = v < C.cutIn ? 0 : W.tsr * v / rMid * (sim.brake ? 0.6 : 1);
     sim.omega += (target - sim.omega) * Math.min(1, dt * 1.0);
-    sim.pGen = target > 0 ? Math.min(C.maxGenW, 0.5 * 1000 * W.gapArea * v ** 3 * W.cp * C.genEff) * Math.min(1, sim.omega / target) : 0;
+    sim.pGen = target > 0 ? 0.5 * 1000 * W.gapArea * v ** 3 * W.cp * C.genEff * Math.min(1, sim.omega / target) : 0;
+    // El XL4015 sigue cargando hasta que la batería se llena; lo que sobra se va a la resistencia.
+    sim.pCharge = sim.batWh >= C.battery.wh * 0.995 ? 0 : Math.min(sim.pGen, C.maxChargeW);
 
-    const pct = sim.batWh / C.battery.wh;
-    if (sim.treating && pct < C.cycle.stopBelow) sim.treating = false;
-    if (!sim.treating && pct > C.cycle.startAbove) sim.treating = true;
-    sim.mode = pct < 0.08 ? 'sin energía' : sim.treating ? 'tratando' : 'cargando';
-    const on = sim.mode === 'tratando';
-    sim.centriRpm += ((on ? 2400 : 0) - sim.centriRpm) * Math.min(1, dt * 1.5);
+    // Bomba por ciclos: mismos umbrales que controlarBomba()
+    if (has(ext?.battery_pct)) sim.batWh = C.battery.wh * Math.min(100, Math.max(0, ext.battery_pct)) / 100;
+    const pct = sim.batWh / C.battery.wh, was = sim.pump;
+    if (sim.pump && pct < C.cycle.stopBelow) sim.pump = false;
+    if (!sim.pump && pct > C.cycle.startAbove) sim.pump = true;
+    if (sim.pump && !was) sim.cycles++;
+    if (typeof ext?.pump_on === 'boolean') sim.pump = ext.pump_on;
+    if (has(ext?.pump_cycles)) sim.cycles = ext.pump_cycles;
+    sim.mode = pct < 0.05 ? 'sin energía' : sim.pump ? 'filtrando' : 'cargando';
+    const on = sim.pump && sim.mode !== 'sin energía';
 
-    // Veleta: la corriente gira la boya hasta alinearla (la toma y las barreras quedan aguas arriba)
     let dYaw = fa - sim.yaw; dYaw = Math.atan2(Math.sin(dYaw), Math.cos(dYaw));
     sim.yaw += dYaw * Math.min(1, dt * 0.9 * Math.min(1.5, v));
 
     const floatY = water + C.freeboard + Math.sin(sim.t * 1.3) * 0.008;
-    let targetY;
-    if (D === 'patas') {
-      const need = (bedY + C.bedClearance) - (floatY + C.nozzleBottom);
-      sim.digging = need > sim.pit + 0.003 && sim.batWh > 1;
-      if (sim.digging) sim.pit = Math.min(need, sim.pit + C.digRate * dt);
-      targetY = Math.max(floatY, bedY + C.bedClearance - C.nozzleBottom - sim.pit);
-      sim.drift = 0; sim.tilt = 0;
-    } else {
-      const restY = bedY + 0.01 - MO.cageBottom;
-      sim.resting = floatY < restY; targetY = Math.max(floatY, restY);
-      sim.drift += ((sim.resting ? 0 : 0.12 * v * v) - sim.drift) * Math.min(1, dt * 1.5);
-      sim.tilt += ((sim.resting ? 0 : 0.05 * v * v) - sim.tilt) * Math.min(1, dt * 1.5);
-      sim.tension = 0.5 * 1000 * MO.dragCd * MO.dragArea * v * v / (2 * Math.cos(deg(MO.angles[0])));
-    }
+    const restY = bedY + 0.01 - MO.cageBottom;
+    sim.resting = floatY < restY; const targetY = Math.max(floatY, restY);
+    sim.drift += ((sim.resting ? 0 : 0.12 * v * v) - sim.drift) * Math.min(1, dt * 1.5);
+    sim.tilt += ((sim.resting ? 0 : 0.05 * v * v) - sim.tilt) * Math.min(1, dt * 1.5);
+    if (has(ext?.tilt_deg)) sim.tilt = deg(ext.tilt_deg);
+    sim.tension = 0.5 * 1000 * MO.dragCd * MO.dragArea * v * v / (2 * Math.cos(deg(MO.angles[0])));
     if (!bodyInit) { sim.bodyY = targetY; bodyInit = true; }
     sim.bodyY += (targetY - sim.bodyY) * Math.min(1, dt * 3);
     body.position.set(-sim.drift * Math.cos(fa), sim.bodyY, sim.drift * Math.sin(fa));
     body.rotation.set(0, sim.yaw, sim.tilt + Math.sin(sim.t * 1.1) * 0.004);
-    mount.position.set(body.position.x, sim.bodyY + (D === 'patas' ? C.ringTopY : MO.cageBottom), body.position.z);
-    if (moor.length) updateMoor();
+    mount.position.set(body.position.x, sim.bodyY + MO.cageBottom, body.position.z);
+    updateMoor();
     const submerged = sim.bodyY <= water + 0.04;
-    sim.flow = submerged ? sim.centriRpm / 2400 : 0;
+    sim.flow += (((on && submerged) ? 1 : 0) - sim.flow) * Math.min(1, dt * 2);
 
-    sim.load = C.loads.base + (on ? C.loads.uv + C.loads.centri : 0) + (sim.digging ? C.loads.augers : 0);
-    sim.batWh = Math.min(C.battery.wh, Math.max(0, sim.batWh + (sim.pGen - sim.load) * dt * ts / 3600));
-    ETAPAS_FILTRO.forEach((e, i) => { sim.sat[i] = Math.min(1, sim.sat[i] + dt * sim.flow * e.rate * C.satSpeed); });
+    sim.load = C.loads.base + (on ? C.loads.pump : 0);
+    if (!congelado) {
+      sim.batWh = Math.min(C.battery.wh, Math.max(0, sim.batWh + (sim.pCharge - sim.load) * dt * ts / 3600));
+      sim.liters += C.pumpLpm * sim.flow * dt * ts / 60;
+    }
+    if (has(ext?.water_liters_total)) sim.liters = ext.water_liters_total;
+    if (has(ext?.basket_fill_pct)) sim.kg = B.capKg * Math.min(100, Math.max(0, ext.basket_fill_pct)) / 100;
+    if (!congelado) ETAPAS_FILTRO.forEach((e, i) => { sim.sat[i] = Math.min(1, sim.sat[i] + dt * sim.flow * e.rate * C.satSpeed); });
 
     wheel.rotation.y -= sim.omega * dt;
     pinion.rotation.y += sim.omega * (W.rIn / 0.018) * dt;
-    centri.rotation.y += sim.centriRpm / 2400 * 14 * dt;
+    imp.rotation.y += sim.flow * 30 * dt;
+    brakeGlow.material.opacity = sim.brake ? 0.55 + 0.25 * Math.sin(sim.t * 8) : 0;
 
-    const anchorDepth = C.legBaseAnchor + sim.pit;
-    legs.forEach(L => {
-      const top = V3(Math.cos(L.a) * C.legTopR, sim.bodyY + C.ringTopY, Math.sin(L.a) * C.legTopR);
-      const tip = V3(Math.cos(L.a) * C.legTipR, bedY - anchorDepth, Math.sin(L.a) * C.legTipR);
-      const d = tip.clone().sub(top), len = d.length();
-      L.g.position.copy(top); L.g.quaternion.setFromUnitVectors(V3(0, -1, 0), d.normalize());
-      const innerLen = Math.max(0.03, len - C.augerLen - C.legSleeve + 0.05);
-      L.inner.scale.y = innerLen; L.inner.position.y = -(C.legSleeve - 0.05) - innerLen / 2;
-      L.auger.position.y = -(len - C.augerLen);
-      if (sim.digging) L.auger.rotation.y += 9 * dt;
-    });
-    pit.visible = berm.visible = sim.pit > 0.01;
-    pit.scale.set(1, Math.max(0.005, sim.pit), 1);
-    berm.scale.set(1, 1, Math.min(1.6, 0.5 + sim.pit * 2));
-
-    // Compuertas: se abren cuando entra basura y se cierran solas
     sim.flapK = Math.max(0, sim.flapK - dt * 1.5);
     flaps.forEach((f, i) => { f.rotation.z = -(0.12 + 0.15 * v + 0.6 * sim.flapK * (0.6 + 0.4 * Math.sin(sim.t * 4 + i))); });
     trashIn.forEach((o, i) => { o.visible = i < Math.min(trashIn.length, Math.round(36 * Math.min(1, sim.kg / B.capKg))); });
 
-    // Peces (marco del río, girado según la dirección de la corriente)
     const showFish = s.showFish !== false, ca = Math.cos(fa), sa = Math.sin(fa);
     fishes.forEach(f => {
       f.g.visible = showFish;
       f.x += f.sp * dt; if (f.x > 4.5) { f.x = -4.5; f.z0 = (Math.random() - 0.5) * 3; f.d = Math.random(); }
       let z = f.z0 + Math.sin(sim.t * 0.6 + f.ph) * 0.12;
       const R = 0.95; if (Math.abs(f.x) < R) { const m = Math.sqrt(R * R - f.x * f.x); if (Math.abs(z) < m) z = (z >= 0 ? 1 : -1) * m; }
-      if (f.x < -0.5 && f.x > -2.2 && Math.abs(z) < 0.5) z = (z >= 0 ? 1 : -1) * 0.5;   // esquiva la veleta
+      if (f.x < -0.5 && f.x > -2.2 && Math.abs(z) < 0.5) z = (z >= 0 ? 1 : -1) * 0.5;
       const yMin = bedY + 0.12, yMax = water - 0.45, y = yMax < yMin ? (yMin + water) / 2 : yMax - f.d * (yMax - yMin) * 0.85;
       f.g.position.set(f.x * ca + z * sa, y + Math.sin(sim.t + f.ph) * 0.015, -f.x * sa + z * ca);
       f.g.rotation.y = fa - Math.cos(sim.t * 0.6 + f.ph) * 0.15;
@@ -597,27 +675,20 @@ export function createBoyaRioMonitor(opts = {}) {
       escapeFish.tail.rotation.y = Math.sin(sim.t * 10) * 0.5;
     }
 
-    stageMeshes.forEach((st, i) => {
-      const sat = sim.sat[i];
-      st.led.material.color.setHex(sat > 0.85 ? 0xe0533d : sat > 0.65 ? 0xf2a516 : 0x34d17a);
-      const hl = sim.hi === i ? 0.35 + 0.35 * Math.sin(sim.t * 6) : 0;
-      if (ETAPAS_FILTRO[i].key === 'uv') st.mat.emissiveIntensity = (on ? 0.9 * (1 - 0.5 * sat) : 0.05) + hl;
-      else { st.mat.emissive.setHex(0x35d0e0); st.mat.emissiveIntensity = hl; }
-    });
+    if (sel) { selBox.setFromObject(sel.obj); selBox.expandByScalar(0.004); selBox.getCenter(selFill.position); selBox.getSize(selFill.scale); const k = 0.4 + 0.4 * Math.sin(sim.t * 5); selMats.forEach(([o]) => { o.material.emissiveIntensity = k; }); }
+    stageMeshes.forEach((st, i) => { const hl = sim.hi === i ? 0.35 + 0.35 * Math.sin(sim.t * 6) : 0; st.mat.emissive.setHex(0x35d0e0); st.mat.emissiveIntensity = hl; });
 
     const p2 = sim.batWh / C.battery.wh;
     batBar.scale.y = Math.max(0.005, p2 * 0.1); batBar.position.y = -0.05 + p2 * 0.05;
     batBar.material.color.setHex(p2 > 0.5 ? 0x34d17a : p2 > 0.2 ? 0xf2a516 : 0xe0533d);
-    if (D === 'patas') { led.material.color.setHex(p2 < 0.2 ? 0xe0533d : sim.digging ? 0xf2a516 : 0x34d17a); led.visible = sim.digging ? Math.sin(sim.t * 14) > 0 : Math.sin(sim.t * 3) > -0.6; }
-    else { led.material.color.setHex(p2 < 0.1 ? 0xe0533d : 0xf2a516); led.visible = (sim.t % 4) < 0.5; }
 
     points.visible = s.showFlow !== false;
     if (points.visible) {
-      const tmp = V3(0, 0, 0), avgEff = effs().reduce((a, b) => a + b, 0) / ETAPAS_FILTRO.length;
+      const tmp = V3(0, 0, 0), e = eficienciaMedida() ?? turbEff();
       parts.forEach((p, i) => {
         p.u = (p.u + dt * 0.1 * sim.flow) % 1;
         particlePos(p, tmp); pPos[i * 3] = tmp.x; pPos[i * 3 + 1] = tmp.y; pPos[i * 3 + 2] = tmp.z;
-        const k = p.u < U.fun ? 0 : p.u < U.col ? (p.u - U.fun) / (U.col - U.fun) * (0.3 + 0.6 * avgEff) : Math.min(1, 0.45 + 0.6 * avgEff);
+        const k = p.u < U.fun ? 0 : p.u < U.col ? (p.u - U.fun) / (U.col - U.fun) * e : e;
         tmpC.copy(dirty).lerp(clean, k); pCol[i * 3] = tmpC.r; pCol[i * 3 + 1] = tmpC.g; pCol[i * 3 + 2] = tmpC.b;
       });
       pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
@@ -625,51 +696,57 @@ export function createBoyaRioMonitor(opts = {}) {
 
     const showE = s.showEnergy !== false;
     flows.forEach(L => {
-      const speed = L.kind === 'gen' ? Math.min(0.9, sim.pGen / 8) : L.kind === 'charge' ? (sim.pGen > sim.load ? 0.4 : 0) : L.kind === 'centri' ? (on ? 0.5 : 0) : (sim.batWh > 0.3 ? 0.25 : 0);
+      const speed = L.kind === 'gen' ? Math.min(0.9, sim.pGen / 8) : L.kind === 'charge' ? (sim.pCharge > sim.load ? 0.4 : 0) : L.kind === 'brake' ? (sim.brake && sim.pGen > sim.pCharge ? 0.6 : 0) : L.kind === 'pump' ? (on ? 0.5 : 0) : (sim.batWh > 0.3 ? 0.25 : 0);
       L.ph = (L.ph + dt * speed) % 1;
       L.dots.forEach((d, k) => { d.visible = showE && speed > 0.01; d.position.copy(L.curve.getPointAt((L.ph + k / L.dots.length) % 1)); });
     });
   }
 
   function effs() { return ETAPAS_FILTRO.map((e, i) => e.base * (1 - Math.pow(sim.sat[i], 3))); }
+  function turbEff() { const E = effs(); return 1 - (1 - E[0]) * (1 - 0.3 * E[1]); }
 
+  // Mismos 14 datos y unidades que el JSON del firmware.
   function lecturasSimuladas() {
     const t = sim.t, n = (a, f = 1) => a * Math.sin(t * f) + a * 0.5 * Math.sin(t * f * 2.7 + 1);
     const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
-    const w = { ph: clamp(6.85 + n(0.25, 0.2), 0, 14), orp: -115 + n(12, 0.2), ec: 1380 + n(40, 0.15), do: Math.max(0, 2.1 + n(0.25, 0.25)), temp: 19.4 + n(0.3, 0.05),
-      turb: Math.max(0, 82 + n(8, 0.4)), uv254: 38 + n(3, 0.3), pb: Math.max(0, 48 + n(5, 0.18)), uvi: 0 };
-    w.tds = w.ec * 0.5;
-    const inlet = { ...w }, E = effs(), uvOn = sim.mode === 'tratando', stages = [], flowing = sim.flow > 0.02;
-    ETAPAS_FILTRO.forEach((e, i) => {
-      const f = flowing ? E[i] : 0;
-      if (e.key === 'sed') w.turb *= 1 - f;
-      if (e.key === 'gac') { w.uv254 *= 1 - f; w.turb *= 1 - 0.1 * f; }
-      if (e.key === 'res') { w.pb *= 1 - f; w.ec *= 1 - 0.05 * f; }
-      if (e.key === 'kdf') { w.pb *= 1 - 0.6 * f; w.ec *= 1 - 0.04 * f; }
-      if (e.key === 'cal') w.ph += (7.4 - w.ph) * f;
-      if (e.key === 'uv') w.uvi = uvOn ? 4.2 * (1 - 0.5 * sim.sat[i]) : 0;
-      w.tds = w.ec * 0.5;
-      const sat = sim.sat[i];
-      stages.push({ key: e.key, ind: e.ind, value: w[e.ind], sat, eff: f, estado: sat > 0.85 ? 'Reemplazar' : sat > 0.65 ? 'Próximo cambio' : 'OK' });
-    });
-    const aer = sim.centriRpm / 2400, cEff = Math.min(0.8, aer * 0.8) * (flowing ? 1 : 0);
-    const outlet = { ...w, turb: w.turb * (1 - cEff), do: w.do + 3.4 * aer, orp: w.orp + 150 * aer };
-    return { inlet, stages, outlet, basketFillPct: Math.min(100, 100 * sim.kg / B.capKg) };
+    const E = effs(), flowing = sim.flow > 0.05;
+    const ph_in = clamp(6.7 + n(0.3, 0.2), 0, 14);
+    const turb_in = clamp(82 + n(8, 0.4), 0, 1000);
+    const calc = flowing && ph_in < 7 ? (7 - ph_in) * 0.6 * E[3] : 0;
+    const r = {
+      // Sin flujo las sondas de salida están en agua estancada: no hay dato (igual que el firmware).
+      ph_in, ph_out: flowing ? clamp(ph_in + calc + n(0.03, 0.9), 0, 14) : null,
+      tds: clamp(690 + n(20, 0.15), 0, 1000), temp: 19.4 + n(0.3, 0.05),
+      turb_in, turb_out: flowing ? turb_in * (1 - turbEff()) : null,
+      caudal_lpm: C.pumpLpm * sim.flow, litros: sim.liters,
+      cesta_pct: Math.min(100, 100 * sim.kg / B.capKg),
+      bat_pct: 100 * sim.batWh / C.battery.wh, gen_v: sim.genV,
+      bomba_a: sim.flow > 0.05 ? C.pumpA * sim.flow : 0, bomba_on: sim.pump ? 1 : 0,
+      inclinacion: Math.abs(sim.tilt) * 180 / Math.PI
+    };
+    // Con paquete en vivo, la calidad del agua es la que midió el ESP32.
+    const q = ext?.values ?? {};
+    [['ph_in', q.ph], ['ph_out', q.ph_out], ['tds', q.tds_ppm], ['temp', q.temp_c], ['turb_in', q.turb_in_ntu], ['turb_out', q.turb_out_ntu],
+     ['caudal_lpm', ext?.flow_rate_lpm], ['bomba_a', ext?.pump_current_a]].forEach(([k, x]) => { if (has(x)) r[k] = x; });
+    const stages = ETAPAS_FILTRO.map((e, i) => { const sat = sim.sat[i]; return { key: e.key, sat, eff: E[i], estado: sat > 0.85 ? 'Cambiar' : sat > 0.65 ? 'Próximo cambio' : 'OK' }; });
+    return { ...r, stages };
   }
 
   function telemetria() {
     const wheelRpm = sim.omega * 60 / (2 * Math.PI);
     let err = sim.flowAngle - sim.yaw; err = Math.atan2(Math.sin(err), Math.cos(err));
+    const fill = Math.min(1, sim.kg / B.capKg);
     return {
-      diseno: D, wheelRpm, generatorRpm: wheelRpm * W.rIn / 0.018, centrifugeRpm: sim.centriRpm, powerGenW: sim.pGen, loadW: sim.load,
-      batteryPct: 100 * sim.batWh / C.battery.wh, batteryWh: sim.batWh, netW: sim.pGen - sim.load,
-      mode: D === 'anclada' ? (sim.resting ? 'apoyada en el fondo' : 'anclada') : sim.digging ? 'excavando' : sim.pit > 0.01 ? 'anclada en fosa' : 'flotando', powerMode: sim.mode,
-      tensionKN: sim.tension / 1000, driftM: sim.drift, pitDepth: sim.pit, intakeSubmerged: sim.bodyY <= sim.water + 0.04,
+      diseno: D, wheelRpm, generatorRpm: wheelRpm * W.rIn / 0.018, powerGenW: sim.pGen, chargeW: sim.pCharge, loadW: sim.load,
+      genV: sim.genV, brake: sim.brake, pumpOn: sim.pump, pumpA: sim.flow > 0.05 ? C.pumpA * sim.flow : 0, pumpCycles: sim.cycles,
+      batteryPct: 100 * sim.batWh / C.battery.wh, batteryV: batV(), batteryWh: sim.batWh, netW: sim.pCharge - sim.load,
+      mode: sim.resting ? 'apoyada en el fondo' : 'anclada', powerMode: sim.mode,
+      tensionKN: sim.tension / 1000, driftM: sim.drift, tiltDeg: Math.abs(sim.tilt) * 180 / Math.PI, intakeSubmerged: sim.bodyY <= sim.water + 0.04,
       headingDeg: sim.yaw * 180 / Math.PI, headingErrorDeg: err * 180 / Math.PI,
-      wheelClearance: sim.bodyY + W.yBot - bedY, flowLpm: C.pumpLpm * sim.flow,
+      flowLpm: C.pumpLpm * sim.flow, litersTotal: sim.liters,
       intakeVelocity: (C.pumpLpm * sim.flow / 60000) / (16 * 0.035 * 0.04),
-      basketFillPct: Math.min(100, 100 * sim.kg / B.capKg),
-      trashPieces: sim.trash, trashKg: sim.kg, bodyY: sim.bodyY, saturation: [...sim.sat]
+      basketFillPct: 100 * fill, sonarCm: C.sonar.distEmpty - fill * (C.sonar.distEmpty - C.sonar.distFull),
+      trashPieces: sim.trash, trashKgEstimado: sim.kg, bodyY: sim.bodyY, saturation: [...sim.sat]
     };
   }
 
@@ -680,27 +757,27 @@ export function createBoyaRioMonitor(opts = {}) {
   }
   function registrarBasura(kg = 0.05) { sim.trash++; sim.kg += kg; sim.flapK = 1; }
   function vaciarCesta() { sim.kg = 0; sim.trash = 0; }
-  function rellenarFosa() { sim.pit = 0; }
   function cambiarCartuchos() { sim.sat = ETAPAS_FILTRO.map(() => 0.02); }
   function resaltarEtapa(i) { sim.hi = i == null ? -1 : i; }
   function bocaCesta() { return { x: B.x0, y: sim.bodyY - 0.01, halfW: B.halfW, offsetX: -sim.drift, boom: BOOM, full: sim.kg >= B.capKg }; }
   function localAMundo(x, y, z) { body.updateMatrixWorld(true); return body.localToWorld(V3(x, y, z)); }
 
   const etiquetas = [
-    ['electronica', 'Caja 200×150×75 mm: ESP32 + LoRa + tarjetas Gravity', 0, 0, 0],
-    ['antena', 'Antena LoRa 915 MHz', 1],
-    ...(D === 'anclada' ? [['faro', 'Faro LED', 1, 1]] : []),
+    ['electronica', 'Caja: ESP32, 2 ADS1115, módem 4G, tarjetas de sondas', 0, 0, 0],
+    ['antena', 'Antena LTE del módem A7670SA', 1],
+    ['domo', 'Domo: garrafón o cono', 1],
     ['toma', 'Toma lateral con malla fina', 1],
-    ['molino', 'Molino entre los tubos de PET', 0, 1, 1], ['generador', 'Motor DC 775 como generador', 1, 1],
-    ['rejilla', 'Hueco con rejilla anti-peces'], ['sensores', 'Sondas pH, ORP, EC, OD, temp., turbidez', 1, 0, 1],
-    ['filtros', '6 discos filtrantes (corte)', 0, 0, 1], ['ducto', 'Ducto interno de cables', 1],
-    ['bateria', 'Batería LiFePO4 4S + BMS', 0, 1], ['centrifuga', 'Centrífuga de salida (BLDC)', 0, 0, 1],
-    ['salida', 'Salida + sondas', 1], ['barreras', 'Barreras con faldón de 10 cm', 1, 0, 1],
-    ['cesta', 'Cesta 80×72 cm con tapa de malla', 0, 0, 1], ['compuerta', 'Compuertas de no retorno', 0, 0, 1], ['nivel', 'Sensor de llenado JSN-SR04T', 1],
+    ['molino', 'Molino de PVC entre los anillos de PET', 0, 1, 1], ['generador', 'Motor RS-775 reciclado como generador', 1, 1],
+    ['rejilla', 'Hueco con rejilla anti-peces'], ['sensores', 'Entrada: pH, TDS, turbidez y temperatura', 1, 0, 1],
+    ['filtros', '4 capas: arena, carbón, zeolita, calcita', 0, 0, 1], ['ducto', 'Ducto interno de cables', 1],
+    ['bateria', '6 celdas 18650 recicladas (3S2P) + BMS', 0, 1], ['freno', 'Resistencia de descarga (freno)', 0, 1],
+    ['salida', 'Salida: pH y turbidez', 1], ['bomba', 'Bomba 12 V', 0, 0, 1], ['caudal', 'Caudalímetro YF-S401', 0, 0, 1],
+    ['barreras', 'Barreras con faldón de 10 cm', 1, 0, 1],
+    ['cesta', 'Cesta (huacal) con tapa de malla', 0, 0, 1], ['compuerta', 'Compuertas de no retorno', 0, 0, 1], ['nivel', 'Ultrasónico JSN-SR04T (30 cm sobre la tapa)', 1],
     ['escape', 'Salida para peces', 0, 0, 1], ['veleta', 'Veleta: la mantiene contra la corriente', 0, 0, 1],
-    ['giro', D === 'patas' ? 'Anillo giratorio (patas fijas)' : 'Anillo giratorio (cadenas fijas)', 0],
-    ...(D === 'patas' ? [['patas', 'Pata con barrena y motor 12 V', 1]] : [['jaula', 'Jaula con lastre', 0, 0, 1], ['linea', 'Cadena con lastre de concreto', 0], ['ancla', 'Ancla helicoidal', 1]])
+    ['giro', 'Anillo giratorio (las líneas no giran)', 0],
+    ['jaula', 'Jaula de varilla', 0, 0, 1], ['linea', 'Cuerda de polipropileno', 0], ['cadena', '1.5 m de cadena', 0], ['ancla', 'Ancla helicoidal', 1], ['lastre', 'Cubeta con concreto', 1]
   ];
 
-  return { diseno: D, etiquetas, root, body, anchors, update, telemetria, lecturasSimuladas, registrarBasura, vaciarCesta, rellenarFosa, cambiarCartuchos, resaltarEtapa, bocaCesta, bocaRed: bocaCesta, setRayosX, localAMundo, config: C };
+  return { diseno: D, etiquetas, componentes, seleccionarComponente, vistaComponente, root, body, anchors, update, telemetria, lecturasSimuladas, aplicarTelemetria, registrarBasura, vaciarCesta, cambiarCartuchos, resaltarEtapa, bocaCesta, bocaRed: bocaCesta, setRayosX, localAMundo, config: C };
 }

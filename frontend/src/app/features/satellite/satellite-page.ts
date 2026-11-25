@@ -8,7 +8,7 @@ import { OpsApi } from '../../core/api/ops-api';
 import { REPORT_STATUS_META, REPORT_TYPE_META } from '../../shared/utils/ops.util';
 import { CriticalPoint, Hotspot, SensorHealth, SensorPosition } from '../../core/models/rio.models';
 import { CitizenReport } from '../../core/models/ops.models';
-import { BUOY_STATUS_META, Buoy } from '../../core/models/buoy.models';
+import { BUOY_SOURCE, Buoy } from '../../core/models/buoy.models';
 import { BuoysService } from '../../core/services/buoys.service';
 import { FiltersService } from '../../core/services/filters.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
@@ -288,7 +288,7 @@ function buoyContent(b: Buoy, onOpen: () => void): HTMLElement {
   title.textContent = `${b.name} · ${b.code}`;
   const meta = document.createElement('small');
   meta.style.display = 'block';
-  meta.textContent = `${b.river} · ${BUOY_STATUS_META[b.status].label}`;
+  meta.textContent = `${b.river} · ${BUOY_SOURCE}`;
   const open = document.createElement('button');
   open.type = 'button';
   open.className = 'open';

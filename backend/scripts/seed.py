@@ -1,8 +1,9 @@
 """Crea las estaciones de ejemplo en Puebla, sus sensores y las reglas de alerta por defecto.
 
 - 3 estaciones simuladas (sin `code`): las alimenta el simulador, con sus escenarios demo.
-- 2 boyas con dispositivo (`code` RM-01 y RM-02): las alimenta el ESP32 (Wokwi o boya real) por
-  MQTT, con solo los 5 sensores que trae el firmware. El simulador no las toca.
+- 2 boyas con dispositivo (`code` RM-01 y RM-02): las alimenta el ESP32 en Wokwi por MQTT, con solo
+  los 6 sensores de calidad que trae el firmware (pH entrada y salida, TDS, temperatura, turbidez
+  entrada y salida). El simulador no las toca. Si la boya ya existe, se le agregan los que falten.
 
 Uso (desde backend/):  uv run python -m scripts.seed [--reset]
 Es idempotente: no duplica estaciones (por nombre) ni reglas.
@@ -18,6 +19,7 @@ from app.adapters.outbound.messaging.brokers import InMemoryBroker
 from app.adapters.outbound.simulation.generator import SENSOR_LAYOUT
 from app.config.container import Container
 from app.config.settings import get_settings
+from app.domain.enums import SensorType
 from app.domain.telemetry import CHANNELS
 
 STATIONS = [
@@ -71,10 +73,12 @@ DEVICE_STATIONS = [
 ]
 
 # Un sensor por campo del firmware, en su ubicación preferida; rangos válidos del layout simulado.
+# La boya no tiene sonda de oxígeno disuelto (ver docs/fidelidad.md): `do_mgl` no se le crea.
 VALID_RANGE = {(t, loc): (vmin, vmax) for t, loc, vmin, vmax in SENSOR_LAYOUT}
 DEVICE_LAYOUT = [
     (ch.type, ch.locations[0], *VALID_RANGE.get((ch.type, ch.locations[0]), (None, None)))
     for ch in CHANNELS.values()
+    if ch.type is not SensorType.DISSOLVED_OXYGEN
 ]
 
 # Solo en ENVIRONMENT de desarrollo (el seed no crea estas cuentas en producción).
@@ -107,17 +111,27 @@ async def seed(container: Container, reset: bool = False) -> None:
         print("Tablas vaciadas.")
 
     existing, _ = await container.catalog.list_stations(status=None, river=None, limit=500, offset=0)
-    names = {s.name for s in existing}
+    by_name = {s.name: s for s in existing}
     for stations, layout, model in (
         (STATIONS, SENSOR_LAYOUT, "Sensor simulado v0"),
         (DEVICE_STATIONS, DEVICE_LAYOUT, "Boya ESP32 v0"),
     ):
         for data in stations:
-            if data["name"] in names:
-                print(f"· ya existe: {data['name']}")
-                continue
-            station = await container.catalog.create_station(data)
-            for sensor_type, location, vmin, vmax in layout:
+            station = by_name.get(data["name"])
+            have: set[tuple[str, str]] = set()
+            if station is not None:
+                if "code" not in data:
+                    print(f"· ya existe: {data['name']}")
+                    continue
+                # Boya ya sembrada con un firmware anterior: solo se agregan los sensores que falten.
+                sensors, _ = await container.catalog.list_sensors(
+                    station_id=station.id, type=None, location=None, status=None, limit=500, offset=0
+                )
+                have = {(str(s.type), str(s.location)) for s in sensors}
+            else:
+                station = await container.catalog.create_station(data)
+            missing = [row for row in layout if (str(row[0]), str(row[1])) not in have]
+            for sensor_type, location, vmin, vmax in missing:
                 await container.catalog.create_sensor(
                     {
                         "station_id": station.id,
@@ -128,7 +142,12 @@ async def seed(container: Container, reset: bool = False) -> None:
                         "model": model,
                     }
                 )
-            print(f"✓ {station.name}: {len(layout)} sensores")
+            if not have:
+                print(f"✓ {station.name}: {len(missing)} sensores")
+            elif missing:
+                print(f"✓ {station.name}: {len(missing)} sensores nuevos")
+            else:
+                print(f"· ya existe: {station.name}")
 
     created = await container.alerts.install_default_rules()
     print(f"✓ {created} reglas de alerta por defecto" if created else "· reglas de alerta ya existen")

@@ -197,20 +197,39 @@ Balance de agua de un lote tratado. `efficiency_pct` la calcula el backend.
 
 ## Dispositivos — telemetría de la boya (ESP32 / Wokwi)
 
-La boya manda **un mensaje plano por envío**. El backend lo reparte así:
+La boya manda **un mensaje plano por envío** (cada 15 s), con las claves de [`firmware/boya-rm01/sketch.ino`](firmware/boya-rm01/sketch.ino). No hay boya física: RM-01 y RM-02 corren en Wokwi (o una con `scripts/buoy.py`). Si un sensor no responde, el firmware **omite su clave** (no manda 0); el dashboard la muestra como «sin dato». Sin flujo (caudal < 0.1 L/min) también omite `ph_out`, `turb_out_ntu` y `eficiencia_pct`: las sondas de salida están en agua estancada. El backend lo reparte así:
 
 - **Calidad del agua → lecturas** de los sensores de la estación (mismas validaciones, alertas, salud y evento `reading` que `POST /readings`):
 
   | Campo | Sensor (`type` / `location`, en orden de preferencia) |
   | --- | --- |
   | `ph` | `ph` / `inlet`, si no hay → `river` |
+  | `ph_out` | `ph` / `outlet` (después de los filtros) |
   | `tds_ppm` | `tds` / `inlet` → `river` |
   | `temp_c` | `temperature` / `inlet` → `river` |
   | `turb_in_ntu` | `turbidity` / `inlet` |
   | `turb_out_ntu` | `turbidity` / `outlet` |
 
   Un campo cuya estación no tiene ese sensor no se guarda y se reporta en `unmapped`.
-- **Estado del dispositivo → `device_telemetry`**: `n`, `bat_v`, `bat_pct`, `rio_ms`, `gen_w`, `gen_v`, `freno`, `bomba`, `alerta`, `eficiencia_pct` (todos opcionales). Ojo: `eficiencia_pct` es la del firmware (por turbidez); no es la `efficiency_pct` de los lotes (por volumen).
+- **Estado del dispositivo → `device_telemetry`** (todos opcionales):
+
+  | Clave del firmware | Campo de `DeviceTelemetryOut` | Pieza |
+  | --- | --- | --- |
+  | `n` | `seq` | contador de envíos |
+  | `bat_v`, `bat_pct` | `battery_v`, `battery_pct` | divisor 100k/33k |
+  | `gen_v` | `generator_v` | divisor 100k/10k del generador |
+  | `rio_ms`, `gen_w` | `river_speed_ms`, `generator_w` | el firmware actual no los manda |
+  | `freno`, `bomba` | `brake_on`, `pump_on` | salidas del ESP32 |
+  | `alerta` | `alarm_on` | LED rojo: mismos umbrales que las reglas por defecto de este backend (pH, turbidez, temperatura; la de TDS no aplica porque el sensor se satura en 1000 ppm) + inclinación > 30° o golpe |
+  | `eficiencia_pct` | `device_efficiency_pct` | derivado en el firmware: turbidez entrada vs salida. No es la `efficiency_pct` de los lotes (por volumen) |
+  | `caudal_lpm` | `flow_rate_lpm` | YF-S401 (L/min, solo con la bomba prendida) |
+  | `litros_total` | `water_liters_total` | derivado: suma del caudal desde que arrancó el ESP32 |
+  | `cesta_pct` | `basket_fill_pct` | JSN-SR04T (0–100; fuera de rango → 422) |
+  | `bomba_a` | `pump_current_a` | ACS712 (A) |
+  | `ciclos_bomba` | `pump_cycles` | encendidos de la bomba desde que arrancó el ESP32 |
+  | `inclinacion_deg`, `golpe` | `tilt_deg`, `shock` | MPU6050 |
+  | `senal_csq` | `signal_csq` y `rssi_dbm` | módem A7670SA: CSQ 0–31; `rssi_dbm = −113 + 2·CSQ`; 99 = sin dato (ambos `null`) |
+  | `gas_v` | `gas_v` | sensor de gas de una versión anterior; el firmware actual no lo manda |
 - **Hora**: `ts` opcional (ISO-8601 con zona o epoch en s). Si no viene, no se entiende (ej. `"sin-hora"`), es anterior a 2024 (ESP32 sin NTP) o está más de 5 min en el futuro, se usa la hora de llegada.
 - Campos desconocidos se ignoran (el firmware puede agregar campos sin romper nada).
 
@@ -218,13 +237,15 @@ La boya manda **un mensaje plano por envío**. El backend lo reparte así:
 
 Firmware de referencia (Wokwi y boya real): [`firmware/boya-rm01/sketch.ino`](firmware/boya-rm01/sketch.ino).
 
-La API se suscribe a `MQTT_TOPIC` (default `riomonitor/+/telemetria`; el `+` es el `code`) en el broker de `MQTT_URL` (vacío = apagado). Mismo cuerpo que el POST. Un mensaje inválido o de una boya desconocida se registra en el log y se descarta. Con varios workers usa suscripción compartida `$share/rio-api/…` para no ingerir dos veces.
+La API se suscribe a `MQTT_TOPIC` (default `riomonitor/+/telemetria`; el `+` es el `code`) en el broker de `MQTT_URL` (vacío = apagado). Mismo cuerpo que el POST. Un mensaje inválido o de una boya desconocida se registra en el log y se descarta. Con varios workers define `MQTT_SHARED_GROUP` (suscripción compartida `$share/<grupo>/…`) para no ingerir dos veces; con uno solo déjalo vacío (en un broker público, otro backend con el mismo grupo se llevaría parte de los mensajes).
 
 ### `POST /api/v1/devices/{code}/telemetry` 🔑
 
 ```json
-{ "boya": "RM-01", "n": 42, "ph": 6.9, "tds_ppm": 410, "temp_c": 22.0, "turb_in_ntu": 180, "turb_out_ntu": 12,
-  "eficiencia_pct": 93.3, "bat_v": 11.8, "bat_pct": 78, "rio_ms": 0.9, "gen_v": 14.2, "freno": false, "bomba": true, "alerta": false }
+{ "boya": "RM-01", "n": 42, "ts": "2026-11-24T17:54:50Z", "ph": 6.70, "ph_out": 6.80, "tds_ppm": 690, "temp_c": 19.4,
+  "turb_in_ntu": 82, "turb_out_ntu": 22, "eficiencia_pct": 73.2, "bat_v": 11.88, "bat_pct": 80, "gen_v": 14.0,
+  "freno": false, "bomba": true, "alerta": true, "caudal_lpm": 2.50, "litros_total": 37.5, "cesta_pct": 0,
+  "bomba_a": 0.40, "ciclos_bomba": 1, "inclinacion_deg": 2.3, "golpe": false, "senal_csq": 22 }
 ```
 
 `boya` es opcional, pero si viene debe coincidir con `{code}` (422). Código sin estación → 404.
@@ -233,7 +254,7 @@ La API se suscribe a `MQTT_TOPIC` (default `riomonitor/+/telemetria`; el `+` es 
 
 ```json
 { "station_id": "80f0…", "code": "RM-01", "ts": "2026-11-24T17:54:53Z",
-  "readings": { "received": 5, "accepted": 5, "duplicates": 0, "rejected": [], "alerts_triggered": 0 },
+  "readings": { "received": 6, "accepted": 6, "duplicates": 0, "rejected": [], "alerts_triggered": 0 },
   "unmapped": [] }
 ```
 
@@ -243,8 +264,11 @@ La API se suscribe a `MQTT_TOPIC` (default `riomonitor/+/telemetria`; el `+` es 
 
 ```json
 { "id": "…", "station_id": "80f0…", "ts": "…", "seq": 42, "battery_v": 11.8, "battery_pct": 78,
-  "river_speed_ms": 0.9, "generator_w": null, "generator_v": 14.2, "pump_on": true, "brake_on": false,
-  "alarm_on": false, "device_efficiency_pct": 93.3 }
+  "river_speed_ms": null, "generator_w": null, "generator_v": 14.0, "pump_on": true, "brake_on": false,
+  "alarm_on": true, "device_efficiency_pct": 73.2, "flow_rate_lpm": 2.5, "basket_fill_pct": 0,
+  "rssi_dbm": -69, "signal_csq": 22, "gas_v": null, "pump_current_a": 0.4, "water_liters_total": 37.5,
+  "pump_cycles": 1, "tilt_deg": 2.3, "shock": false,
+  "values": { "ph": 6.70, "ph_out": 6.80, "tds_ppm": 690, "temp_c": 19.4, "turb_in_ntu": 82, "turb_out_ntu": 22 } }
 ```
 
 ### `GET /api/v1/devices/{code}/telemetry?since=&limit=100`
@@ -740,7 +764,7 @@ Las crea `make seed`, solo con `ENVIRONMENT` de desarrollo: `tecnico@demo.mx`, `
 
 ### `POST /api/v1/telemetry/iot` (nodo IoT / Wokwi)
 
-Ingesta flexible del ESP32, pensada para la simulación de Wokwi (`backend/scripts/wokwi_esp32_client.ino`). **Sin `X-API-Key`**; el
+Ingesta flexible por HTTP para nodos IoT que no usan MQTT (el firmware de Wokwi usa MQTT, ver arriba). **Sin `X-API-Key`**; el
 header `X-Device-Key` es opcional (si el servidor define `DEVICE_KEY` y el header viene, debe coincidir → si no, 401; fuera de dev es obligatorio).
 
 ```json
@@ -749,8 +773,8 @@ header `X-Device-Key` es opcional (si el servidor define `DEVICE_KEY` y el heade
 ```
 
 - `device_id`: obligatorio. `B-01` es el alias de la boya `RM-01` (también acepta el código de la estación). Otro → 404.
-- **Formato del firmware:** el mismo endpoint también acepta el mensaje que imprime/publica el ESP32 (`boya`, `ph`, `temp_c`, `turb_in_ntu`,
-  `turb_out_ntu`, `eficiencia_pct`, `bat_v`, `bat_pct`, `gas_v`, `freno`, `bomba`, `alerta`) si trae `boya` en vez de `device_id`.
+- **Formato del firmware:** el mismo endpoint también acepta el mensaje que publica el ESP32 (todas las claves de
+  «Dispositivos — telemetría de la boya», incluidas `ph_out`, `caudal_lpm`, `cesta_pct`, `bomba_a`…) si trae `boya` en vez de `device_id`.
   Los alias `B-02` / `BM-02` / `RM-02` son la misma boya en todas las rutas (`/devices/{code}/…`, MQTT y este endpoint).
 - **MQTT (lo que usa el sketch de Wokwi del repo):** con `MQTT_URL=mqtt://broker.hivemq.com:1883` en `backend/.env` el backend se suscribe a
   `riomonitor/+/telemetria`; el `+` es el código de la boya y el payload es el formato del firmware. Sin `MQTT_URL` el puente está apagado.
@@ -758,7 +782,8 @@ header `X-Device-Key` es opcional (si el servidor define `DEVICE_KEY` y el heade
 - Todo lo demás es opcional; los campos desconocidos se ignoran y un valor no numérico se descarta sin tumbar el paquete.
   `basket_fill_pct` y `battery_pct` se recortan a 0–100. También acepta `tds`, `battery_v`, `seq`, `ts`, `alarm_on`.
 - Los valores de calidad (`ph`, `turbidity`→turbidez de entrada, `temperature`, `dissolved_oxygen`, `tds`) se guardan como lecturas
-  del sensor de la estación (si no tiene ese sensor aparece en `unmapped`); el resto es estado del dispositivo.
+  del sensor de la estación (si no tiene ese sensor aparece en `unmapped`); el resto es estado del dispositivo. Las boyas RM-01 y
+  RM-02 no tienen sonda de oxígeno disuelto: `dissolved_oxygen` siempre queda en `unmapped` para ellas.
 - Respuesta 200: `{station_id, code, ts, readings, unmapped}`.
 - Por `/ws/live` salen los eventos `reading` y un `device_telemetry` con `{code, battery_pct, river_speed_ms, flow_rate_lpm,
   basket_fill_pct, rssi_dbm, pump_on, …, values: {ph, turb_in_ntu, temp_c, do_mgl}}`.

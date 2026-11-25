@@ -115,6 +115,12 @@ class DeviceTelemetryOut(Out):
     basket_fill_pct: float | None = None
     rssi_dbm: float | None = None
     gas_v: float | None = None
+    signal_csq: int | None = Field(default=None, description="Señal del módem 4G (CSQ 0–31)")
+    pump_current_a: float | None = Field(default=None, description="Corriente de la bomba (A)")
+    water_liters_total: float | None = Field(default=None, description="Agua procesada desde el arranque (L)")
+    pump_cycles: int | None = Field(default=None, description="Encendidos de la bomba desde el arranque")
+    tilt_deg: float | None = Field(default=None, description="Inclinación de la boya (°)")
+    shock: bool | None = Field(default=None, description="Golpe detectado en esa lectura")
     values: dict[str, float] | None = Field(default=None, description="Calidad del agua de ese envío")
 
 

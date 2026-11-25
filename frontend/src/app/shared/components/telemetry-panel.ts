@@ -48,7 +48,10 @@ import { timeAgo } from '../utils/format.util';
 
     @if (p(); as pk) {
       <div class="grid" [class.stale]="!live()">
-        <div class="cell"><span class="lbl">pH</span><span class="val">{{ fmt(pk.values?.['ph'], '1.2-2') }}</span><span class="sub">{{ phText(pk.values?.['ph']) }}</span></div>
+        <div class="cell"><span class="lbl">pH entrada</span><span class="val">{{ fmt(pk.values?.['ph'], '1.2-2') }}</span><span class="sub">{{ phText(pk.values?.['ph']) }}</span></div>
+        @if (has(pk.values?.['ph_out'])) {
+        <div class="cell"><span class="lbl">pH salida</span><span class="val">{{ fmt(pk.values?.['ph_out'], '1.2-2') }}</span><span class="sub">Después de los filtros</span></div>
+        }
         <div class="cell"><span class="lbl">Turbidez entrada</span><span class="val">{{ fmt(pk.values?.['turb_in_ntu'], '1.0-1') }}<small>NTU</small></span></div>
         <div class="cell"><span class="lbl">Turbidez salida</span><span class="val">{{ fmt(pk.values?.['turb_out_ntu'], '1.0-1') }}<small>NTU</small></span></div>
         <div class="cell"><span class="lbl">Eficiencia</span><span class="val">{{ fmt(pk.device_efficiency_pct, '1.0-1') }}<small>%</small></span><span class="sub">Calculada por el ESP32</span></div>
@@ -65,6 +68,20 @@ import { timeAgo } from '../utils/format.util';
           <span class="sub">{{ basketText(pk.basket_fill_pct) }}</span>
         </div>
         }
+        @if (has(pk.pump_current_a) || has(pk.flow_rate_lpm)) {
+        <div class="cell">
+          <span class="lbl">Bomba</span>
+          <span class="val">{{ pk.pump_on === null ? '—' : pk.pump_on ? 'Encendida' : 'Apagada' }}</span>
+          <span class="sub">{{ fmt(pk.pump_current_a, '1.2-2') }} A · {{ fmt(pk.flow_rate_lpm, '1.1-1') }} L/min@if (has(pk.water_liters_total)) { · {{ fmt(pk.water_liters_total, '1.0-0') }} L procesados }</span>
+        </div>
+        }
+        @if (has(pk.tilt_deg)) {
+        <div class="cell" [class.alarm]="pk.shock || (pk.tilt_deg ?? 0) > 30">
+          <span class="lbl">Inclinación</span>
+          <span class="val">{{ fmt(pk.tilt_deg, '1.1-1') }}<small>°</small></span>
+          <span class="sub">{{ pk.shock ? 'Golpe detectado' : (pk.tilt_deg ?? 0) > 30 ? 'Volcada o jalada por la corriente' : 'Estable' }}</span>
+        </div>
+        }
         @if (has(pk.river_speed_ms)) {
         <div class="cell"><span class="lbl">Corriente</span><span class="val">{{ fmt(pk.river_speed_ms, '1.2-2') }}<small>m/s</small></span><span class="sub">Caudal bomba {{ fmt(pk.flow_rate_lpm, '1.0-1') }} L/min</span></div>
         }
@@ -77,7 +94,7 @@ import { timeAgo } from '../utils/format.util';
         <div class="cell">
           <span class="lbl">Enlace</span>
           <span class="val" [style.color]="live() ? link().color : null">{{ live() ? link().label : 'Caído' }}</span>
-          <span class="sub">{{ pk.rssi_dbm !== null ? (pk.rssi_dbm | number: '1.0-0') + ' dBm' : '—' }} · bomba {{ pk.pump_on ? 'encendida' : 'apagada' }}</span>
+          <span class="sub">{{ pk.rssi_dbm !== null ? (pk.rssi_dbm | number: '1.0-0') + ' dBm' : '—' }}@if (pk.signal_csq !== null && pk.signal_csq !== undefined) { · 4G CSQ {{ pk.signal_csq }}/31 }</span>
         </div>
         }
       </div>
@@ -88,7 +105,7 @@ import { timeAgo } from '../utils/format.util';
 })
 export class TelemetryPanel {
   private readonly svc = inject(TelemetryService);
-  /** Station code of the buoy (`RM-01`; the 3D model calls it `B-01`). */
+  /** Station code of the buoy (`RM-01`), the same as `BOYA` in the firmware. */
   readonly code = input.required<string>();
 
   protected readonly p = computed(() => this.svc.packet(this.code())());
