@@ -117,7 +117,7 @@ const SPECS: { label: string; value: string }[] = [
               <div><dt>{{ s.label }}</dt><dd>{{ s.value }}</dd></div>
             }
           </dl>
-          <p class="muted note">Valores de prototipo. El molino y la centrífuga giran con una corriente simulada de 0.9 m/s.</p>
+          <p class="muted note">Valores de prototipo. El molino gira con una corriente simulada de 0.9 m/s.</p>
         </section>
       } @else {
         <div class="rm-card empty">

@@ -61,7 +61,7 @@ export class BuoyViewer {
   readonly design = input<BuoyDesign>('anclada');
   readonly view = input<BuoyView>('iso');
   readonly xray = input(false);
-  readonly ariaLabel = input('Modelo 3D interactivo de la boya Río Monitor');
+  readonly ariaLabel = input('Modelo 3D interactivo de la boya de Atl-Monitor');
   /**
    * Last packet of the buoy's ESP32 (Wokwi), live or not. The model shows exactly that state
    * (battery, pump, brake, generator, basket, tilt, measured filtering); with `null` it shows the

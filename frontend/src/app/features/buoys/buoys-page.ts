@@ -76,7 +76,7 @@ type Mode = 'map' | 'list';
   template: `
     <div class="page">
       <div>
-        <h1 class="page-title">Boyas skimmer</h1>
+        <h1 class="page-title">Boyas</h1>
         <p class="page-sub">Consulta dónde están y cómo van; abre su telemetría o su modelo 3D.</p>
       </div>
 

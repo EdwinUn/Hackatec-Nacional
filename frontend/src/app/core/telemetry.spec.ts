@@ -85,3 +85,43 @@ describe('TelemetryService', () => {
     expect(svc.isLive('RM-01')()).toBe(false);
   });
 });
+
+describe('mock telemetry (fidelity rules, docs/fidelidad.md § 3)', () => {
+  const day = Array.from({ length: 24 * 30 }, (_, i) => Date.UTC(2026, 10, 24) + i * 120_000);
+
+  it('never reports outlet data or efficiency without flow, and TDS stays within the sensor range', async () => {
+    const { mockTelemetry } = await import('./mock/telemetry.mock');
+    let off = 0;
+    for (const t of day) {
+      for (const code of ['RM-01', 'RM-02']) {
+        const p = mockTelemetry(code, t);
+        expect(p.values!['tds_ppm']).toBeLessThanOrEqual(1000);
+        // Firmware hysteresis: the pump stops below 35 % and restarts above 75 %.
+        if (p.pump_on) expect(p.battery_pct!).toBeGreaterThanOrEqual(34);
+        else expect(p.battery_pct!).toBeLessThanOrEqual(76);
+        if (!p.pump_on) {
+          off++;
+          expect(p.values!['ph_out']).toBeUndefined();
+          expect(p.values!['turb_out_ntu']).toBeUndefined();
+          expect(p.device_efficiency_pct).toBeNull();
+          expect(p.flow_rate_lpm).toBe(0);
+        } else {
+          const drop = 1 - p.values!['turb_out_ntu'] / p.values!['turb_in_ntu'];
+          expect(drop).toBeGreaterThanOrEqual(0.59);
+          expect(drop).toBeLessThanOrEqual(0.91);
+          expect(Math.abs(p.values!['ph_out'] - p.values!['ph'])).toBeLessThan(0.3);
+        }
+      }
+    }
+    expect(off).toBeGreaterThan(0);
+  });
+
+  it('history is most recent first, inside the window and capped at the limit', async () => {
+    const { mockTelemetryHistory } = await import('./mock/telemetry.mock');
+    const until = Date.UTC(2026, 10, 25, 12);
+    const h = mockTelemetryHistory('RM-01', until - 3_600_000, until, 10);
+    expect(h.length).toBe(10);
+    expect(Date.parse(h[0].ts)).toBeGreaterThan(Date.parse(h[9].ts));
+    expect(Date.parse(h[9].ts)).toBeGreaterThanOrEqual(until - 3_600_000);
+  });
+});

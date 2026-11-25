@@ -34,7 +34,7 @@ import { environment } from '../../../environments/environment';
     <main class="card">
       <div class="brand">
         <svg viewBox="0 0 32 32" width="38" height="38" aria-hidden="true"><path d="M16 3C10 10 6 14.5 6 19a10 10 0 0 0 20 0c0-4.5-4-9-10-16Z" fill="#3ddc97"/><path d="M10 21c2.2-1.6 3.8 1.6 6 0s3.8 1.6 6 0" stroke="#112a22" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
-        <div><strong>Río Monitor</strong><small>Acceso para personal operativo</small></div>
+        <div><strong>Atl-Monitor</strong><small>Acceso para personal operativo</small></div>
       </div>
       <h1>Iniciar sesión</h1>
 

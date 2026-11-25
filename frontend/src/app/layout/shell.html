@@ -14,30 +14,26 @@
       <a routerLink="/mapa" routerLinkActive="active" class="nav-link" title="Vista satelital">
         <i class="pi pi-globe" aria-hidden="true"></i><span>Vista satelital</span>
       </a>
-      <a routerLink="/boyas" routerLinkActive="active" class="nav-link" title="Boyas">
+      <a routerLink="/boyas" class="nav-link" title="Boyas" [class.active]="onBuoys()" [attr.aria-current]="onBuoys() ? 'page' : null">
         <i class="pi pi-compass" aria-hidden="true"></i><span>Boyas</span>
       </a>
-      <p class="group-label">Gestión</p>
       <a routerLink="/alertas" routerLinkActive="active" class="nav-link" title="Alertamiento temprano">
         <i class="pi pi-bell" aria-hidden="true"></i><span>Alertamiento</span>
         @if (alertCounter.open() > 0) {
           <span class="badge" [attr.aria-label]="alertCounter.open() + ' alertas abiertas'">{{ alertCounter.open() }}</span>
         }
       </a>
+
+      <p class="group-label">Análisis</p>
       <a routerLink="/analitica" routerLinkActive="active" class="nav-link" title="Analítica predictiva">
         <i class="pi pi-chart-line" aria-hidden="true"></i><span>Analítica predictiva</span>
       </a>
-      @if (router.url.startsWith('/analitica')) {
+      @if (router.url.startsWith('/analitica') && auth.isManager()) {
         <div class="sub">
           <a routerLink="/analitica/pronostico" routerLinkActive="active" class="sub-link">Pronóstico de pH</a>
           <a routerLink="/analitica/simulador" routerLinkActive="active" class="sub-link">Simulador IoT</a>
         </div>
       }
-
-      <p class="group-label">Participación ciudadana</p>
-      <a routerLink="/reportar" routerLinkActive="active" class="nav-link" title="Reportar contaminación">
-        <i class="pi pi-megaphone" aria-hidden="true"></i><span>Reportar contaminación</span>
-      </a>
 
       @if (auth.isLoggedIn()) {
         <p class="group-label">Operaciones</p>
@@ -124,8 +120,6 @@
           </div>
         </div>
       </p-popover>
-
-      <label class="compare"><p-toggleswitch [ngModel]="filters.compare()" (ngModelChange)="filters.compare.set($event)" ariaLabel="Comparar con el periodo anterior" /> <span class="cmp-full">Comparar periodo</span><span class="cmp-short">Comparar</span></label>
 
       <p-button class="refresh" icon="pi pi-refresh" [loading]="refreshing()" [outlined]="true" severity="secondary" size="small" label="Actualizar" ariaLabel="Actualizar datos" (onClick)="refresh()" />
     </header>

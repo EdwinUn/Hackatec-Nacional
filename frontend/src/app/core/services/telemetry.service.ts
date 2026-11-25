@@ -1,7 +1,10 @@
 import { HttpClient, HttpContext } from '@angular/common/http';
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Observable, of } from 'rxjs';
+import { delay } from 'rxjs/operators';
 import { APP_CONFIG } from '../config/app-config';
+import { mockTelemetry, mockTelemetryHistory } from '../mock/telemetry.mock';
 import { SILENT_ERRORS } from '../interceptors/api-error.interceptor';
 import { DeviceTelemetryDto, TELEMETRY_BURST_MS, TelemetryPacket, deviceCodeFor, liveWindowMs } from '../models/telemetry.models';
 import { LiveStreamService } from './live-stream.service';
@@ -9,11 +12,13 @@ import { LiveStreamService } from './live-stream.service';
 /**
  * Last packet of each buoy's ESP32. Fed by the `device_telemetry` frames of `/ws/live`
  * (the ESP32 in Wokwi publishes by MQTT; see API.md) and seeded with `GET /devices/{code}/telemetry/latest`.
+ * With `useMocks` the packets come from `core/mock/telemetry.mock.ts` (one every 15 s).
  */
 @Injectable({ providedIn: 'root' })
 export class TelemetryService {
   private readonly http = inject(HttpClient);
-  private readonly base = inject(APP_CONFIG).apiBaseUrl;
+  private readonly cfg = inject(APP_CONFIG);
+  private readonly base = this.cfg.apiBaseUrl;
   private readonly live = inject(LiveStreamService);
 
   private readonly _packets = signal<Record<string, TelemetryPacket>>({});
@@ -31,7 +36,12 @@ export class TelemetryService {
       if (d.code) this.set(d.code, d, Date.now(), true);
     });
     const timer = setInterval(() => this.now.set(Date.now()), 1000);
-    inject(DestroyRef).onDestroy(() => clearInterval(timer));
+    // Mock mode: every loaded buoy «sends» a packet every 15 s, as the firmware would.
+    const mockTimer = this.cfg.useMocks ? setInterval(() => this.loaded.forEach((c) => this.set(c, mockTelemetry(c, Date.now()), Date.now(), true)), 15_000) : undefined;
+    inject(DestroyRef).onDestroy(() => {
+      clearInterval(timer);
+      clearInterval(mockTimer);
+    });
   }
 
   packet(code: string) {
@@ -59,6 +69,10 @@ export class TelemetryService {
     const key = deviceCodeFor(code);
     if (this.loaded.has(key)) return;
     this.loaded.add(key);
+    if (this.cfg.useMocks) {
+      this.set(key, mockTelemetry(key, Date.now()), Date.now(), true);
+      return;
+    }
     this.http.get<DeviceTelemetryDto>(`${this.base}/devices/${key}/telemetry/latest`, { context: new HttpContext().set(SILENT_ERRORS, true) }).subscribe({
       next: (d) => {
         // Stored packet: shown, but not «live» (receivedAt = its own timestamp).
@@ -66,6 +80,19 @@ export class TelemetryService {
         if (!this._packets()[key]) this.set(key, d, Number.isFinite(at) ? at : 0);
       },
       error: () => undefined, // no packet yet (404) or offline
+    });
+  }
+
+  /**
+   * Stored packets of a buoy since `since` (`GET /devices/{code}/telemetry`), most recent first and at
+   * most `limit` (1–1000). Errors are not toasted: the caller shows its own state.
+   */
+  history(code: string, since: Date, limit = 1000): Observable<DeviceTelemetryDto[]> {
+    const key = deviceCodeFor(code);
+    if (this.cfg.useMocks) return of(mockTelemetryHistory(key, since.getTime(), Date.now(), limit)).pipe(delay(250));
+    return this.http.get<DeviceTelemetryDto[]>(`${this.base}/devices/${key}/telemetry`, {
+      params: { since: since.toISOString(), limit },
+      context: new HttpContext().set(SILENT_ERRORS, true),
     });
   }
 

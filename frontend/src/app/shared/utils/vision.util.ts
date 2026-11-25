@@ -3,7 +3,7 @@ import { VisionBuoyStatus, VisionCategory, VisionSeverity } from '../../core/mod
 
 export const VISION_CATEGORY_META: Record<VisionCategory, { label: string; icon: string }> = {
   peces_muertos: { label: 'Peces muertos', icon: 'pi pi-exclamation-triangle' },
-  boya_defectuosa: { label: 'Boya skimmer dañada', icon: 'pi pi-wrench' },
+  boya_defectuosa: { label: 'Boya dañada', icon: 'pi pi-wrench' },
   boya_saturada: { label: 'Cesta de la boya saturada', icon: 'pi pi-inbox' },
   acumulacion_basura: { label: 'Acumulación de basura', icon: 'pi pi-trash' },
   normal: { label: 'Sin problemas detectados', icon: 'pi pi-check-circle' },

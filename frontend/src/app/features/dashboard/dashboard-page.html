@@ -1,141 +1,327 @@
 <div class="page">
-  <div>
-    <h1 class="page-title">Resumen ejecutivo</h1>
-    <p class="page-sub">Calidad del agua, tratamiento y recuperación en la Cuenca del Alto Atoyac.</p>
+  <div class="head">
+    <div>
+      <h1 class="page-title">Resumen ejecutivo</h1>
+      <p class="page-sub">Boyas {{ s.codes().join(' y ') }} simuladas en Wokwi · Río Atoyac, Puebla.</p>
+    </div>
+    <app-origin-legend />
   </div>
 
-  <!-- Phone: station / period selector and headline KPIs -->
-  <section class="m-only m-select rm-card" aria-label="Estación y periodo">
+  <!-- Phone: buoy / period selector -->
+  <section class="m-only m-select rm-card" aria-label="Boya y periodo">
     <div class="m-sel-row">
-      <button type="button" class="circ" aria-label="Estación anterior" (click)="stepStation(-1)"><i class="pi pi-chevron-left"></i></button>
-      <span class="m-pill" aria-live="polite"><i class="pi pi-map-marker" aria-hidden="true"></i>{{ stationName() }}</span>
-      <button type="button" class="circ" aria-label="Estación siguiente" (click)="stepStation(1)"><i class="pi pi-chevron-right"></i></button>
+      <button type="button" class="circ" aria-label="Boya anterior" (click)="stepBuoy(-1)"><i class="pi pi-chevron-left" aria-hidden="true"></i></button>
+      <span class="m-pill" aria-live="polite"><i class="pi pi-map-marker" aria-hidden="true"></i>Boya {{ s.selectedCode() ?? '—' }}</span>
+      <button type="button" class="circ" aria-label="Boya siguiente" (click)="stepBuoy(1)"><i class="pi pi-chevron-right" aria-hidden="true"></i></button>
     </div>
     <div class="m-periods" role="group" aria-label="Periodo">
       @for (p of presets; track p) {
-        <button type="button" [class.on]="filters.preset() === p" (click)="filters.setPreset(p)">{{ presetLabel[p] }}</button>
+        <button type="button" [class.on]="filters.preset() === p" [attr.aria-pressed]="filters.preset() === p" (click)="filters.setPreset(p)">{{ presetLabel[p] }}</button>
       }
     </div>
   </section>
 
-  <div class="m-only m-kpis">
-    <div class="m-kpi"><span class="lbl">Estaciones activas</span><strong>{{ activeStations() }}</strong><small>de {{ s.overview()?.sensors?.total ?? '—' }} sensores</small></div>
-    <div class="m-kpi"><span class="lbl">Índice WQI</span>
-      @if (s.overview(); as o) { <strong [style.color]="wqi[o.wqi.outlet.category].color">{{ wqiText(o.wqi.outlet) }}</strong><small>{{ wqi[o.wqi.outlet.category].label }} · salida</small> } @else { <strong>—</strong> }
-    </div>
-    <div class="m-kpi"><span class="lbl">Alertas hoy</span><strong [class.bad]="alerts.open() > 0">{{ alerts.open() }}</strong><small>abiertas</small></div>
-    <div class="m-kpi"><span class="lbl">Boyas skimmer</span><strong [class.bad]="buoyAlerts() > 0">{{ buoyAlerts() }}</strong><small>{{ buoyAlerts() === 1 ? 'con falla (reporte IA)' : 'con falla (reportes IA)' }}@if (liveBuoys() > 0) { · {{ liveBuoys() }} en vivo }</small></div>
-  </div>
-
-  <!-- KPI row -->
-  <div class="kpis d-only">
-    @if (s.overview(); as o) {
-      <app-kpi-tile label="WQI Río → Salida" icon="pi pi-heart"  [value]="wqiText(o.wqi.river)" [valueTo]="wqiText(o.wqi.outlet)" [valueColor]="wqi[o.wqi.outlet.category].color"  [sparkColor]="wqi[o.wqi.outlet.category].color" [delta]="deltas()?.wqi ?? null" deltaSuffix=" pts" [sub]="'Parámetro crítico: ' + paramLabel(o.wqi.river.dominant_parameter)">
-        <div class="pills">
-          <app-pill [label]="'Río · ' + wqi[o.wqi.river.category].label" [color]="wqi[o.wqi.river.category].color" [bg]="wqi[o.wqi.river.category].bg" />
-          <app-pill [label]="'Salida · ' + wqi[o.wqi.outlet.category].label" [color]="wqi[o.wqi.outlet.category].color" [bg]="wqi[o.wqi.outlet.category].bg" />
+  <!-- ¿Hay algo urgente? -->
+  <div class="urgent" aria-live="polite">
+    @if (urgent(); as u) {
+      <p-message [severity]="u.severity" [icon]="u.severity === 'success' ? 'pi pi-check-circle' : u.severity === 'secondary' ? 'pi pi-info-circle' : 'pi pi-exclamation-triangle'">
+        <div class="urgent-body">
+          <span><strong>{{ u.title }}</strong>@if (u.detail) { <span class="urgent-detail">{{ u.detail }}</span> }</span>
+          @if (u.severity !== 'success') {
+            <a routerLink="/alertas" class="urgent-link">Ver alertas <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
+          }
+          @if (u.severity === 'secondary') {
+            <p-button label="Reintentar" icon="pi pi-refresh" size="small" [text]="true" (onClick)="s.alertsRes.reload()" />
+          }
         </div>
-      </app-kpi-tile>
-
-      <app-kpi-tile label="pH entrada → salida" icon="pi pi-percentage" [value]="phText(o.ph.inlet)" [valueTo]="phText(o.ph.outlet)" [spark]="s.phSpark()" [delta]="deltas()?.ph ?? null" deltaSuffix=" pp" [sub]="improvementText(o.ph.improvement_pct)" />
-
-      <app-kpi-tile label="Salud de sensores" icon="pi pi-microchip" [value]="o.sensors.online + '/' + o.sensors.total" unit="en línea" [spark]="s.efficiencySpark()" sparkColor="#2563eb" [delta]="deltas()?.eff ?? null" deltaSuffix=" pp" [sub]="'Eficiencia de tratamiento: ' + f.n1(o.treatment_efficiency_pct) + '%'" />
-
-      <app-kpi-tile label="Recuperación y residuos" icon="pi pi-sync" [value]="f.liters(o.recovery.clean_liters)" sub="" [spark]="s.recoverySpark()" sparkColor="#0891b2" [delta]="deltas()?.liters ?? null">
-        <div class="sub-line"><i class="pi pi-trash" aria-hidden="true"></i> {{ f.n1(o.recovery.waste_kg) }} kg de basura recolectada</div>
-      </app-kpi-tile>
-    } @else if (s.overviewRes.error()) {
-      <div class="rm-card state-error kpis-error" role="alert">
-        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-        <p><strong>No se pudo cargar el resumen.</strong><span class="muted">Revisa la conexión con el backend o usa <code>?mock=1</code> para datos simulados.</span></p>
-        <p-button label="Reintentar" icon="pi pi-refresh" size="small" (onClick)="s.reloadAll()" />
-      </div>
-    } @else {
-      @for (i of [1, 2, 3, 4]; track i) { <div class="skeleton kpi-skel"></div> }
+      </p-message>
     }
   </div>
 
-  <!-- Chart + water recovery -->
-  <div class="main-row">
-    <section class="rm-card">
-      <h2 class="rm-card-title">
-        <i class="pi pi-chart-line" aria-hidden="true"></i> pH · entrada vs. salida
-        @if (s.ph(); as ph) {
-          <span class="spacer muted small">Mejora promedio <strong [class.good]="ph.avg_improvement_pct >= 0" [class.bad]="ph.avg_improvement_pct < 0">{{ ph.avg_improvement_pct >= 0 ? '+' : '' }}{{ f.n1(ph.avg_improvement_pct) }}%</strong> · bloques de {{ ph.bucket }}</span>
-        }
-      </h2>
-      @if (phChart(); as cfg) {
-        <app-time-series-chart [config]="cfg" height="340px" ariaLabel="Serie temporal de pH de entrada y salida" />
-      } @else if (s.phRes.error()) {
-        <div class="inline-err">No se pudo cargar la serie de pH.<p-button label="Reintentar" size="small" [outlined]="true" (onClick)="s.phRes.reload()" /></div>
+  <!-- Headline indicators: phone -->
+  <div class="m-only m-kpis">
+    <div class="m-kpi">
+      <span class="lbl">Agua que sale · {{ s.selectedCode() }}</span>
+      @if (water().turbOut !== null) {
+        <strong>{{ n(water().turbOut, 0) }}<small> NTU</small></strong>
+        <small>{{ water().efficiency !== null ? '−' + n(water().efficiency, 0) + ' % de turbidez' : 'Medido' }}</small>
       } @else {
-        <div class="skeleton chart-skel"></div>
+        <strong>—</strong><small>{{ water().pumpOff ? 'Sin flujo: bomba apagada' : 'Sin dato' }}</small>
+      }
+    </div>
+    <div class="m-kpi">
+      <span class="lbl">Boyas en vivo</span>
+      <strong [class.bad]="liveCount() < s.codes().length">{{ liveCount() }}<small> de {{ s.codes().length }}</small></strong>
+      <small>{{ notLive().length ? notLive().join(', ') + ' sin señal' : 'Todas envían datos' }}</small>
+    </div>
+    <div class="m-kpi">
+      <span class="lbl">Alertas abiertas</span>
+      @if (s.alerts(); as a) {
+        <strong [class.bad]="a.criticalTotal > 0">{{ a.open }}</strong><small>{{ a.criticalTotal }} {{ a.criticalTotal === 1 ? 'crítica' : 'críticas' }}</small>
+      } @else {
+        <strong>—</strong><small>{{ s.alertsRes.error() ? 'No se pudieron cargar' : 'Cargando…' }}</small>
+      }
+    </div>
+    <div class="m-kpi">
+      <span class="lbl">Cesta más llena</span>
+      @if (fullest(); as f) {
+        <strong [class.bad]="f.pct >= 80">{{ n(f.pct, 0) }}<small> %</small></strong><small>{{ f.code }}{{ f.live ? '' : ' · último dato' }}</small>
+      } @else {
+        <strong>—</strong><small>Sin dato</small>
+      }
+    </div>
+  </div>
+
+  <!-- Headline indicators: desktop -->
+  <div class="kpis d-only">
+    <app-kpi-tile [label]="'Agua que sale · ' + (s.selectedCode() ?? '')" icon="pi pi-filter" [value]="water().turbOut !== null ? n(water().turbOut, 0) : '—'" [unit]="water().turbOut !== null ? 'NTU' : ''" [valueColor]="water().turbOut !== null && water().turbOut! > limits.TURB_OUT_MAX ? '#b91c1c' : null">
+      <div class="kpi-foot">
+        <span class="muted small">
+          @if (water().turbOut === null) { {{ water().pumpOff ? 'Sin flujo: la bomba está apagada' : 'Sin dato de salida' }} }
+          @else if (water().efficiency !== null) { −{{ n(water().efficiency, 0) }} % de turbidez frente a la entrada }
+          @else { Turbidez después del filtro }
+        </span>
+        <span class="tags"><app-origin-tag origin="medido" />@if (water().efficiency !== null) { <app-origin-tag origin="derivado" /> }</span>
+      </div>
+    </app-kpi-tile>
+
+    <app-kpi-tile label="Boyas en vivo" icon="pi pi-wifi" [value]="liveCount() + ' de ' + s.codes().length" [valueColor]="liveCount() < s.codes().length ? '#b45309' : null">
+      <div class="kpi-foot">
+        <span class="muted small">{{ notLive().length ? notLive().join(', ') + ' sin señal' : 'Todas envían datos' }}</span>
+        <span class="tags"><app-origin-tag origin="medido" /></span>
+      </div>
+    </app-kpi-tile>
+
+    <app-kpi-tile label="Alertas abiertas" icon="pi pi-bell" [value]="s.alerts() ? '' + s.alerts()!.open : '—'" [valueColor]="(s.alerts()?.criticalTotal ?? 0) > 0 ? '#b91c1c' : null">
+      <div class="kpi-foot">
+        <span class="muted small">
+          @if (s.alerts(); as a) { {{ a.criticalTotal }} {{ a.criticalTotal === 1 ? 'crítica' : 'críticas' }} · <a routerLink="/alertas">ver todas</a> }
+          @else if (s.alertsRes.error()) { No se pudieron cargar }
+          @else { Cargando… }
+        </span>
+        <span class="tags"><app-origin-tag origin="derivado" /></span>
+      </div>
+    </app-kpi-tile>
+
+    <app-kpi-tile label="Cesta más llena" icon="pi pi-inbox" [value]="fullest() ? n(fullest()!.pct, 0) : '—'" [unit]="fullest() ? '%' : ''" [valueColor]="(fullest()?.pct ?? 0) >= 80 ? '#b91c1c' : null">
+      <div class="kpi-foot">
+        <span class="muted small">@if (fullest(); as f) { {{ f.code }}{{ f.live ? '' : ' · último dato recibido' }} } @else { Sin dato }</span>
+        <span class="tags"><app-origin-tag origin="medido" /></span>
+      </div>
+    </app-kpi-tile>
+  </div>
+
+  <div class="main-row">
+    <!-- ¿Cómo está el agua? -->
+    <section class="rm-card" aria-labelledby="water-title">
+      <h2 class="rm-card-title" id="water-title">
+        <i class="pi pi-filter" aria-hidden="true"></i> ¿Cómo está el agua?
+        <span class="spacer d-only"><p-selectbutton [options]="buoyOptions()" [ngModel]="s.selectedCode()" (ngModelChange)="$event && s.select($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" size="small" ariaLabel="Boya" /></span>
+      </h2>
+      @if (s.selected(); as b) {
+        @if (b.packet; as p) {
+          @if (!b.live) {
+            <p class="stale-note"><i class="pi pi-clock" aria-hidden="true"></i> Último dato {{ ago(b.code) }}: {{ b.code }} no está enviando ahora.</p>
+          }
+          <div class="inout" [class.stale]="!b.live">
+            <div class="side">
+              <span class="side-lbl">Entra (río)</span>
+              <span class="swatch" [style.background]="turbColor(water().turbIn)" aria-hidden="true"></span>
+              <span class="big">{{ n(water().turbIn, 0) }}<small> NTU</small></span>
+              @if (water().turbIn !== null) {
+                <span class="small" [class.bad]="water().turbIn! > limits.TURB_IN_MAX">{{ water().turbIn! > limits.TURB_IN_MAX ? 'Arriba de' : 'Debajo de' }} {{ limits.TURB_IN_MAX }} NTU</span>
+              }
+            </div>
+            <div class="arrow" aria-hidden="true"><i class="pi pi-arrow-right"></i><span>filtro</span></div>
+            <div class="side">
+              <span class="side-lbl">Sale (filtrada)</span>
+              @if (water().turbOut !== null) {
+                <span class="swatch" [style.background]="turbColor(water().turbOut)" aria-hidden="true"></span>
+                <span class="big">{{ n(water().turbOut, 0) }}<small> NTU</small></span>
+                <span class="small" [class.bad]="water().turbOut! > limits.TURB_OUT_MAX" [class.good]="water().turbOut! <= limits.TURB_OUT_MAX">
+                  <i [class]="water().turbOut! <= limits.TURB_OUT_MAX ? 'pi pi-check' : 'pi pi-times'" aria-hidden="true"></i>
+                  {{ water().turbOut! <= limits.TURB_OUT_MAX ? 'Dentro de' : 'Arriba de' }} {{ limits.TURB_OUT_MAX }} NTU
+                </span>
+              } @else {
+                <span class="swatch empty-swatch" aria-hidden="true"></span>
+                <span class="no-flow">{{ water().pumpOff ? 'Bomba apagada: no hay agua de salida que medir' : 'Sin dato de salida' }}</span>
+              }
+            </div>
+          </div>
+          <div class="water-meta">
+            <div class="wm-row">
+              <span>Turbidez entrada y salida</span><app-origin-tag origin="medido" />
+            </div>
+            @if (water().efficiency !== null) {
+              <div class="wm-row"><span><strong>−{{ n(water().efficiency, 1) }} %</strong> de turbidez después del filtro</span><app-origin-tag origin="derivado" /></div>
+            }
+            <div class="wm-row">
+              <span>
+                pH {{ n(water().phIn, 2) }}@if (water().phOut !== null) { → {{ n(water().phOut, 2) }} }
+                @if (inRange(water().phOut ?? water().phIn); as ok) { · <span class="good"><i class="pi pi-check" aria-hidden="true"></i> dentro de {{ limits.PH_MIN }}–{{ limits.PH_MAX }}</span> }
+                @else if (inRange(water().phOut ?? water().phIn) === false) { · <span class="bad"><i class="pi pi-times" aria-hidden="true"></i> fuera de {{ limits.PH_MIN }}–{{ limits.PH_MAX }}</span> }
+              </span>
+              <app-origin-tag origin="medido" />
+            </div>
+            <div class="wm-row">
+              <span>TDS {{ water().tds !== null && water().tds! >= limits.TDS_SATURATION ? '≥ 1000 ppm (límite del sensor)' : n(water().tds, 0) + ' ppm' }} · {{ n(water().temp, 1) }} °C</span>
+              <app-origin-tag origin="medido" />
+            </div>
+            <p class="muted tiny">Umbrales de las reglas de alerta: valores de prototipo, no norma oficial.</p>
+          </div>
+          <a class="to-3d" [routerLink]="['/boyas', b.buoy.id]"><i class="pi pi-box" aria-hidden="true"></i> Ver {{ b.code }} en 3D</a>
+        } @else {
+          <div class="empty-state">
+            <i class="pi pi-wifi" aria-hidden="true"></i>
+            <p><strong>{{ b.code }} todavía no envía datos.</strong><span class="muted">Inicia su simulación en Wokwi para ver el agua que entra y la que sale.</span></p>
+            <a [routerLink]="['/boyas', b.buoy.id]">Ver la boya en 3D</a>
+          </div>
+        }
+      } @else {
+        <div class="skeleton" style="height: 260px"></div>
       }
     </section>
 
-    <section class="rm-card">
-      <h2 class="rm-card-title"><i class="pi pi-wave-pulse" aria-hidden="true"></i> Agua recuperada</h2>
-      @if (s.water(); as w) {
-        <dl class="ledger">
-          <div><dt>Litros de entrada</dt><dd>{{ w.totals.liters_in | number: '1.0-0' }} L</dd></div>
-          <div><dt>Litros limpios</dt><dd class="good">{{ w.totals.liters_clean | number: '1.0-0' }} L</dd></div>
-          <div><dt>Litros perdidos</dt><dd>{{ w.totals.liters_lost | number: '1.0-0' }} L</dd></div>
-          <div><dt>Lodo generado</dt><dd>{{ w.totals.sludge_kg | number: '1.0-1' }} kg</dd></div>
-          <div class="total"><dt>Eficiencia total</dt><dd>{{ f.n1(w.totals.efficiency_pct) }}%</dd></div>
-        </dl>
-      } @else if (s.waterRes.error()) {
-        <div class="inline-err">Sin datos de recuperación.<p-button label="Reintentar" size="small" [outlined]="true" (onClick)="s.waterRes.reload()" /></div>
-      } @else {
-        <div class="skeleton" style="height: 220px"></div>
-      }
+    <!-- ¿Las boyas funcionan? -->
+    <section class="rm-card" aria-labelledby="fleet-title">
+      <h2 class="rm-card-title" id="fleet-title"><i class="pi pi-compass" aria-hidden="true"></i> ¿Las boyas funcionan? <span class="spacer"><app-origin-tag origin="medido" /></span></h2>
+      <ul class="fleet">
+        @for (b of s.buoys(); track b.code) {
+          <li class="buoy" [class.off]="!b.live">
+            <div class="buoy-head">
+              <strong>{{ b.code }}</strong>
+              <app-pill [label]="state(b).label" [color]="state(b).color" [bg]="state(b).bg" />
+              <span class="muted small">{{ ago(b.code) }}</span>
+            </div>
+            @if (b.packet; as p) {
+              <dl class="facts">
+                <div><dt>Bomba</dt><dd>{{ p.pump_on === null ? 'sin dato' : p.pump_on ? 'Encendida' : 'Apagada' }}@if (p.pump_on && p.pump_current_a !== null && p.pump_current_a !== undefined) { · {{ n(p.pump_current_a, 2) }} A }</dd></div>
+                <div><dt>Batería</dt><dd>{{ n(p.battery_v, 1) }} V · {{ n(p.battery_pct, 0) }} %</dd></div>
+                <div><dt>Generador</dt><dd>{{ n(p.generator_v, 1) }} V@if (p.brake_on) { · freno activo }</dd></div>
+                <div class="wide">
+                  <dt>Cesta</dt>
+                  <dd>
+                    @if (p.basket_fill_pct !== null && p.basket_fill_pct !== undefined) {
+                      <span class="basket"><p-progressbar [value]="p.basket_fill_pct" [showValue]="false" [style]="{ height: '8px', '--p-progressbar-value-background': basketSeverity(p.basket_fill_pct) }" [attr.aria-label]="'Cesta de ' + b.code + ' al ' + n(p.basket_fill_pct, 0) + ' %'" />{{ n(p.basket_fill_pct, 0) }} %</span>
+                    } @else { sin dato }
+                  </dd>
+                </div>
+                <div><dt>Señal 4G</dt><dd>{{ link(p) }}</dd></div>
+                <div><dt>Inclinación</dt><dd [class.bad]="p.shock || (p.tilt_deg ?? 0) > 30">{{ n(p.tilt_deg, 1) }}°{{ p.shock ? ' · golpe detectado' : p.shock === false ? ' · sin golpes' : '' }}</dd></div>
+                <div><dt>Baliza de alerta</dt><dd [class.bad]="p.alarm_on">{{ p.alarm_on === null ? 'sin dato' : p.alarm_on ? 'Encendida' : 'Apagada' }}</dd></div>
+              </dl>
+            } @else {
+              <p class="muted small">Sin paquetes todavía. Inicia la simulación de Wokwi de {{ b.code }}.</p>
+            }
+            <a class="to-3d" [routerLink]="['/boyas', b.buoy.id]"><i class="pi pi-box" aria-hidden="true"></i> Ver en 3D</a>
+          </li>
+        } @empty {
+          <li class="empty">No hay boyas registradas.</li>
+        }
+      </ul>
+      <a class="more" routerLink="/boyas">Todas las boyas en el mapa <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
     </section>
   </div>
 
-  <!-- Bottom row -->
+  <!-- In / out over time -->
+  <section class="rm-card" aria-labelledby="chart-title">
+    <h2 class="rm-card-title" id="chart-title">
+      <i class="pi pi-chart-line" aria-hidden="true"></i> Entrada contra salida · {{ s.selectedCode() }}
+      <app-origin-tag origin="medido" />
+      <span class="spacer chart-tools">
+        <p-selectbutton [options]="metricOptions" [ngModel]="metric()" (ngModelChange)="$event && metric.set($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" size="small" ariaLabel="Dato de la gráfica" />
+        <p-button [label]="showTable() ? 'Ver gráfica' : 'Ver tabla'" [icon]="showTable() ? 'pi pi-chart-line' : 'pi pi-table'" size="small" [outlined]="true" severity="secondary" [attr.aria-pressed]="showTable()" (onClick)="showTable.set(!showTable())" />
+      </span>
+    </h2>
+    @if (s.series(); as list) {
+      @if (list.length) {
+        @if (showTable()) {
+          <p-table [value]="tableRows()" [paginator]="true" [rows]="10" size="small" [tableStyle]="{ 'min-width': '24rem' }">
+            <ng-template #caption><span class="sr-only">{{ chartLabel() }}</span></ng-template>
+            <ng-template #header>
+              <tr><th scope="col">Hora</th><th scope="col">Entrada</th><th scope="col">Salida</th></tr>
+            </ng-template>
+            <ng-template #body let-r>
+              <tr><td>{{ when(r.ts) }}</td><td>{{ n(r.inlet, metric() === 'ph' ? 2 : 1) }}</td><td>{{ r.outlet === null ? 'sin flujo' : n(r.outlet, metric() === 'ph' ? 2 : 1) }}</td></tr>
+            </ng-template>
+          </p-table>
+        } @else if (chart(); as cfg) {
+          <app-time-series-chart [config]="cfg" height="320px" [ariaLabel]="chartLabel()" />
+        }
+        <p class="muted tiny chart-note">
+          Los huecos en la salida son tramos con la bomba apagada (sin flujo no se mide la salida).
+          @if (s.historyTruncated() && historyStart(); as start) { Se muestran los últimos {{ limits.HISTORY_LIMIT }} paquetes, desde el {{ when(start) }}. }
+        </p>
+      } @else {
+        <div class="empty">{{ s.selectedCode() }} no envió paquetes en este periodo.</div>
+      }
+    } @else if (s.historyRes.error()) {
+      <div class="inline-err">No se pudo cargar el historial de {{ s.selectedCode() }}.<p-button label="Reintentar" size="small" [outlined]="true" (onClick)="s.historyRes.reload()" /></div>
+    } @else {
+      <div class="skeleton chart-skel"></div>
+    }
+  </section>
+
   <div class="bottom-row">
-    <section class="rm-card">
-      <h2 class="rm-card-title"><i class="pi pi-trash" aria-hidden="true"></i> Clasificación de basura @if (s.waste(); as w) { <span class="spacer muted small">{{ f.n1(w.total_kg) }} kg</span> }</h2>
+    <!-- Filtered water -->
+    <section class="rm-card" aria-labelledby="liters-title">
+      <h2 class="rm-card-title" id="liters-title"><i class="pi pi-wave-pulse" aria-hidden="true"></i> Agua filtrada · {{ s.selectedCode() }}</h2>
+      @if (s.selected()?.packet; as p) {
+        <dl class="ledger">
+          <div><dt>Desde que arrancó el ESP32 <app-origin-tag origin="derivado" /></dt><dd>{{ n(p.water_liters_total, 1) }} L</dd></div>
+          <div><dt>Caudal ahora <app-origin-tag origin="medido" /></dt><dd>{{ n(p.flow_rate_lpm, 1) }} L/min</dd></div>
+          <div><dt>Encendidos de la bomba <app-origin-tag origin="derivado" /></dt><dd>{{ n(p.pump_cycles, 0) }}</dd></div>
+        </dl>
+        <p class="muted tiny">El conteo de litros vuelve a cero cada vez que se reinicia el ESP32.</p>
+      } @else {
+        <div class="empty">Sin datos de {{ s.selectedCode() }}.</div>
+      }
+    </section>
+
+    <!-- Waste -->
+    <section class="rm-card" aria-labelledby="waste-title">
+      <h2 class="rm-card-title" id="waste-title"><i class="pi pi-trash" aria-hidden="true"></i> Basura recolectada <app-origin-tag origin="cuadrilla" /> @if (s.waste(); as w) { <span class="spacer muted small">{{ n(w.total_kg, 1) }} kg</span> }</h2>
       @if (s.waste()) {
         <ul class="bars">
           @for (t of wasteRows(); track t.type) {
             <li>
-              <div class="bar-head"><span>{{ wasteMeta[t.type].label }}</span><span class="muted">{{ f.n1(t.kg) }} kg · {{ f.n0(t.pieces) }} pzas</span></div>
-              <p-progressbar [value]="t.pct" [showValue]="false" [style]="{ height: '10px', '--p-progressbar-value-background': wasteMeta[t.type].color }" [attr.aria-label]="wasteMeta[t.type].label + ' ' + f.n1(t.kg) + ' kg'" />
+              <div class="bar-head"><span>{{ wasteMeta[t.type].label }}</span><span class="muted">{{ n(t.kg, 1) }} kg · {{ n(t.pieces, 0) }} pzas</span></div>
+              <p-progressbar [value]="t.pct" [showValue]="false" [style]="{ height: '10px', '--p-progressbar-value-background': wasteMeta[t.type].color }" [attr.aria-label]="wasteMeta[t.type].label + ' ' + n(t.kg, 1) + ' kg'" />
             </li>
+          } @empty {
+            <li class="empty">Sin recolecciones registradas en el periodo.</li>
           }
         </ul>
+        <p class="muted tiny">La cuadrilla pesa la basura al vaciar la cesta de {{ s.codes().join(' y ') }}.</p>
       } @else if (s.wasteRes.error()) {
-        <div class="inline-err">Sin datos de residuos.<p-button label="Reintentar" size="small" [outlined]="true" (onClick)="s.wasteRes.reload()" /></div>
+        <div class="inline-err">Sin datos de basura.<p-button label="Reintentar" size="small" [outlined]="true" (onClick)="s.wasteRes.reload()" /></div>
       } @else {
-        <div class="skeleton" style="height: 200px"></div>
+        <div class="skeleton" style="height: 180px"></div>
       }
     </section>
 
-    <section class="rm-card">
-      <h2 class="rm-card-title"><i class="pi pi-cog" aria-hidden="true"></i> Centrífuga
-        @if (s.centrifuge(); as c) { <span class="spacer"><app-pill [label]="cfMeta[c.current.state].label" [color]="cfMeta[c.current.state].color" [bg]="cfMeta[c.current.state].bg" /></span> }
-      </h2>
-      @if (s.centrifuge(); as c) {
-        <div class="live-now">
-          <div><span class="muted">RPM en vivo</span><strong>{{ f.n0(c.current.rpm) }}</strong></div>
-          <div><span class="muted">Vibración en vivo</span><strong>{{ f.n1(c.current.vibration_mm_s) }} <small>mm/s</small></strong></div>
+    <!-- WQI -->
+    <section class="rm-card" aria-labelledby="wqi-title">
+      <h2 class="rm-card-title" id="wqi-title"><i class="pi pi-heart" aria-hidden="true"></i> Índice WQI · {{ s.selectedCode() }} <app-origin-tag origin="derivado" /></h2>
+      @if (s.overview(); as o) {
+        <div class="wqi-pair">
+          <div><span class="muted small">Entrada</span><strong [style.color]="wqi[o.wqi.river.category].color">{{ wqiText(o.wqi.river) }}</strong><app-pill [label]="wqi[o.wqi.river.category].label" [color]="wqi[o.wqi.river.category].color" [bg]="wqi[o.wqi.river.category].bg" /></div>
+          <i class="pi pi-arrow-right muted" aria-hidden="true"></i>
+          <div><span class="muted small">Salida</span><strong [style.color]="wqi[o.wqi.outlet.category].color">{{ wqiText(o.wqi.outlet) }}</strong><app-pill [label]="wqi[o.wqi.outlet.category].label" [color]="wqi[o.wqi.outlet.category].color" [bg]="wqi[o.wqi.outlet.category].bg" /></div>
         </div>
-        <dl class="ledger">
-          <div><dt>Ciclos totales</dt><dd>{{ f.n0(c.cycles_total) }}</dd></div>
-          <div><dt>Fallas</dt><dd [class.bad]="c.failures > 0">{{ f.n0(c.failures) }}</dd></div>
-          <div><dt>RPM promedio</dt><dd>{{ f.n0(c.avg_rpm) }}</dd></div>
-          <div><dt>Vibración promedio</dt><dd>{{ f.n1(c.avg_vibration_mm_s) }} mm/s</dd></div>
-          <div><dt>Consumo</dt><dd>{{ f.n1(c.energy_kwh) }} kWh</dd></div>
-        </dl>
-      } @else if (s.centrifugeRes.error()) {
-        <div class="inline-err">Sin datos de la centrífuga.<p-button label="Reintentar" size="small" [outlined]="true" (onClick)="s.centrifugeRes.reload()" /></div>
+        <p class="muted tiny">Calculado en el backend con pH, turbidez, temperatura y TDS de la boya (no mide oxígeno disuelto). Fórmula y pesos de prototipo.</p>
+      } @else if (s.overviewRes.error()) {
+        <div class="inline-err">No se pudo calcular el índice.<p-button label="Reintentar" size="small" [outlined]="true" (onClick)="s.overviewRes.reload()" /></div>
+      } @else if (s.stationsLoaded() && !s.selectedStationId()) {
+        <div class="empty">El backend no tiene una estación con el código {{ s.selectedCode() }}.</div>
       } @else {
-        <div class="skeleton" style="height: 240px"></div>
+        <div class="skeleton" style="height: 120px"></div>
       }
     </section>
 
-    <section class="rm-card">
-      <h2 class="rm-card-title"><i class="pi pi-microchip" aria-hidden="true"></i> Salud de sensores</h2>
+    <!-- Sensor health -->
+    <section class="rm-card" aria-labelledby="sensors-title">
+      <h2 class="rm-card-title" id="sensors-title"><i class="pi pi-microchip" aria-hidden="true"></i> Sensores · {{ s.selectedCode() }}</h2>
       @if (s.sensors(); as list) {
         <ul class="sensors">
           @for (x of list; track x.sensor_id) {
@@ -145,17 +331,18 @@
                 <app-pill [label]="sensorMeta[x.status].label" [color]="sensorMeta[x.status].color" [bg]="sensorMeta[x.status].bg" />
               </div>
               <div class="s-meta muted">
-                @if (x.last_reading; as r) { <span>{{ f.n2(r.value) }} {{ r.unit }} · {{ f.ago(r.ts) }}</span> } @else { <span>Sin lecturas</span> }
-                <span class="signal" [attr.title]="'Calidad de señal ' + x.signal_quality_pct + '%'"><span class="sig-bar"><span [style.width.%]="x.signal_quality_pct" [style.background]="signalColor(x.signal_quality_pct)"></span></span>{{ f.n0(x.signal_quality_pct) }}%</span>
-                <span>Uptime {{ f.n1(x.uptime_pct) }}%</span>
+                @if (x.last_reading; as r) { <span>{{ n(r.value, 2) }} {{ r.unit }} · {{ when(r.ts) }}</span> } @else { <span>Sin lecturas</span> }
+                <span>Lecturas en el periodo: {{ n(x.uptime_pct, 0) }} % del tiempo</span>
               </div>
             </li>
           } @empty { <li class="empty">Sin sensores registrados.</li> }
         </ul>
       } @else if (s.sensorsRes.error()) {
         <div class="inline-err">Sin datos de sensores.<p-button label="Reintentar" size="small" [outlined]="true" (onClick)="s.sensorsRes.reload()" /></div>
+      } @else if (s.stationsLoaded() && !s.selectedStationId()) {
+        <div class="empty">El backend no tiene una estación con el código {{ s.selectedCode() }}.</div>
       } @else {
-        <div class="skeleton" style="height: 240px"></div>
+        <div class="skeleton" style="height: 180px"></div>
       }
     </section>
   </div>

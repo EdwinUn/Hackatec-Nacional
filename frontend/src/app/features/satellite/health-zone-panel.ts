@@ -106,7 +106,7 @@ const SCHOOLS_PREVIEW = 6;
           }
         </ul>
         <p class="warn"><i class="pi pi-info-circle" aria-hidden="true"></i>
-          Afectaciones reportadas en estudios y notas públicas; no son mediciones de Río Monitor. El contorno de la zona es aproximado.</p>
+          Afectaciones reportadas en estudios y notas públicas; no son mediciones de Atl-Monitor. El contorno de la zona es aproximado.</p>
       }
       @case ('school') {
         @let s = school()!;

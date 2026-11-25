@@ -16,6 +16,7 @@ import { TimeSeriesChart } from '../../shared/components/time-series-chart';
 import { fmt2 } from '../../shared/utils/format.util';
 import { valueOrUndefined } from '../../shared/utils/resource.util';
 import { WASTE_META, WASTE_TYPES } from '../../shared/utils/wqi.util';
+import { AuthService } from '../../core/auth/auth.service';
 
 interface LogEntry {
   at: Date;
@@ -37,10 +38,13 @@ export class PredictivePage {
   private readonly stations = inject(StationsService);
   private readonly toast = inject(MessageService);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
 
   /** Bound from the route `analitica/:tab` (`pronostico` | `simulador`). */
   readonly tab = input<string>('pronostico');
-  protected readonly isSim = computed(() => this.tab() === 'simulador');
+  /** The IoT simulator injects data with the ingest key: staff only (supervisor / admin). */
+  protected readonly canSimulate = computed(() => this.auth.isManager());
+  protected readonly isSim = computed(() => this.tab() === 'simulador' && this.canSimulate());
   protected readonly tabOptions = [
     { label: 'Pronóstico de pH', value: 'pronostico' },
     { label: 'Simulador IoT', value: 'simulador' },
@@ -125,18 +129,6 @@ export class PredictivePage {
     const id = this.requireStation();
     if (!id) return;
     this.send('acid', 'Descarga ácida · pH 5.0 en la entrada', this.api.simulateAcidDischarge(id));
-  }
-
-  protected simulateCycle(failed: boolean): void {
-    const id = this.requireStation();
-    if (!id) return;
-    this.send(failed ? 'cycle-bad' : 'cycle', failed ? 'Ciclo de centrífuga con falla (vibración 8.9 mm/s)' : 'Ciclo de centrífuga normal', this.api.simulateCentrifugeCycle(id, failed));
-  }
-
-  protected simulateBatch(): void {
-    const id = this.requireStation();
-    if (!id) return;
-    this.send('batch', 'Lote de tratamiento · 520 L → 468 L limpios', this.api.simulateTreatmentBatch(id));
   }
 
   protected simulateWaste(): void {

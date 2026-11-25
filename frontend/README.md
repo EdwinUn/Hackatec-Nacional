@@ -1,4 +1,4 @@
-# Río Monitor · Frontend
+# Atl-Monitor · Frontend
 
 Monitoreo, alertamiento temprano y analítica del tratamiento de agua en la **Cuenca del Alto Atoyac (Puebla)** —
 reto CAPCEE Puebla, HackaTec 2026. Angular 22 (standalone + signals), PrimeNG, Leaflet y Chart.js.
@@ -12,10 +12,10 @@ npm run build
 ```
 
 ## Vistas
-- `/resumen` — 4 KPI con sparklines (WQI río→salida, pH, sensores, recuperación), pH entrada vs. salida con bandas mín/máx, desglose de agua recuperada, basura, centrífuga y salud de sensores.
+- `/resumen` — solo las boyas RM-01 y RM-02: aviso de urgencia, 4 indicadores iguales en teléfono y escritorio (agua que sale, boyas en vivo, alertas abiertas, cesta más llena), antes y después del filtro (turbidez y pH), estado de cada boya con enlace al 3D, gráfica de entrada contra salida con tabla accesible (historial de `GET /devices/{code}/telemetry`, máx. 1000 paquetes), agua filtrada, basura registrada por la cuadrilla, WQI y sensores. Cada dato lleva su origen: *medido*, *derivado*, *cuadrilla* o *sin dato* (`shared/components/origin-tag.ts`, regla de `docs/fidelidad.md`).
 - `/mapa` — vista satelital (Esri World Imagery + relieve + etiquetas) acotada a la cuenca, cauces del Atoyac/Alseseca, estaciones pulsantes por WQI y panel flotante con telemetría en vivo.
 - `/alertas` — filtros por estado/severidad con paginación, Reconocer/Resolver con nota y reglas vigentes.
-- `/analitica/pronostico` y `/analitica/simulador` — proyección de pH con banda de confianza y simulador IoT (POST con `X-API-Key`).
+- `/analitica/pronostico` y `/analitica/simulador` — proyección de pH con banda de confianza; el simulador IoT (POST con `X-API-Key`: descarga ácida y recolección) solo lo ven supervisor y admin.
 
 Header global: estación, rango de fechas (24 h, ayer, 7/30 días o calendario doble), comparación con el periodo anterior y refresco manual + automático cada 45 s.
 El WebSocket (`LiveStreamService`) reconecta con backoff exponencial (1 s … 30 s) y vuelve a consultar el resumen al reconectar.

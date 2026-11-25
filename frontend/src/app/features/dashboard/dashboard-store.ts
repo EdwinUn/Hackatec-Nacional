@@ -1,216 +1,214 @@
-import { DestroyRef, Injectable, computed, inject, linkedSignal, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, linkedSignal, untracked } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { forkJoin, map } from 'rxjs';
 import { RioApi } from '../../core/api/rio-api';
-import {
-  Bucket,
-  CentrifugeAnalytics,
-  DashboardOverview,
-  LiveEvent,
-  SensorHealth,
-  WasteAnalytics,
-  WasteType,
-  WaterRecovery,
-} from '../../core/models/rio.models';
+import { Buoy } from '../../core/models/buoy.models';
+import { Alert, DashboardOverview, SensorHealth, WasteType } from '../../core/models/rio.models';
+import { DeviceTelemetryDto, TelemetryPacket, deviceCodeFor } from '../../core/models/telemetry.models';
+import { BuoysService } from '../../core/services/buoys.service';
 import { FiltersService } from '../../core/services/filters.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
+import { StationsService } from '../../core/services/stations.service';
+import { TelemetryService } from '../../core/services/telemetry.service';
 import { valueOrUndefined } from '../../shared/utils/resource.util';
-import { WASTE_TYPES, improvementPct } from '../../shared/utils/wqi.util';
+import { WASTE_TYPES } from '../../shared/utils/wqi.util';
 
-export interface LivePhPoint {
-  ts: number;
-  inlet: number | null;
-  outlet: number | null;
+/** Most packets asked to `GET /devices/{code}/telemetry` (the API maximum). */
+export const HISTORY_LIMIT = 1000;
+const MAX_LIVE = 500;
+
+export interface BuoyView {
+  buoy: Buoy;
+  /** Normalized device code (`RM-01`). */
+  code: string;
+  /** Backend station fed by this buoy (`null` if the backend has no station with that code). */
+  stationId: string | null;
+  packet: TelemetryPacket | null;
+  live: boolean;
 }
 
-const MAX_LIVE = 240;
+export interface AlertSummary {
+  open: number;
+  criticalTotal: number;
+  /** Most recent open critical alerts of both buoys. */
+  critical: Alert[];
+}
 
-/** Keeps the last successful value while a refresh is in flight (no skeleton flicker every 45 s). */
+export interface WasteSummary {
+  total_kg: number;
+  by_type: { type: WasteType; kg: number; pieces: number }[];
+}
+
+const sameIds = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/** Keeps the last successful value while a refresh is in flight (no skeleton flicker). */
 function keep<T>(source: () => T | undefined) {
   return linkedSignal<T | undefined, T | undefined>({ source, computation: (n, prev) => n ?? prev?.value });
 }
 
 /**
- * Page-scoped store of the dashboard: loads every dataset with the global filters and applies
- * the live WebSocket events on top (reset whenever fresh data arrives from the API).
+ * Page-scoped store of the executive summary. Only the buoys RM-01 and RM-02 (team decision): their
+ * ESP32 packets (`TelemetryService`), their stored history for the chart, and the open alerts, waste,
+ * WQI and sensor health of their backend stations.
  */
 @Injectable()
 export class DashboardStore {
   private readonly api = inject(RioApi);
   private readonly filters = inject(FiltersService);
   private readonly live = inject(LiveStreamService);
+  private readonly stations = inject(StationsService);
+  private readonly telemetry = inject(TelemetryService);
+  private readonly buoyList = inject(BuoysService).buoys;
 
-  /** `5m` buckets for short windows, `1h` for long ones. */
-  readonly bucket = computed<Bucket>(() => {
+  readonly stationsLoaded = this.stations.loaded;
+
+  /** Backend station id of each buoy, by device code. */
+  private readonly stationByCode = computed(() => new Map(this.stations.stations().filter((s) => s.code).map((s) => [deviceCodeFor(s.code!), s.id])));
+  readonly codeByStation = computed(() => new Map([...this.stationByCode()].map(([code, id]) => [id, code])));
+
+  /** Per-buoy signals, created once so `buoys` only recomputes when a packet or the live flag changes. */
+  private readonly perCode = computed(() =>
+    this.buoyList().map((b) => {
+      const code = deviceCodeFor(b.code);
+      return { buoy: b, code, packet: this.telemetry.packet(code), live: this.telemetry.isLive(code), age: this.telemetry.ageSeconds(code) };
+    }),
+  );
+
+  readonly buoys = computed<BuoyView[]>(() =>
+    this.perCode().map((x) => ({ buoy: x.buoy, code: x.code, stationId: this.stationByCode().get(x.code) ?? null, packet: x.packet(), live: x.live() })),
+  );
+
+  /** Seconds since each buoy's last packet (ticks every second; read it only where «hace X» is shown). */
+  readonly ages = computed<Record<string, number | null>>(() => Object.fromEntries(this.perCode().map((x) => [x.code, x.age()])));
+
+  readonly codes = computed(() => this.buoyList().map((b) => deviceCodeFor(b.code)), { equal: sameIds });
+
+  /** Buoy shown in «¿Cómo está el agua?» and the chart. Follows the header's station when it is a buoy. */
+  private readonly selectedCodeRaw = linkedSignal<string | null, string | null>({
+    source: () => this.filters.stationId(),
+    computation: (id, prev) => (id ? this.codeByStation().get(id) : undefined) ?? prev?.value ?? null,
+  });
+  readonly selectedCode = computed(() => {
+    const c = this.selectedCodeRaw();
+    const codes = this.codes();
+    return c && codes.includes(c) ? c : (codes[0] ?? null);
+  });
+  readonly selected = computed(() => this.buoys().find((b) => b.code === this.selectedCode()) ?? null);
+  readonly selectedStationId = computed(() => {
+    const c = this.selectedCode();
+    return c ? (this.stationByCode().get(c) ?? null) : null;
+  });
+
+  private readonly stationIds = computed(
+    () => this.codes().map((c) => this.stationByCode().get(c)).filter((x): x is string => !!x),
+    { equal: sameIds },
+  );
+
+  select(code: string): void {
+    this.selectedCodeRaw.set(code);
+    const id = this.stationByCode().get(code);
+    if (id) this.filters.setStation(id);
+  }
+
+  // ── Resources ────────────────────────────────────────────────────────────────
+  /** Open alerts are a current state: not limited to the date range. */
+  readonly alertsRes = rxResource({
+    params: () => (this.stationIds().length ? { ids: this.stationIds(), tick: this.filters.tick() } : undefined),
+    stream: ({ params }) =>
+      forkJoin(
+        params.ids.map((id) =>
+          forkJoin({
+            open: this.api.alerts({ status: 'open', station_id: id, limit: 1, offset: 0 }),
+            critical: this.api.alerts({ status: 'open', severity: 'critical', station_id: id, limit: 3, offset: 0 }),
+          }),
+        ),
+      ).pipe(
+        map(
+          (list): AlertSummary => ({
+            open: list.reduce((a, x) => a + x.open.total, 0),
+            criticalTotal: list.reduce((a, x) => a + x.critical.total, 0),
+            critical: list.flatMap((x) => x.critical.items).sort((a, b) => b.created_at.localeCompare(a.created_at)),
+          }),
+        ),
+      ),
+  });
+
+  readonly wasteRes = rxResource({
+    params: () => (this.stationIds().length ? { ids: this.stationIds(), q: this.filters.query(), tick: this.filters.tick() } : undefined),
+    stream: ({ params }) =>
+      forkJoin(params.ids.map((id) => this.api.waste({ ...params.q, station_id: id }, '1h'))).pipe(
+        map((list): WasteSummary => {
+          const by_type = WASTE_TYPES.map((type) => {
+            const rows = list.map((w) => w.by_type.find((t) => t.type === type));
+            return { type, kg: rows.reduce((a, r) => a + (r?.kg ?? 0), 0), pieces: rows.reduce((a, r) => a + (r?.pieces ?? 0), 0) };
+          }).filter((t) => t.kg > 0 || t.pieces > 0);
+          return { total_kg: by_type.reduce((a, t) => a + t.kg, 0), by_type };
+        }),
+      ),
+  });
+
+  private readonly selectedQuery = computed(() => {
+    const id = this.selectedStationId();
+    return id ? { q: { ...this.filters.query(), station_id: id }, tick: this.filters.tick() } : undefined;
+  });
+  readonly overviewRes = rxResource({ params: () => this.selectedQuery(), stream: ({ params }) => this.api.overview(params.q) });
+  readonly sensorsRes = rxResource({ params: () => this.selectedQuery(), stream: ({ params }) => this.api.sensorsHealth(params.q) });
+
+  /** Stored packets of the selected buoy since the start of the range (for the in/out chart). */
+  readonly historyRes = rxResource({
+    params: () => {
+      const code = this.selectedCode();
+      return code ? { code, since: this.filters.range().from, tick: this.filters.tick() } : undefined;
+    },
+    stream: ({ params }) => this.telemetry.history(params.code, params.since, HISTORY_LIMIT),
+  });
+
+  readonly alerts = keep<AlertSummary>(() => valueOrUndefined(this.alertsRes));
+  readonly waste = keep<WasteSummary>(() => valueOrUndefined(this.wasteRes));
+  readonly overview = keep<DashboardOverview>(() => valueOrUndefined(this.overviewRes));
+  readonly sensors = keep<SensorHealth[]>(() => valueOrUndefined(this.sensorsRes));
+  private readonly history = keep<DeviceTelemetryDto[]>(() => valueOrUndefined(this.historyRes));
+
+  /** Packets of the selected buoy that arrived live after the history was loaded. */
+  private readonly livePackets = linkedSignal<unknown, DeviceTelemetryDto[]>({ source: () => valueOrUndefined(this.historyRes), computation: () => [] });
+
+  /** `true` when the history hit `HISTORY_LIMIT`, so the chart starts later than the range. */
+  readonly historyTruncated = computed(() => (this.history()?.length ?? 0) >= HISTORY_LIMIT);
+
+  /** Packets of the selected buoy inside the range, oldest first, history + live. */
+  readonly series = computed<DeviceTelemetryDto[] | undefined>(() => {
+    const h = this.history();
+    if (!h) return undefined;
     const { from, to } = this.filters.range();
-    return to.getTime() - from.getTime() <= 48 * 3_600_000 ? '5m' : '1h';
-  });
-
-  private readonly overviewTick = signal(0);
-  private readonly base = computed(() => ({ q: this.filters.query(), tick: this.filters.tick() }));
-
-  readonly overviewRes = rxResource({
-    params: () => ({ ...this.base(), rc: this.overviewTick() }),
-    stream: ({ params }) => this.api.overview(params.q),
-  });
-  readonly prevRes = rxResource({
-    params: () => (this.filters.compare() ? { q: this.filters.previousQuery(), tick: this.filters.tick() } : undefined),
-    stream: ({ params }) => this.api.overview(params.q),
-  });
-  readonly phRes = rxResource({ params: () => ({ ...this.base(), b: this.bucket() }), stream: ({ params }) => this.api.ph(params.q, params.b) });
-  readonly waterRes = rxResource({ params: () => this.base(), stream: ({ params }) => this.api.waterRecovery(params.q, '1h') });
-  readonly wasteRes = rxResource({ params: () => this.base(), stream: ({ params }) => this.api.waste(params.q, '1h') });
-  readonly centrifugeRes = rxResource({ params: () => this.base(), stream: ({ params }) => this.api.centrifuge(params.q, '1h') });
-  readonly sensorsRes = rxResource({ params: () => this.base(), stream: ({ params }) => this.api.sensorsHealth(params.q) });
-
-  private readonly overviewBase = keep<DashboardOverview>(() => valueOrUndefined(this.overviewRes));
-  private readonly waterBase = keep<WaterRecovery>(() => valueOrUndefined(this.waterRes));
-  private readonly wasteBase = keep<WasteAnalytics>(() => valueOrUndefined(this.wasteRes));
-  private readonly centrifugeBase = keep<CentrifugeAnalytics>(() => valueOrUndefined(this.centrifugeRes));
-  private readonly sensorsBase = keep<SensorHealth[]>(() => valueOrUndefined(this.sensorsRes));
-  readonly ph = keep(() => valueOrUndefined(this.phRes));
-  readonly prev = computed(() => (this.filters.compare() ? valueOrUndefined(this.prevRes) : undefined));
-
-  // ── Live layers (reset whenever the API returns fresh data) ──────────────────
-  private readonly liveLatest = linkedSignal<unknown, Record<string, { inlet?: number; outlet?: number }>>({ source: () => valueOrUndefined(this.overviewRes), computation: () => ({}) });
-  readonly livePoints = linkedSignal<unknown, LivePhPoint[]>({ source: () => valueOrUndefined(this.phRes), computation: () => [] });
-  private readonly sensorLive = linkedSignal<unknown, Record<string, { status?: SensorHealth['status']; signal?: number; value?: number; ts?: string }>>({ source: () => valueOrUndefined(this.sensorsRes), computation: () => ({}) });
-  private readonly cycleLive = linkedSignal<unknown, CentrifugeAnalytics['current'] | null>({ source: () => valueOrUndefined(this.centrifugeRes), computation: () => null });
-  private readonly batchLive = linkedSignal<unknown, { in: number; clean: number; sludge: number }>({ source: () => valueOrUndefined(this.waterRes), computation: () => ({ in: 0, clean: 0, sludge: 0 }) });
-  private readonly wasteLive = linkedSignal<unknown, Record<WasteType, { kg: number; pieces: number }>>({ source: () => valueOrUndefined(this.wasteRes), computation: () => zeroWaste() });
-  private readonly alertLive = linkedSignal<unknown, { open: number; critical: number }>({ source: () => valueOrUndefined(this.overviewRes), computation: () => ({ open: 0, critical: 0 }) });
-
-  // ── Derived views ────────────────────────────────────────────────────────────
-  readonly overview = computed<DashboardOverview | undefined>(() => {
-    const o = this.overviewBase();
-    if (!o) return undefined;
-    const stations = Object.values(this.liveLatest());
-    const avg = (k: 'inlet' | 'outlet') => {
-      const v = stations.map((s) => s[k]).filter((x): x is number => x !== undefined);
-      return v.length ? v.reduce((a, b) => a + b, 0) / v.length : undefined;
-    };
-    const inlet = avg('inlet') ?? o.ph.inlet;
-    const outlet = avg('outlet') ?? o.ph.outlet;
-    const a = this.alertLive();
-    const w = this.water();
-    return {
-      ...o,
-      ph: { ...o.ph, inlet, outlet, improvement_pct: inlet ? improvementPct(inlet, outlet) : o.ph.improvement_pct },
-      alerts: { open: o.alerts.open + a.open, critical: o.alerts.critical + a.critical },
-      treatment_efficiency_pct: w?.totals.efficiency_pct ?? o.treatment_efficiency_pct,
-      recovery: { ...o.recovery, clean_liters: w?.totals.liters_clean ?? o.recovery.clean_liters, waste_kg: this.waste()?.total_kg ?? o.recovery.waste_kg },
-    };
-  });
-
-  readonly water = computed<WaterRecovery | undefined>(() => {
-    const w = this.waterBase();
-    if (!w) return undefined;
-    const d = this.batchLive();
-    const lin = w.totals.liters_in + d.in;
-    const lcl = w.totals.liters_clean + d.clean;
-    return {
-      ...w,
-      totals: {
-        liters_in: lin,
-        liters_clean: lcl,
-        liters_lost: w.totals.liters_lost + Math.max(0, d.in - d.clean - d.sludge * 0.9),
-        sludge_kg: w.totals.sludge_kg + d.sludge,
-        efficiency_pct: lin ? (lcl / lin) * 100 : 0,
-      },
-    };
-  });
-
-  readonly waste = computed<WasteAnalytics | undefined>(() => {
-    const w = this.wasteBase();
-    if (!w) return undefined;
-    const d = this.wasteLive();
-    const by_type = WASTE_TYPES.map((type) => {
-      const b = w.by_type.find((x) => x.type === type) ?? { type, kg: 0, pieces: 0 };
-      return { type, kg: b.kg + d[type].kg, pieces: b.pieces + d[type].pieces };
-    });
-    return { ...w, by_type, total_kg: by_type.reduce((a, b) => a + b.kg, 0) };
-  });
-
-  readonly centrifuge = computed<CentrifugeAnalytics | undefined>(() => {
-    const c = this.centrifugeBase();
-    if (!c) return undefined;
-    const cur = this.cycleLive();
-    return cur ? { ...c, current: cur } : c;
-  });
-
-  readonly sensors = computed<SensorHealth[] | undefined>(() => {
-    const list = this.sensorsBase();
-    if (!list) return undefined;
-    const o = this.sensorLive();
-    return list.map((s) => {
-      const x = o[s.sensor_id];
-      if (!x) return s;
-      return {
-        ...s,
-        status: x.status ?? s.status,
-        signal_quality_pct: x.signal ?? s.signal_quality_pct,
-        last_reading: x.value !== undefined ? { value: x.value, unit: s.last_reading?.unit ?? 'pH', ts: x.ts ?? new Date().toISOString() } : s.last_reading,
-      };
+    const openEnded = this.filters.preset() !== 'custom' && this.filters.preset() !== 'yesterday';
+    const asc = [...h].reverse();
+    const lastTs = asc.length ? Date.parse(asc[asc.length - 1].ts) : 0;
+    const all = [...asc, ...this.livePackets().filter((p) => Date.parse(p.ts) > lastTs)];
+    return all.filter((p) => {
+      const t = Date.parse(p.ts);
+      return t >= from.getTime() && (openEnded || t <= to.getTime());
     });
   });
-
-  /** Sparkline of the outlet pH (sampled to ≤14 points) and of the clean-water volume. */
-  readonly phSpark = computed(() => sample(this.ph()?.series.map((p) => p.outlet.avg) ?? [], 14));
-  readonly recoverySpark = computed(() => this.waterBase()?.series.slice(-14).map((p) => p.liters_clean) ?? []);
-  readonly loading = computed(() => !this.overviewBase());
-  readonly efficiencySpark = computed(() => this.waterBase()?.series.slice(-14).map((p) => (p.liters_in ? (p.liters_clean / p.liters_in) * 100 : 0)) ?? []);
 
   constructor() {
-    // Re-query the overview after every WebSocket reconnection.
-    this.live.reconnected$.pipe(takeUntilDestroyed()).subscribe(() => this.overviewTick.update((n) => n + 1));
-    this.live.events$.pipe(takeUntilDestroyed()).subscribe((e) => this.apply(e));
-    inject(DestroyRef).onDestroy(() => undefined);
+    effect(() => this.codes().forEach((c) => this.telemetry.ensureLoaded(c)));
+    // Append each new packet of the selected buoy to the chart.
+    effect(() => {
+      const p = this.selected()?.packet;
+      if (!p) return;
+      untracked(() => this.livePackets.update((l) => (l.some((x) => x.ts === p.ts) ? l : [...l, p].slice(-MAX_LIVE))));
+    });
+    this.live.reconnected$.pipe(takeUntilDestroyed()).subscribe(() => this.reloadAll());
+    this.live.events$.pipe(takeUntilDestroyed()).subscribe((e) => {
+      if (e.type !== 'alert' && e.type !== 'waste_collected' && e.type !== 'sensor_status') return;
+      if (!this.stationIds().includes(e.data.station_id)) return;
+      if (e.type === 'alert') this.alertsRes.reload();
+      else if (e.type === 'waste_collected') this.wasteRes.reload();
+      else if (e.type === 'sensor_status') this.sensorsRes.reload();
+    });
   }
 
   reloadAll(): void {
-    for (const r of [this.overviewRes, this.phRes, this.waterRes, this.wasteRes, this.centrifugeRes, this.sensorsRes]) r.reload();
+    for (const r of [this.alertsRes, this.wasteRes, this.overviewRes, this.sensorsRes, this.historyRes]) r.reload();
   }
-
-  private apply(e: LiveEvent): void {
-    switch (e.type) {
-      case 'reading': {
-        const d = e.data;
-        // Every reading refreshes its sensor row; only pH inlet/outlet feeds the KPI and the chart.
-        this.sensorLive.update((m) => ({ ...m, [d.sensor_id]: { ...m[d.sensor_id], value: d.value, ts: d.timestamp } }));
-        if (d.parameter !== 'ph' || (d.position !== 'inlet' && d.position !== 'outlet')) return;
-        this.liveLatest.update((m) => ({ ...m, [d.station_id]: { ...m[d.station_id], [d.position]: d.value } }));
-        const stations = Object.values(this.liveLatest());
-        const avg = (k: 'inlet' | 'outlet') => {
-          const v = stations.map((s) => s[k]).filter((x): x is number => x !== undefined);
-          return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
-        };
-        this.livePoints.update((l) => [...l, { ts: new Date(d.timestamp).getTime(), inlet: avg('inlet'), outlet: avg('outlet') }].slice(-MAX_LIVE));
-        return;
-      }
-      case 'sensor_status':
-        this.sensorLive.update((m) => ({ ...m, [e.data.sensor_id]: { ...m[e.data.sensor_id], status: e.data.status, signal: e.data.signal_quality_pct ?? m[e.data.sensor_id]?.signal } }));
-        return;
-      case 'cycle_update':
-        this.cycleLive.set({ state: e.data.state, rpm: e.data.rpm, vibration_mm_s: e.data.vibration_mm_s, updated_at: new Date().toISOString() });
-        return;
-      case 'batch_completed':
-        this.batchLive.update((b) => ({ in: b.in + e.data.liters_in, clean: b.clean + e.data.liters_clean, sludge: b.sludge + e.data.sludge_kg }));
-        return;
-      case 'waste_collected':
-        this.wasteLive.update((w) => ({ ...w, [e.data.waste_type]: { kg: w[e.data.waste_type].kg + e.data.kg, pieces: w[e.data.waste_type].pieces + e.data.pieces } }));
-        return;
-      case 'alert':
-        this.alertLive.update((a) => ({ open: a.open + (e.data.status === 'open' ? 1 : 0), critical: a.critical + (e.data.severity === 'critical' ? 1 : 0) }));
-        return;
-    }
-  }
-}
-
-function zeroWaste(): Record<WasteType, { kg: number; pieces: number }> {
-  return { plastic: { kg: 0, pieces: 0 }, organic: { kg: 0, pieces: 0 }, metal: { kg: 0, pieces: 0 }, glass: { kg: 0, pieces: 0 }, other: { kg: 0, pieces: 0 } };
-}
-
-function sample(values: number[], n: number): number[] {
-  if (values.length <= n) return values;
-  const step = (values.length - 1) / (n - 1);
-  return Array.from({ length: n }, (_, i) => values[Math.round(i * step)]);
 }

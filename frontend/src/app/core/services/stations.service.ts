@@ -3,7 +3,11 @@ import { catchError, of } from 'rxjs';
 import { RioApi } from '../api/rio-api';
 import { Station } from '../models/rio.models';
 
-/** `GET /stations` (3 Puebla stations) shared by header, map and forecast. */
+/**
+ * `GET /stations` shared by header, map and forecast. Only the stations fed by a buoy (with `code`,
+ * RM-01 and RM-02) are shown: the simulated stations of the earlier treatment-plant concept are being
+ * removed (team decision). If none has a code yet, the whole list is kept.
+ */
 @Injectable({ providedIn: 'root' })
 export class StationsService {
   private readonly api = inject(RioApi);
@@ -17,7 +21,8 @@ export class StationsService {
       .stations()
       .pipe(catchError(() => of<Station[]>([])))
       .subscribe((list) => {
-        this._stations.set(list);
+        const devices = list.filter((s) => !!s.code);
+        this._stations.set(devices.length ? devices : list);
         this.loaded.set(true);
       });
   }

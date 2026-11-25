@@ -37,6 +37,8 @@ export interface StationDto {
   status: 'active' | 'maintenance' | 'offline';
   installed_at: string | null;
   description: string | null;
+  /** Device code (`RM-01`) of a station fed by a buoy; `null` for the simulated stations. */
+  code?: string | null;
   created_at: string;
   updated_at: string;
 }

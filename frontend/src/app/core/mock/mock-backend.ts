@@ -14,12 +14,12 @@ import {
   WqiScore,
 } from '../models/rio.models';
 
-const CODES = ['ATY-01', 'ALS-02', 'VAL-03'];
+const CODES = ['RM-01', 'RM-02'];
 
+/** Same buoys, codes and coordinates as `MOCK_BUOYS` and the device stations of `backend/scripts/seed.py`. */
 export const MOCK_STATIONS: Station[] = [
-  { id: '5b1e0d7a-0c31-4c3e-9a51-1a2b3c4d5e01', name: 'Estación Atoyac Poniente', river: 'Río Atoyac', latitude: 19.059, longitude: -98.253 },
-  { id: '5b1e0d7a-0c31-4c3e-9a51-1a2b3c4d5e02', name: 'Estación Alseseca Oriente', river: 'Río Alseseca', latitude: 19.033, longitude: -98.165 },
-  { id: '5b1e0d7a-0c31-4c3e-9a51-1a2b3c4d5e03', name: 'Estación Valsequillo', river: 'Presa Manuel Ávila Camacho', latitude: 18.956, longitude: -98.156 },
+  { id: '5b1e0d7a-0c31-4c3e-9a51-1a2b3c4d5e01', name: 'Boya RM-01 — Atoyac, colector Panzacola', river: 'Río Atoyac', latitude: 19.1561, longitude: -98.2373, code: 'RM-01' },
+  { id: '5b1e0d7a-0c31-4c3e-9a51-1a2b3c4d5e02', name: 'Boya RM-02 — Atoyac, estación testigo Tlahuapan', river: 'Río Atoyac', latitude: 19.3678, longitude: -98.5152, code: 'RM-02' },
 ];
 
 const POSITIONS: SensorPosition[] = ['inlet', 'outlet', 'river'];
@@ -167,7 +167,7 @@ export class MockBackend {
       this.emitReading(st.id, p, Math.round(next * 100) / 100);
     }
     if (this.tick % 2 === 0) {
-      const s = MOCK_STATIONS[Math.floor(r() * 3)];
+      const s = MOCK_STATIONS[Math.floor(r() * MOCK_STATIONS.length)];
       const c = this.centrifuge.get(s.id)!;
       const rpm = Math.round(3100 + r() * 220);
       const vib = Math.round((1.8 + r() * 1.2) * 10) / 10;
@@ -218,11 +218,11 @@ export class MockBackend {
     });
     return [
       mk(1, 0, 'critical', 'open', 'pH 5.1 en la entrada: posible descarga ácida (umbral < 5.5).', 14, 'ph', 5.1),
-      mk(2, 1, 'warning', 'open', 'Turbidez elevada detectada en Estación Alseseca Oriente.', 42, 'turbidity', 96),
-      mk(3, 2, 'warning', 'acknowledged', 'Sensor de pH de entrada con calidad de señal baja.', 95, 'signal', 38),
-      mk(4, 0, 'info', 'open', 'Mantenimiento programado de la centrífuga en 24 h.', 130, null, null),
-      mk(5, 1, 'critical', 'resolved', 'Vibración de centrífuga 7.6 mm/s por encima del límite.', 60 * 7, 'vibration', 7.6),
-      mk(6, 2, 'warning', 'resolved', 'Eficiencia de tratamiento 66 % por debajo del objetivo.', 60 * 11, 'efficiency', 66),
+      mk(2, 0, 'warning', 'open', 'Turbidez de salida 22 NTU por encima de 5 NTU: revisar el filtro.', 42, 'turbidity', 22),
+      mk(3, 1, 'warning', 'acknowledged', 'Sensor de pH de entrada con calidad de señal baja.', 95, 'signal', 38),
+      mk(4, 1, 'info', 'open', 'Turbidez de entrada 104 NTU por encima de 100 NTU.', 130, 'turbidity', 104),
+      mk(5, 0, 'critical', 'resolved', 'Temperatura del agua 31.2 °C fuera de 10–30 °C.', 60 * 7, 'temperature', 31.2),
+      mk(6, 1, 'warning', 'resolved', 'pH de salida 8.6 por encima de 8.5.', 60 * 11, 'ph', 8.6),
       mk(7, 0, 'warning', 'acknowledged', 'pH alcalino 8.7 en la salida.', 60 * 16, 'ph', 8.7),
       mk(8, 1, 'info', 'resolved', 'Calibración de sensor completada.', 60 * 30, null, null),
     ];

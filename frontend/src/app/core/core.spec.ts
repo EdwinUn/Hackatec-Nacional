@@ -56,10 +56,11 @@ describe('mock API', () => {
     be = TestBed.inject(MockBackend);
   });
 
-  it('serves 3 Puebla stations and a consistent overview', async () => {
-    expect((await firstValueFrom(api.stations())).length).toBe(3);
+  it('serves the two buoy stations (RM-01, RM-02) and a consistent overview', async () => {
+    const stations = await firstValueFrom(api.stations());
+    expect(stations.map((s) => s.code)).toEqual(['RM-01', 'RM-02']);
     const o = await firstValueFrom(api.overview(q));
-    expect(o.sensors.total).toBe(9);
+    expect(o.sensors.total).toBe(6);
     expect(o.wqi.outlet.score).toBeGreaterThan(o.wqi.river.score);
     expect(o.ph.outlet!).toBeGreaterThan(o.ph.inlet!);
   });

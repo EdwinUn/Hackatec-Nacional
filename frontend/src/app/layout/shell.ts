@@ -9,7 +9,6 @@ import { DatePicker } from 'primeng/datepicker';
 import { Popover } from 'primeng/popover';
 import { Select } from 'primeng/select';
 import { Toast } from 'primeng/toast';
-import { ToggleSwitch } from 'primeng/toggleswitch';
 import { AppHeader } from './app-header';
 import { BottomNav } from './bottom-nav';
 import { APP_CONFIG } from '../core/config/app-config';
@@ -26,7 +25,7 @@ const REFRESH_MS = 45_000;
 
 @Component({
   selector: 'app-shell',
-  imports: [AppHeader, BottomNav, FormsModule, RouterOutlet, RouterLink, RouterLinkActive, Button, DatePicker, Popover, Select, Toast, ToggleSwitch],
+  imports: [AppHeader, BottomNav, FormsModule, RouterOutlet, RouterLink, RouterLinkActive, Button, DatePicker, Popover, Select, Toast],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './shell.html',
   styleUrl: './shell.scss',
@@ -55,6 +54,8 @@ export class Shell {
   /** Phone: these screens carry their own controls or need none, so the station/period filter bar is hidden there. */
   protected readonly cleanMobile = computed(() => /^\/(inicio|avisos|reportar|resumen|mapa|operaciones|boyas)(\/|$|\?)/.test(this.url()) || this.url() === '/');
   protected readonly onMap = computed(() => this.url().startsWith('/mapa'));
+  /** «Boyas» covers the list and the 3D view («Conoce la boya» belongs to the phone app). */
+  protected readonly onBuoys = computed(() => this.url().startsWith('/boyas') && !this.url().startsWith('/boyas/conoce'));
   protected readonly presetLabel = PRESET_LABEL;
   protected readonly presets: Exclude<RangePreset, 'custom'>[] = ['24h', 'yesterday', '7d', '30d'];
   protected readonly draftRange = signal<Date[] | null>(null);

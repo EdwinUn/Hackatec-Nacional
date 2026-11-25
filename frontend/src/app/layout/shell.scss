@@ -37,8 +37,7 @@ nav { display: flex; flex-direction: column; gap: .2rem; }
 .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: .55rem 1.25rem; background: var(--rm-card); border-bottom: 1px solid var(--rm-border); }
 .station-select { min-width: 230px; }
 .range-btn { min-width: 0; }
-.cmp-short { display: none; }
-.compare { display: inline-flex; align-items: center; gap: .5rem; font-size: .85rem; color: var(--rm-muted); margin-left: auto; }
+.refresh { margin-left: auto; }
 .content { flex: 1; min-height: 0; overflow: auto; }
 .proto { display: flex; align-items: center; gap: .5rem; padding: .5rem 1.25rem; font-size: .75rem; color: var(--rm-muted); border-top: 1px solid var(--rm-border); background: var(--rm-card); i { color: var(--rm-green); } }
 .scrim { display: none; }
@@ -46,7 +45,6 @@ nav { display: flex; flex-direction: column; gap: .2rem; }
 @media (max-width: 1199px) {
   .station-select { min-width: 190px; }
   :host ::ng-deep .refresh .p-button-label { display: none; }
-  .compare { font-size: .8rem; }
 }
 
 /* Range popover */
@@ -59,13 +57,11 @@ nav { display: flex; flex-direction: column; gap: .2rem; }
 @media (max-width: 767px), (pointer: coarse) and (max-width: 1400px) {
   .shell, .shell.collapsed { grid-template-columns: 1fr; }
   .sidebar, .scrim, .menu-btn, .proto { display: none !important; }
-  .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: 'station station station' 'range compare refresh'; gap: .4rem .5rem; padding: .5rem .75rem; align-items: center; background: transparent; border: 0; }
+  .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'station station' 'range refresh'; gap: .4rem .5rem; padding: .5rem .75rem; align-items: center; background: transparent; border: 0; }
   .m-clean .topbar { display: none; }
   .station-select { grid-area: station; min-width: 0; }
   .range-btn { grid-area: range; min-width: 0; :host ::ng-deep .p-button { width: 100%; justify-content: flex-start; } :host ::ng-deep .p-button-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
-  .compare { grid-area: compare; margin-left: 0; font-size: .78rem; }
-  .refresh { grid-area: refresh; }
-  .cmp-full { display: none; } .cmp-short { display: inline; }
+  .refresh { grid-area: refresh; margin-left: 0; }
   .content { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
   .shell { height: 100dvh; overflow: hidden; grid-template-rows: minmax(0, 1fr); grid-auto-rows: 0; }
   .m-map .content { padding-bottom: 0; overflow: hidden; display: flex; flex-direction: column; }

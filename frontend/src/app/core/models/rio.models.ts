@@ -24,6 +24,8 @@ export interface Station {
   latitude: number;
   longitude: number;
   status?: string;
+  /** Device code of the buoy that feeds it (`RM-01`); absent for stations without a device. */
+  code?: string | null;
 }
 
 export interface WqiScore {

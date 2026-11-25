@@ -43,7 +43,7 @@ import { locationLabel, typeLabel } from './labels';
 const NO_WQI: WqiScore = { score: 0, category: 'sin_datos', dominant_parameter: null };
 
 export function mapStation(d: StationDto): Station {
-  return { id: d.id, name: d.name, river: d.river, latitude: d.latitude, longitude: d.longitude, status: d.status };
+  return { id: d.id, name: d.name, river: d.river, latitude: d.latitude, longitude: d.longitude, status: d.status, code: d.code ?? null };
 }
 
 export function mapWqi(d: WqiDto | null | undefined): WqiScore {

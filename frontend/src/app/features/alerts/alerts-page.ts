@@ -150,7 +150,7 @@ export class AlertsPage {
 
   protected async setNotifications(on: boolean): Promise<void> {
     const result = await this.native.setEnabled(on);
-    if (on && !result) this.toast.add({ key: 'app', severity: 'warn', summary: 'Permiso denegado', detail: 'Activa las notificaciones de Río Monitor en los ajustes del teléfono.', life: 6000 });
+    if (on && !result) this.toast.add({ key: 'app', severity: 'warn', summary: 'Permiso denegado', detail: 'Activa las notificaciones de Atl-Monitor en los ajustes del teléfono.', life: 6000 });
   }
 
   protected editRule(r: AlertRule): void {
