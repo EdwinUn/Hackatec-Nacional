@@ -23,7 +23,7 @@ import { ROLE_META } from '../shared/utils/ops.util';
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     :host { display: none; }
-    @media (max-width: 767px) { :host { display: block; position: sticky; top: 0; z-index: 40; } }
+    @media (max-width: 767px), (pointer: coarse) and (max-width: 1400px) { :host { display: block; position: sticky; top: 0; z-index: 40; } }
     header { display: flex; align-items: center; justify-content: space-between; padding: calc(.55rem + env(safe-area-inset-top)) 1rem .55rem; background: var(--atl-bg); }
     .brand { display: inline-flex; align-items: center; gap: .5rem; text-decoration: none; color: var(--atl-ink); }
     .brand img { width: 34px; height: 34px; border-radius: 10px; }
@@ -68,6 +68,7 @@ import { ROLE_META } from '../shared/utils/ops.util';
             <small>{{ statusText() }}</small>
           </div>
           <a routerLink="/operaciones/bandeja"><i class="pi pi-inbox" aria-hidden="true"></i> Mi bandeja</a>
+          <a routerLink="/boyas"><i class="pi pi-th-large" aria-hidden="true"></i> Boyas skimmer</a>
           @if (auth.isManager()) {
             <a routerLink="/operaciones/reportes"><i class="pi pi-megaphone" aria-hidden="true"></i> Reportes ciudadanos</a>
             <a routerLink="/operaciones/ordenes"><i class="pi pi-clipboard" aria-hidden="true"></i> Órdenes de trabajo</a>

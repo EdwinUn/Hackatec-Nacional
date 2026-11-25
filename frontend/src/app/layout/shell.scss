@@ -56,7 +56,7 @@ nav { display: flex; flex-direction: column; gap: .2rem; }
 .hint { margin: .4rem 0 0; font-size: .78rem; }
 
 /* ── Mobile ─────────────────────────────────────────── */
-@media (max-width: 767px) {
+@media (max-width: 767px), (pointer: coarse) and (max-width: 1400px) {
   .shell, .shell.collapsed { grid-template-columns: 1fr; }
   .sidebar, .scrim, .menu-btn, .proto { display: none !important; }
   .topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: 'station station station' 'range compare refresh'; gap: .4rem .5rem; padding: .5rem .75rem; align-items: center; background: transparent; border: 0; }

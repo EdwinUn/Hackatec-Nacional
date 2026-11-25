@@ -163,6 +163,8 @@ class CitizenReport(Entity):
     station_id: UUID | None = None
     work_order_id: UUID | None = None
     public_note: str | None = None
+    #: Análisis de visión artificial de la foto (`POST /vision/analyze`), con la imagen anotada reducida.
+    ai: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         self.description = (self.description or "").strip()

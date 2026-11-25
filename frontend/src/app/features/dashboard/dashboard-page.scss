@@ -23,7 +23,7 @@
 
 /* ── Phone (Atl-Monitor) ─────────────────────────────── */
 .m-only { display: none; }
-@media (max-width: 767px) {
+@media (max-width: 767px), (pointer: coarse) and (max-width: 1400px) {
   .m-only { display: block; }
   .d-only { display: none; }
   .m-select { display: grid; gap: .75rem; padding: .85rem; }

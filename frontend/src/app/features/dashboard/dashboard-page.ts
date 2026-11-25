@@ -1,3 +1,6 @@
+import { TelemetryService } from '../../core/services/telemetry.service';
+import { BuoysService } from '../../core/services/buoys.service';
+import { deviceCodeFor } from '../../core/models/telemetry.models';
 import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
@@ -33,6 +36,10 @@ export class DashboardPage {
   protected readonly filters = inject(FiltersService);
   private readonly stationsSvc = inject(StationsService);
   protected readonly alerts = inject(AlertCounterService);
+  private readonly iot = inject(TelemetryService);
+  private readonly buoyList = inject(BuoysService).buoys;
+  /** Skimmer buoys whose ESP32 is sending right now (`/ws/live`). */
+  protected readonly liveBuoys = computed(() => new Set(this.buoyList().map((b) => deviceCodeFor(b.code)).filter((c) => this.iot.isLive(c)())).size);
   private readonly ops = inject(OpsApi);
 
   // ── Phone summary: station/period selector + four headline KPIs ──

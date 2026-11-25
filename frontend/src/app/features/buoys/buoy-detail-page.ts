@@ -6,6 +6,8 @@ import { Button } from 'primeng/button';
 import { SelectButton } from 'primeng/selectbutton';
 import { ToggleSwitch } from 'primeng/toggleswitch';
 import { BUOY_STATUS_META } from '../../core/models/buoy.models';
+import { deviceCodeFor } from '../../core/models/telemetry.models';
+import { TelemetryPanel } from '../../shared/components/telemetry-panel';
 import { BuoysService } from '../../core/services/buoys.service';
 import { formatCoords } from '../../shared/utils/format.util';
 import { BuoyView, BuoyViewer } from './buoy-viewer';
@@ -26,7 +28,7 @@ const SPECS: { label: string; value: string }[] = [
  */
 @Component({
   selector: 'app-buoy-detail-page',
-  imports: [DatePipe, FormsModule, RouterLink, Button, SelectButton, ToggleSwitch, BuoyViewer],
+  imports: [DatePipe, FormsModule, RouterLink, Button, SelectButton, ToggleSwitch, BuoyViewer, TelemetryPanel],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .head { display: flex; align-items: center; gap: .5rem; }
@@ -103,6 +105,11 @@ const SPECS: { label: string; value: string }[] = [
           </div>
         </section>
 
+        <section id="telemetria" class="rm-card live" aria-labelledby="live-title">
+          <h2 id="live-title" class="rm-card-title"><i class="pi pi-wave-pulse" aria-hidden="true"></i> Telemetría en vivo</h2>
+          <app-telemetry-panel [code]="deviceCode(b.code)" />
+        </section>
+
         <section class="specs" aria-labelledby="specs-title">
           <h2 id="specs-title">Ficha técnica</h2>
           <dl>
@@ -130,6 +137,7 @@ export class BuoyDetailPage {
   protected readonly meta = BUOY_STATUS_META;
   protected readonly specs = SPECS;
   protected readonly coords = formatCoords;
+  protected readonly deviceCode = deviceCodeFor;
 
   protected readonly view = signal<BuoyView>('iso');
   protected readonly xray = signal(false);

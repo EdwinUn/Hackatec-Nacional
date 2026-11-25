@@ -120,6 +120,11 @@ class DeviceTelemetryRow(Base):
     brake_on: Mapped[bool | None]
     alarm_on: Mapped[bool | None]
     device_efficiency_pct: Mapped[float | None]
+    flow_rate_lpm: Mapped[float | None]
+    basket_fill_pct: Mapped[float | None]
+    rssi_dbm: Mapped[float | None]
+    gas_v: Mapped[float | None]
+    values: Mapped[dict | None] = mapped_column(sa.JSON)
     created_at: Mapped[datetime] = mapped_column(TZ, server_default=sa.func.now())
 
     __table_args__ = (sa.Index("ix_device_telemetry_station_id_ts", "station_id", sa.text("ts DESC")),)
@@ -259,6 +264,7 @@ class CitizenReportRow(TimestampMixin, Base):
         sa.ForeignKey("work_orders.id", ondelete="SET NULL", use_alter=True)
     )
     public_note: Mapped[str | None] = mapped_column(sa.Text)
+    ai: Mapped[dict | None] = mapped_column(sa.JSON)
 
     __table_args__ = (sa.Index("ix_citizen_reports_created_at", sa.text("created_at DESC")),)
 

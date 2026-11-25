@@ -1,5 +1,6 @@
 """DTOs HTTP del módulo de operaciones (login, usuarios, reportes ciudadanos, órdenes de trabajo)."""
 
+import json
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -23,6 +24,7 @@ from app.domain.operations import (
 
 # Data URL de ~300 KB en base64 más margen.
 MAX_PHOTO_CHARS = 450_000
+MAX_AI_CHARS = 200_000
 
 
 def media_url(request: Request, ref: str | None) -> str | None:
@@ -90,6 +92,16 @@ class CitizenReportIn(StrictModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     accuracy: float | None = Field(default=None, ge=0, description="Metros")
+    ai: dict[str, Any] | None = Field(
+        default=None,
+        description="Resultado de POST /vision/analyze (imagen anotada reducida); máx. 200 KB",
+    )
+
+    @model_validator(mode="after")
+    def _ai_size(self) -> "CitizenReportIn":
+        if self.ai is not None and len(json.dumps(self.ai, separators=(",", ":"))) > MAX_AI_CHARS:
+            raise ValueError("El análisis de IA es demasiado grande (máx. 200 KB)")
+        return self
 
     @model_validator(mode="after")
     def _description_or_photo(self) -> "CitizenReportIn":
@@ -116,6 +128,7 @@ class CitizenReportOut(BaseModel):
     station_id: UUID | None
     work_order_id: UUID | None
     public_note: str | None
+    ai: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -125,7 +138,7 @@ class CitizenReportOut(BaseModel):
             id=r.id, folio=r.folio, type=r.type, description=r.description, photo=media_url(request, r.photo),
             latitude=r.latitude, longitude=r.longitude, accuracy=r.accuracy, status=r.status,
             station_id=r.station_id, work_order_id=r.work_order_id, public_note=r.public_note,
-            created_at=r.created_at, updated_at=r.updated_at,
+            ai=r.ai, created_at=r.created_at, updated_at=r.updated_at,
         )  # fmt: skip
 
 

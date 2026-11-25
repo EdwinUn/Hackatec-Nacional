@@ -41,6 +41,30 @@
     </div>
   }
 
+  <!-- Phone: live ESP32 telemetry capsule (fed by /ws/live) -->
+  <div class="m-only iot" [class.hide]="menuOpen()">
+    <button type="button" class="iot-pill" [class.live]="iotLive()" (click)="iotOpen.set(!iotOpen())" [attr.aria-expanded]="iotOpen()" aria-controls="iot-card">
+      <span class="pulse" aria-hidden="true"></span>IoT Live · ESP32<i class="pi pi-angle-down chev" [class.up]="iotOpen()" aria-hidden="true"></i>
+    </button>
+    @if (iotOpen()) {
+      <div class="iot-card" id="iot-card" role="region" aria-label="Telemetría en vivo">
+        @if (iotPacket(); as pk) {
+          <p class="iot-h"><b>{{ iotBuoy()?.code ?? iotCode() }}</b> · {{ iotLive() ? 'recibiendo datos' : 'sin señal' }}</p>
+          <div class="iot-grid" [class.stale]="!iotLive()">
+            <span><small>pH</small><b>{{ num(pk.values?.['ph'], 2) }}</b></span>
+            <span><small>Turbidez</small><b>{{ num(pk.values?.['turb_in_ntu'], 1) }} <em>NTU</em></b></span>
+            <span><small>Temp.</small><b>{{ num(pk.values?.['temp_c'], 1) }} <em>°C</em></b></span>
+            <span><small>Eficiencia</small><b>{{ num(pk.device_efficiency_pct, 0) }} <em>%</em></b></span>
+            <span><small>Enlace LoRa</small><b>{{ pk.rssi_dbm === null || pk.rssi_dbm === undefined ? '—' : num(pk.rssi_dbm, 0) + ' dBm' }}</b></span>
+          </div>
+          @if (iotBuoy(); as b) { <a class="iot-go" [routerLink]="['/boyas', b.id]"><i class="pi pi-box" aria-hidden="true"></i> Ir a la boya {{ b.code }}</a> }
+        } @else {
+          <p class="iot-h">Esperando datos del ESP32…</p>
+        }
+      </div>
+    }
+  </div>
+
   <!-- Phone: dedicated strip under the map (above the floating navbar) holding both pills -->
   <div class="m-only dock" [class.hide]="reportsOpen()">
     @if (selected(); as h) {

@@ -609,7 +609,7 @@ Roles: `technician` (técnico de campo), `supervisor`, `admin`. La ciudadanía *
 
 | Método | Ruta | Acceso | Notas |
 | --- | --- | --- | --- |
-| POST | `/api/v1/citizen-reports` | Público | `{ type, description, photo, latitude, longitude, accuracy? }` → 201 con `folio` y `status: "new"`. Sin descripción ni foto → 422 `validation_error`. Foto inválida o > 300 KB → 422 `invalid_data`. 5 reportes por IP cada 10 min → 429 `rate_limited` |
+| POST | `/api/v1/citizen-reports` | Público | `{ type, description, photo, latitude, longitude, accuracy?, ai? }` → 201 con `folio` y `status: "new"`. `ai` (opcional) es el resultado de `POST /vision/analyze` con la imagen anotada reducida (máx. 200 KB en JSON, si no 422); se guarda y se devuelve en `ai` en cada lectura. Sin descripción ni foto → 422 `validation_error`. Foto inválida o > 300 KB → 422 `invalid_data`. 5 reportes por IP cada 10 min → 429 `rate_limited` |
 | GET | `/api/v1/citizen-reports` | Público | Más recientes primero, máx. 500 |
 | GET | `/api/v1/citizen-reports/by-folio/{folio}` | Público | Sin distinguir mayúsculas; 404 si no existe |
 | PATCH | `/api/v1/citizen-reports/{id}` | supervisor / admin | `{ status?, public_note? }` (p. ej. descartar). `work_order_id` es solo lectura |
@@ -737,6 +737,32 @@ Los eventos llegan a todos los clientes conectados (prototipo); el front filtra 
 Las crea `make seed`, solo con `ENVIRONMENT` de desarrollo: `tecnico@demo.mx`, `tecnico2@demo.mx` (technician), `supervisor@demo.mx` y `admin@demo.mx`. Contraseña: `demo123`. El seed también crea cinco tareas de ejemplo en la bandeja de `tecnico@demo.mx`.
 
 ---
+
+### `POST /api/v1/telemetry/iot` (nodo IoT / Wokwi)
+
+Ingesta flexible del ESP32, pensada para la simulación de Wokwi (`backend/scripts/wokwi_esp32_client.ino`). **Sin `X-API-Key`**; el
+header `X-Device-Key` es opcional (si el servidor define `DEVICE_KEY` y el header viene, debe coincidir → si no, 401; fuera de dev es obligatorio).
+
+```json
+{ "device_id": "B-01", "ph": 6.9, "turbidity": 180, "temperature": 22.4, "dissolved_oxygen": 5.8,
+  "flow_rate": 12.5, "river_speed_ms": 0.9, "basket_fill_pct": 37, "battery_pct": 78, "rssi": -61, "pump_on": true }
+```
+
+- `device_id`: obligatorio. `B-01` es el alias de la boya `RM-01` (también acepta el código de la estación). Otro → 404.
+- **Formato del firmware:** el mismo endpoint también acepta el mensaje que imprime/publica el ESP32 (`boya`, `ph`, `temp_c`, `turb_in_ntu`,
+  `turb_out_ntu`, `eficiencia_pct`, `bat_v`, `bat_pct`, `gas_v`, `freno`, `bomba`, `alerta`) si trae `boya` en vez de `device_id`.
+  Los alias `B-02` / `BM-02` / `RM-02` son la misma boya en todas las rutas (`/devices/{code}/…`, MQTT y este endpoint).
+- **MQTT (lo que usa el sketch de Wokwi del repo):** con `MQTT_URL=mqtt://broker.hivemq.com:1883` en `backend/.env` el backend se suscribe a
+  `riomonitor/+/telemetria`; el `+` es el código de la boya y el payload es el formato del firmware. Sin `MQTT_URL` el puente está apagado.
+  El broker de HiveMQ es público: cualquiera que conozca el tópico puede publicar; úsalo solo para demos.
+- Todo lo demás es opcional; los campos desconocidos se ignoran y un valor no numérico se descarta sin tumbar el paquete.
+  `basket_fill_pct` y `battery_pct` se recortan a 0–100. También acepta `tds`, `battery_v`, `seq`, `ts`, `alarm_on`.
+- Los valores de calidad (`ph`, `turbidity`→turbidez de entrada, `temperature`, `dissolved_oxygen`, `tds`) se guardan como lecturas
+  del sensor de la estación (si no tiene ese sensor aparece en `unmapped`); el resto es estado del dispositivo.
+- Respuesta 200: `{station_id, code, ts, readings, unmapped}`.
+- Por `/ws/live` salen los eventos `reading` y un `device_telemetry` con `{code, battery_pct, river_speed_ms, flow_rate_lpm,
+  basket_fill_pct, rssi_dbm, pump_on, …, values: {ph, turb_in_ntu, temp_c, do_mgl}}`.
+- `GET /devices/{code}/telemetry/latest` devuelve esos mismos campos (más `values`) del último paquete.
 
 ## Visión artificial (fotos de reportes ciudadanos)
 

@@ -32,6 +32,7 @@ CHANNELS: dict[str, Channel] = {
     "temp_c": Channel(SensorType.TEMPERATURE, (L.INLET, L.RIVER)),
     "turb_in_ntu": Channel(SensorType.TURBIDITY, (L.INLET,)),
     "turb_out_ntu": Channel(SensorType.TURBIDITY, (L.OUTLET,)),
+    "do_mgl": Channel(SensorType.DISSOLVED_OXYGEN, (L.INLET, L.RIVER)),
 }
 
 
@@ -68,5 +69,10 @@ class DeviceTelemetry:
     # Eficiencia que calcula el firmware (por turbidez). No es la `efficiency_pct` de los lotes,
     # que se calcula por volumen de agua.
     device_efficiency_pct: float | None = None
+    flow_rate_lpm: float | None = None  # caudal de la bomba (L/min)
+    basket_fill_pct: float | None = None  # llenado de la cesta de basura (0–100)
+    gas_v: float | None = None  # sensor de gas (V)
+    rssi_dbm: float | None = None  # intensidad de la señal WiFi/LoRa (dBm, negativo)
+    values: dict[str, float] | None = None  # calidad del agua de ese envío (nombres del firmware)
     id: UUID = field(default_factory=uuid4)
     created_at: datetime = field(default_factory=utcnow)

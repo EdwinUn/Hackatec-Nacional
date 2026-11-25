@@ -17,6 +17,7 @@ from pydantic import (
 )
 
 from app.application.commands import TelemetryInput
+from app.domain.entities import device_code_aliases
 from app.domain.errors import InvalidDataError
 from app.domain.telemetry import CHANNELS
 
@@ -69,6 +70,7 @@ class TelemetryIn(BaseModel):
     freno: bool | None = Field(default=None, description="Resistencia de descarga (freno del molino) activa")
     bomba: bool | None = None
     alerta: bool | None = None
+    gas_v: float | None = Field(default=None, description="Sensor de gas (V)")
 
     @field_validator("ts", mode="before")
     @classmethod
@@ -81,12 +83,12 @@ class TelemetryIn(BaseModel):
 
     def check_code(self, code: str) -> None:
         """El código viene en la ruta/tópico; `boya` en el cuerpo es opcional pero no puede contradecirlo."""
-        if self.boya is not None and self.boya.strip().upper() != code.strip().upper():
+        if self.boya is not None and device_code_aliases(self.boya)[-1] != device_code_aliases(code)[-1]:
             raise InvalidDataError(f"boya={self.boya} no coincide con el código {code}")
 
     def to_input(self) -> TelemetryInput:
         return TelemetryInput(
-            values={name: getattr(self, name) for name in CHANNELS if getattr(self, name) is not None},
+            values={name: v for name in CHANNELS if (v := getattr(self, name, None)) is not None},
             ts=self.ts,
             seq=self.n,
             battery_v=self.bat_v,
@@ -98,4 +100,5 @@ class TelemetryIn(BaseModel):
             pump_on=self.bomba,
             alarm_on=self.alerta,
             device_efficiency_pct=self.eficiencia_pct,
+            gas_v=self.gas_v,
         )

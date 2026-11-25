@@ -79,6 +79,12 @@ DEVICE_LAYOUT = [
 
 # Solo en ENVIRONMENT de desarrollo (el seed no crea estas cuentas en producción).
 DEMO_USERS = [
+    {
+        "name": "Operador de Brigada",
+        "email": "operador@atlmonitor.mx",
+        "role": "technician",
+        "password": "atoyac2026",
+    },
     {"name": "Luis Hernández", "email": "tecnico@demo.mx", "role": "technician", "password": "demo123"},
     {"name": "Ana Ramírez", "email": "tecnico2@demo.mx", "role": "technician", "password": "demo123"},
     {"name": "Mariana López", "email": "supervisor@demo.mx", "role": "supervisor", "password": "demo123"},

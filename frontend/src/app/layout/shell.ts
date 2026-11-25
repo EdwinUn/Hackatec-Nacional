@@ -53,7 +53,7 @@ export class Shell {
   protected readonly mobileOpen = signal(false);
   private readonly url = signal(this.router.url);
   /** Phone: Inicio and Mapa carry their own station/period controls, so the filter bar is hidden there. */
-  protected readonly cleanMobile = computed(() => /^\/(resumen|mapa|operaciones)(\/|$|\?)/.test(this.url()) || this.url() === '/');
+  protected readonly cleanMobile = computed(() => /^\/(resumen|mapa|operaciones|boyas)(\/|$|\?)/.test(this.url()) || this.url() === '/');
   protected readonly onMap = computed(() => this.url().startsWith('/mapa'));
   protected readonly presetLabel = PRESET_LABEL;
   protected readonly presets: Exclude<RangePreset, 'custom'>[] = ['24h', 'yesterday', '7d', '30d'];
@@ -107,7 +107,7 @@ export class Shell {
   }
 
   protected toggleSidebar(): void {
-    if (window.matchMedia('(max-width: 767px)').matches) this.mobileOpen.update((v) => !v);
+    if (window.matchMedia('(max-width: 767px), (pointer: coarse) and (max-width: 1400px)').matches) this.mobileOpen.update((v) => !v);
     else this.collapsed.update((v) => !v);
   }
 

@@ -11,7 +11,7 @@ from app.application.commands import IngestResult, ReadingInput, TelemetryInput,
 from app.application.events import device_telemetry_event
 from app.application.ports import Clock, EventPublisher, UnitOfWorkFactory
 from app.application.services.ingestion import MAX_FUTURE_SKEW, IngestionService
-from app.domain.entities import Station, ensure_utc, normalize_device_code
+from app.domain.entities import Station, device_code_aliases, ensure_utc
 from app.domain.errors import NotFoundError
 from app.domain.telemetry import CHANNELS, DeviceTelemetry, resolve_channels
 
@@ -42,10 +42,15 @@ class TelemetryService:
 
     async def _station(self, code: str) -> Station:
         async with self._uow_factory() as uow:
-            station = await uow.stations.get_by_code(normalize_device_code(code))
-        if station is None:
-            raise NotFoundError(f"No hay estación con code={code}")
-        return station
+            for candidate in device_code_aliases(code):
+                station = await uow.stations.get_by_code(candidate)
+                if station is not None:
+                    return station
+        raise NotFoundError(f"No hay estación con code={code}")
+
+    async def ingest_iot(self, device_id: str, data: TelemetryInput) -> TelemetryResult:
+        """Entrada del nodo IoT: acepta el código de la estación (RM-01) o su alias (B-01, BM-01)."""
+        return await self.ingest(device_id, data)
 
     async def ingest(self, code: str, data: TelemetryInput) -> TelemetryResult:
         ts = self._timestamp(data.ts)
@@ -71,6 +76,11 @@ class TelemetryService:
             brake_on=data.brake_on,
             alarm_on=data.alarm_on,
             device_efficiency_pct=data.device_efficiency_pct,
+            flow_rate_lpm=data.flow_rate_lpm,
+            basket_fill_pct=data.basket_fill_pct,
+            rssi_dbm=data.rssi_dbm,
+            gas_v=data.gas_v,
+            values={k: float(v) for k, v in values.items()} or None,
         )
         async with self._uow_factory() as uow:
             await uow.telemetry.add(telemetry)
