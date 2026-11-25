@@ -1,0 +1,2201 @@
+================================================================================
+RÍO MONITOR · BOYA 1 (RM-01) · PAQUETE COMPLETO PARA EL EMULADOR WOKWI
+Instrucciones para Claude Code + todos los archivos, completos y sin abreviar
+================================================================================
+
+QUÉ ES ESTO
+-----------
+La boya 1 (RM-01, colector Panzacola) se actualiza a la misma electrónica que la
+boya 2 y que el modelo 3D:
+- 2 ADS1115, como chip propio de Wokwi;
+- módem A7670SA, como chip propio de Wokwi;
+- sonar JSN-SR04T, MPU6050, DS18B20, caudalímetro YF-S401 y microSD.
+
+Publica por MQTT al backend FastAPI, en el tópico riomonitor/RM-01/telemetria.
+
+El sketch viejo de la boya 1 leía los potenciómetros directo en GPIO 36/39/34/35/32/33.
+En este circuito esos pines ya no llevan sensores, así que daba lecturas falsas:
+ph 14, tds 0, turbidez 1000, batería 0 V.
+La boya 2 muestra esas mismas lecturas: si sigue con el sketch viejo, se corrige
+con este mismo sketch.ino cambiando una sola línea:
+    const char *BOYA = "RM-02";
+
+ARCHIVOS (abajo, cada uno entre marcas ===== INICIO / ===== FIN)
+-----------------------------------------------------------------
+  sketch.ino          firmware del ESP32 (modo Wokwi y modo boya real)
+  libraries.txt       librerías Arduino que usa el sketch
+  diagram.json        circuito de Wokwi (65 partes, 88 conexiones)
+  ads1115.chip.json   definición de pines del chip ADS1115
+  ads1115.chip.c      lógica del chip ADS1115 (Wokwi Chips API)
+  a7670sa.chip.json   definición de pines y controles del módem 4G
+  a7670sa.chip.c      lógica del módem (contesta comandos AT)
+
+Transcribe cada archivo EXACTAMENTE como está, sin cambiar nombres ni contenido.
+El tipo de parte "chip-ads1115" del diagram.json depende de que el chip se llame
+"ads1115", y lo mismo pasa con "chip-a7670sa" y "a7670sa".
+
+TAREAS PARA CLAUDE CODE
+-----------------------
+1. Revisa primero la carpeta firmware/ del repo y cómo está montado el emulador:
+   - ¿hay wokwi.toml, platformio.ini o un script de arranque?
+   - ¿dónde está la boya 2?
+   Sigue la misma estructura que ya usa la boya 2; no inventes otra.
+
+2. Crea o actualiza la carpeta de la boya 1 (por ejemplo firmware/boya1/) con los
+   7 archivos de abajo.
+
+3. Si el emulador corre en wokwi.com (navegador):
+   - Abre el proyecto de la boya 1.
+   - Pega sketch.ino, diagram.json y libraries.txt.
+   - Crea los archivos ads1115.chip.json, ads1115.chip.c, a7670sa.chip.json y
+     a7670sa.chip.c (botón "+" > New file).
+   - Wokwi compila los chips solo.
+
+4. Si el emulador corre en local (extensión Wokwi de VS Code o wokwi-cli):
+
+   a) Compilar el firmware. Ejemplo con arduino-cli:
+        arduino-cli core install esp32:esp32
+        arduino-cli lib install OneWire DallasTemperature PubSubClient "Adafruit ADS1X15" "Adafruit BusIO"
+        arduino-cli compile -b esp32:esp32:esp32 --output-dir build <carpeta_del_sketch>
+      arduino-cli exige que el .ino se llame igual que su carpeta: carpeta "sketch"
+      con sketch.ino, o carpeta "boya1" con boya1.ino.
+      Con PlatformIO, en platformio.ini:
+        lib_deps = paulstoffregen/OneWire
+                   milesburton/DallasTemperature
+                   knolleary/PubSubClient
+                   adafruit/Adafruit ADS1X15
+                   adafruit/Adafruit BusIO
+        (para MODO_SIMULACION 0 agrega también vshymanskyy/TinyGSM)
+
+   b) Compilar los chips a WebAssembly. Wokwi en local NO compila los .c solo.
+      Hace falta el encabezado oficial wokwi-api.h:
+        https://wokwi.com/api/chips/wokwi-api.h
+      Ponlo junto a los .chip.c.
+      Compila con clang + wasi-libc (WASI SDK), igual que la plantilla oficial
+      github.com/wokwi/inverter-chip:
+        clang --target=wasm32-unknown-wasi --sysroot <ruta_wasi_sysroot> -nostartfiles \
+          -Wl,--import-memory -Wl,--export-table -Wl,--no-entry -Werror \
+          -o chips/ads1115.chip.wasm ads1115.chip.c
+        clang --target=wasm32-unknown-wasi --sysroot <ruta_wasi_sysroot> -nostartfiles \
+          -Wl,--import-memory -Wl,--export-table -Wl,--no-entry -Werror \
+          -o chips/a7670sa.chip.wasm a7670sa.chip.c
+      Copia también los .chip.json a chips/. Wokwi busca el .json con el mismo
+      nombre base que el .wasm (chips/ads1115.chip.json junto a chips/ads1115.chip.wasm).
+
+   c) wokwi.toml (si ya existe para la boya 2, copia su sección [wokwi] y ajusta las rutas):
+        [wokwi]
+        version = 1
+        firmware = 'build/sketch.ino.bin'     # o el .merged.bin que genere tu toolchain
+        elf = 'build/sketch.ino.elf'
+
+        [[chip]]
+        name = 'ads1115'
+        binary = 'chips/ads1115.chip.wasm'
+
+        [[chip]]
+        name = 'a7670sa'
+        binary = 'chips/a7670sa.chip.wasm'
+
+5. Backend (FastAPI, suscriptor MQTT):
+   - Mensaje: JSON plano en riomonitor/<BOYA>/telemetria.
+   - Claves de siempre:
+       boya, n, ts (ISO UTC, opcional), ph (pH de ENTRADA), tds_ppm, temp_c,
+       turb_in_ntu, turb_out_ntu, eficiencia_pct, bat_v, bat_pct, gen_v,
+       freno, bomba, alerta
+   - Claves nuevas (#define ENVIAR_CAMPOS_NUEVOS 1):
+       ph_out, caudal_lpm, litros_total, cesta_pct, bomba_a, ciclos_bomba,
+       inclinacion_deg, golpe, senal_csq
+   - Si el esquema rechaza claves desconocidas (extra="forbid"), agrégalas como
+     opcionales. Si no se puede todavía, pon ENVIAR_CAMPOS_NUEVOS 0 en el sketch.
+   - Haz opcionales (float | None) las claves de sensores: si un sensor no
+     responde, el firmware OMITE su clave, no manda 0 ni un valor inventado.
+   - Unidades: ph_out en pH; caudal_lpm en L/min; litros_total en L;
+     cesta_pct en %; bomba_a en A; inclinacion_deg en °.
+     golpe y senal_csq (0–31) son diagnóstico, no calidad del agua.
+   - Dashboard: una clave ausente se muestra como "sin dato", no como 0.
+
+6. Verificación en el emulador:
+   - Al arrancar, el serial muestra:
+       "ADS1115 0x48: ok · 0x49: ok · MPU6050: ok · microSD: ok"
+       "Módem A7670SA encendido"
+       "Módem: SIM lista · señal N/31 · red TELCEL"
+   - Cada 3 s se imprime el JSON; cada 15 s se publica ("-> enviado a riomonitor/RM-01/telemetria").
+   - Al mover un potenciómetro, cambia su valor en el JSON.
+   - En el chip del módem, sim=0 o red=0: se apaga el LED "Envío" (GPIO25) y
+     crece "Pendientes por enviar". Al regresar a 1, se publican en orden.
+   - Con batería > 75 % (deslizador "Batería" alto), la bomba enciende (LED azul)
+     y el caudalímetro marca ~2.5 L/min.
+   - Con generador > 26 V, se enciende el freno (LED naranja).
+
+NO CAMBIAR
+----------
+Pines, calibración, umbrales del freno (26/22 V y 12.5/12.3 V) y de la bomba
+(35 % / 75 %). Coinciden con la lista de materiales, el modelo 3D y la matriz
+de fidelidad. El broker broker.hivemq.com es solo para la demo; en la boya real
+se usa un broker propio con usuario y contraseña (MQTT_USUARIO / MQTT_CLAVE).
+
+
+===== INICIO sketch.ino =====
+/*
+  Río Monitor · Boya 1 (RM-01, colector Panzacola) · firmware ESP32
+  Misma electrónica que el modelo 3D y que la boya 2 en Wokwi (ADS1115, módem A7670SA, etc.).
+
+  Publica la telemetría por MQTT; el backend FastAPI está suscrito al mismo broker:
+      tópico  riomonitor/RM-01/telemetria          (RM-01 = `code` de la estación en el backend)
+      mensaje {"boya":"RM-01","n":1,"ts":"…","ph":…,"tds_ppm":…, …}
+  Las claves de siempre no cambian (ph, tds_ppm, temp_c, turb_in_ntu, turb_out_ntu, eficiencia_pct,
+  bat_v, bat_pct, gen_v, freno, bomba, alerta). Las de los sensores nuevos se agregan al final
+  (ver ENVIAR_CAMPOS_NUEVOS). Si un sensor no responde, su clave no se envía: no se inventa el dato.
+
+  libraries.txt de Wokwi: OneWire, DallasTemperature, PubSubClient, Adafruit ADS1X15, Adafruit BusIO
+  Archivos del proyecto Wokwi: diagram.json, ads1115.chip.json/.c, a7670sa.chip.json/.c (los mismos de la boya 2)
+
+  Pieza real                          En Wokwi                       Conexión
+  ---------------------------------   ----------------------------   ----------------------
+  ADS1115 #1 (0x48)                   Chip propio ads1115            I2C SDA21 SCL22
+    A0 pH entrada (PH-4502C)          Potenciómetro
+    A1 pH salida  (PH-4502C)          Potenciómetro
+    A2 TDS                            Potenciómetro
+    A3 Turbidez entrada               Potenciómetro
+  ADS1115 #2 (0x49)                   Chip propio ads1115            I2C SDA21 SCL22
+    A0 Turbidez salida                Potenciómetro
+    A1 Batería (divisor 100k/33k)     Deslizador
+    A2 Generador (divisor 100k/10k)   Deslizador
+    A3 Corriente bomba (ACS712 5 A)   Potenciómetro
+  MPU6050 (0x68) inclinación/golpes   MPU6050                        I2C SDA21 SCL22
+  DS18B20 temperatura                 DS18B20                        GPIO5
+  JSN-SR04T nivel de la cesta         HC-SR04                        TRIG GPIO15, ECHO GPIO34
+  YF-S401 caudalímetro (salida)       Reloj 245 Hz + compuerta AND   GPIO35
+                                      (solo pulsa con la bomba prendida)
+  microSD                             microSD                        CS13 SCK18 MISO19 MOSI23
+  Alimentación pH entrada / salida    LED                            GPIO32 / GPIO33
+  Alimentación TDS                    LED                            GPIO26
+  MOSFET bomba                        LED azul                       GPIO27
+  MOSFET freno (resist. descarga)     LED naranja                    GPIO14
+  Alerta / envío correcto             LED rojo / verde               GPIO2 / GPIO25
+  Módem 4G A7670SA + SIM              Chip propio a7670sa            RX16 TX17 PWRKEY4
+
+  Conexión a internet:
+  - MODO_SIMULACION 1: el chip a7670sa contesta los comandos AT y decide si hay SIM y red
+    (controles del chip); si hay red, los bytes salen por el WiFi "Wokwi-GUEST".
+  - MODO_SIMULACION 0: todo va por el módem 4G con la SIM (TinyGSM).
+  Sin red, los mensajes se guardan y se publican en orden al reconectar, cada uno con su hora.
+*/
+
+#define MODO_SIMULACION      1   // 1 = Wokwi (WiFi), 0 = boya real (módem 4G)
+#define USAR_BLE             0   // 1 = lecturas por Bluetooth en campo (Wokwi no simula BLE)
+#define ENVIAR_CAMPOS_NUEVOS 1   // 0 = solo las claves de siempre (si el backend rechaza claves extra)
+
+#include <Wire.h>
+#include <Adafruit_ADS1X15.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <SPI.h>
+#include <SD.h>
+#include <time.h>
+#include <sys/time.h>
+#include <math.h>
+#include <PubSubClient.h>
+
+HardwareSerial SerialModem(2);   // UART2 al A7670SA, en los dos modos
+
+#if MODO_SIMULACION
+  #include <WiFi.h>
+  WiFiClient red;
+#else
+  #define TINY_GSM_MODEM_SIM7600   // el A7670SA usa los mismos comandos AT
+  #include <TinyGsmClient.h>
+  TinyGsm modem(SerialModem);
+  TinyGsmClient red(modem);
+  const char APN[]      = "internet.itelcel.com";  // Telcel; cámbialo según tu SIM
+  const char APN_USER[] = "webgprs";
+  const char APN_PASS[] = "webgprs2002";
+#endif
+
+#if USAR_BLE
+  #include <NimBLEDevice.h>
+  NimBLECharacteristic *bleLecturas = nullptr;
+  const char *BLE_SERVICIO = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+  const char *BLE_LECTURAS = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+#endif
+
+// ---------- Backend (vía broker MQTT) ----------
+// Broker público: sirve para la demo, pero cualquiera puede publicar en el tópico.
+// Para la boya real usa un broker propio con usuario y contraseña.
+const char *MQTT_HOST    = "broker.hivemq.com";
+const int   MQTT_PUERTO  = 1883;
+const char *MQTT_USUARIO = nullptr;   // nullptr = sin autenticación
+const char *MQTT_CLAVE   = nullptr;
+// `code` de la estación en el backend: RM-01 (colector Panzacola) o RM-02 (estación testigo).
+// Este mismo sketch sirve para la boya 2: solo cambia esta línea.
+const char *BOYA = "RM-01";
+String topico = String("riomonitor/") + BOYA + "/telemetria";
+
+PubSubClient mqtt(red);
+
+// ---------- Pines ----------
+const int PIN_SDA = 21, PIN_SCL = 22;
+const int PIN_ONEWIRE = 5, PIN_SD_CS = 13;
+const int PIN_PH_IN_PWR = 32, PIN_PH_OUT_PWR = 33, PIN_TDS_PWR = 26;
+const int PIN_BOMBA = 27, PIN_FRENO = 14, PIN_ALERTA = 2, PIN_ENVIO = 25;
+const int PIN_TRIG = 15, PIN_ECHO = 34, PIN_FLUJO = 35;
+const int PIN_MODEM_RX = 16, PIN_MODEM_TX = 17, PIN_MODEM_PWR = 4;
+
+// ---------- Calibración (ver plan de mantenimiento) ----------
+const float PH_IN_V7  = 1.65, PH_IN_PEND  = 0.2357;   // V a pH 7 y V por unidad de pH
+const float PH_OUT_V7 = 1.65, PH_OUT_PEND = 0.2357;
+const float VREF_TURB = 3.3;
+const float DIVISOR_BAT = 4.03;                        // (100k + 33k) / 33k
+const float DIVISOR_GEN = 11.0;                        // (100k + 10k) / 10k -> 3.3 V = 36 V
+const float BAT_VACIA = 9.0, BAT_LLENA = 12.6;         // 3S2P Li-ion: 3.0 V y 4.2 V por celda
+const float ACS_CERO_V = 2.50, ACS_V_POR_A = 0.185;     // ACS712 5 A
+const float PULSOS_POR_LITRO = 98.0 * 60.0;             // YF-S401: F(Hz) = 98 × Q(L/min)
+const float CESTA_DIST_VACIA = 44.0, CESTA_DIST_LLENA = 30.0;   // cm (sensor 30 cm sobre la tapa)
+
+// ---------- Protección contra sobrecarga y ciclo de la bomba ----------
+// El cargador CC/CV ya limita la batería a 12.6 V. El riesgo es el generador:
+// si la batería se llena o el río corre muy rápido, el molino se acelera y su
+// voltaje sube. La resistencia de descarga (en paralelo al generador) lo frena.
+const float GEN_V_FRENAR = 26.0, GEN_V_SOLTAR = 22.0;
+const float BAT_V_LLENA_FRENO = 12.5, BAT_V_SOLTAR = 12.3;
+const float BAT_PARAR = 35.0, BAT_ARRANCAR = 75.0;
+
+// ---------- Alertas locales (el backend evalúa las suyas) ----------
+const float PH_MIN = 6.5, PH_MAX = 8.5, TDS_MAX = 500.0, TURB_MAX = 50.0;
+const float INCLINACION_MAX = 30.0;    // grados: boya volcada o jalada por la corriente
+const float GOLPE_G = 0.5;             // desviación de 1 g que cuenta como golpe
+
+// ---------- Tiempos ----------
+#if MODO_SIMULACION
+const unsigned long PERIODO_LECTURA_MS = 3000, PERIODO_ENVIO_MS = 15000;    // demo: cada 15 s
+#else
+const unsigned long PERIODO_LECTURA_MS = 30000, PERIODO_ENVIO_MS = 300000;  // cada 5 min
+#endif
+
+// ---------- Buffer de envíos pendientes ----------
+// ts = 0 significa "sin hora": el backend usa la hora de llegada.
+struct Envio {
+  uint32_t n, ciclos;
+  time_t ts;
+  float ph, phOut, tds, temp, turbIn, turbOut, batV, batPct, genV;
+  float caudal, litros, cesta, bombaA, inclinacion;
+  int8_t csq;
+  bool freno, bomba, alerta, golpe;
+};
+const int MAX_PENDIENTES = 120;        // ≈ 10 h sin señal con envíos cada 5 min
+Envio pendientes[MAX_PENDIENTES];
+int numPendientes = 0;
+
+Adafruit_ADS1115 ads1, ads2;
+OneWire oneWire(PIN_ONEWIRE);
+DallasTemperature termometro(&oneWire);
+bool ads1Ok = false, ads2Ok = false, mpuOk = false, sdLista = false, relojListo = false;
+bool bombaEncendida = false, frenoActivo = false;
+unsigned long ultimaLectura = 0, ultimoEnvio = 0;
+uint32_t ciclosBomba = 0, numEnvio = 0;
+float litrosAcumulados = 0;
+volatile uint32_t pulsosFlujo = 0;
+Envio ultimo;
+struct EstadoModem { bool encendido, sim, red; int csq; String operador; } em = { false, false, false, 99, "" };
+
+void IRAM_ATTR alPulsoFlujo() { pulsosFlujo++; }
+
+// ================= Lecturas =================
+float voltsADS(Adafruit_ADS1115 &ads, bool ok, int canal) {
+  if (!ok) return NAN;
+  float suma = 0;
+  for (int i = 0; i < 4; i++) suma += ads.computeVolts(ads.readADC_SingleEnded(canal));
+  return suma / 4.0;
+}
+
+// Los dos electrodos de pH y el TDS están en agua conectada: se encienden por turnos.
+void alimentarSolo(int pin) {
+  digitalWrite(PIN_PH_IN_PWR, pin == PIN_PH_IN_PWR);
+  digitalWrite(PIN_PH_OUT_PWR, pin == PIN_PH_OUT_PWR);
+  digitalWrite(PIN_TDS_PWR, pin == PIN_TDS_PWR);
+  delay(250);
+}
+
+float aPH(float v, float v7, float pend) {
+  if (isnan(v)) return NAN;
+  return constrain(7.0f + (v7 - v) / pend, 0.0f, 14.0f);
+}
+
+float aTDS(float v, float tempC) {
+  if (isnan(v)) return NAN;
+  float vc = v / (1.0f + 0.02f * (tempC - 25.0f));
+  return max(0.0f, (133.42f * vc * vc * vc - 255.86f * vc * vc + 857.39f * vc) * 0.5f);
+}
+
+float aTurbidez(float v) {
+  if (isnan(v)) return NAN;
+  return constrain((1.0f - v / VREF_TURB) * 1000.0f, 0.0f, 1000.0f);
+}
+
+float porcentajeBateria(float volts) {
+  if (isnan(volts)) return NAN;
+  return constrain((volts - BAT_VACIA) / (BAT_LLENA - BAT_VACIA) * 100.0f, 0.0f, 100.0f);
+}
+
+// Cuánta turbidez quitan los filtros (0–100 %).
+float eficiencia(float turbIn, float turbOut) {
+  if (isnan(turbIn) || isnan(turbOut)) return NAN;
+  if (turbIn <= 0) return 0;
+  return constrain((turbIn - turbOut) / turbIn * 100.0f, 0.0f, 100.0f);
+}
+
+float leerCestaPct() {
+  digitalWrite(PIN_TRIG, LOW);  delayMicroseconds(4);
+  digitalWrite(PIN_TRIG, HIGH); delayMicroseconds(20);
+  digitalWrite(PIN_TRIG, LOW);
+  unsigned long us = pulseIn(PIN_ECHO, HIGH, 30000);
+  if (us == 0) return NAN;
+  float cm = us * 0.0343f / 2.0f;
+  return constrain((CESTA_DIST_VACIA - cm) / (CESTA_DIST_VACIA - CESTA_DIST_LLENA) * 100.0f, 0.0f, 100.0f);
+}
+
+void iniciarMPU() {
+  Wire.beginTransmission(0x68);
+  Wire.write(0x6B); Wire.write(0x00);          // salir de reposo
+  mpuOk = Wire.endTransmission() == 0;
+}
+
+bool leerMPU(float &inclinacion, float &g) {
+  if (!mpuOk) return false;
+  Wire.beginTransmission(0x68);
+  Wire.write(0x3B);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom(0x68, 6) != 6) return false;
+  int16_t ax = (Wire.read() << 8) | Wire.read();
+  int16_t ay = (Wire.read() << 8) | Wire.read();
+  int16_t az = (Wire.read() << 8) | Wire.read();
+  float x = ax / 16384.0f, y = ay / 16384.0f, z = az / 16384.0f;
+  g = sqrtf(x * x + y * y + z * z);
+  inclinacion = g > 0.1f ? acosf(constrain(z / g, -1.0f, 1.0f)) * 180.0f / PI : 0.0f;
+  return true;
+}
+
+void controlarFreno(float genV, float batV) {
+  bool sobreVoltaje = genV > GEN_V_FRENAR;
+  bool bateriaLlena = batV >= BAT_V_LLENA_FRENO && genV > batV;
+  if (!frenoActivo && (sobreVoltaje || bateriaLlena)) frenoActivo = true;
+  if (frenoActivo && genV < GEN_V_SOLTAR && batV < BAT_V_SOLTAR) frenoActivo = false;
+  digitalWrite(PIN_FRENO, frenoActivo ? HIGH : LOW);
+}
+
+void controlarBomba(float bateriaPct) {
+  bool antes = bombaEncendida;
+  if (bombaEncendida && bateriaPct < BAT_PARAR) bombaEncendida = false;
+  if (!bombaEncendida && bateriaPct > BAT_ARRANCAR) bombaEncendida = true;
+  if (bombaEncendida && !antes) ciclosBomba++;
+  digitalWrite(PIN_BOMBA, bombaEncendida ? HIGH : LOW);
+}
+
+// ================= Reloj =================
+// Sin hora también se publica: el backend usa la hora de llegada.
+void sincronizarReloj() {
+#if MODO_SIMULACION
+  configTime(0, 0, "pool.ntp.org", "time.google.com");
+  for (int i = 0; i < 40 && time(nullptr) < 1700000000; i++) delay(250);
+#else
+  int y, mo, d, h, mi, s; float tz;
+  if (modem.getNetworkTime(&y, &mo, &d, &h, &mi, &s, &tz)) {
+    struct tm t = {};
+    t.tm_year = y - 1900; t.tm_mon = mo - 1; t.tm_mday = d; t.tm_hour = h; t.tm_min = mi; t.tm_sec = s;
+    setenv("TZ", "UTC0", 1); tzset();
+    struct timeval tv = { (time_t)(mktime(&t) - (time_t)(tz * 3600)), 0 };
+    settimeofday(&tv, nullptr);
+  }
+#endif
+  relojListo = time(nullptr) > 1700000000;
+  Serial.println(relojListo ? "Reloj sincronizado (UTC)" : "Reloj sin sincronizar: el backend usará la hora de llegada");
+}
+
+String isoUTC(time_t ts) {
+  struct tm t; gmtime_r(&ts, &t);
+  char buf[25]; strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &t);
+  return String(buf);
+}
+
+// ================= Módem A7670SA =================
+String atComando(const char *cmd, unsigned long ms = 1500) {
+  while (SerialModem.available()) SerialModem.read();
+  SerialModem.print(cmd); SerialModem.print("\r");
+  String r; unsigned long t0 = millis();
+  while (millis() - t0 < ms) {
+    while (SerialModem.available()) r += (char)SerialModem.read();
+    if (r.indexOf("OK\r\n") >= 0 || r.indexOf("ERROR") >= 0) break;
+    delay(5);
+  }
+  return r;
+}
+
+void iniciarModem() {
+  pinMode(PIN_MODEM_PWR, OUTPUT);
+  digitalWrite(PIN_MODEM_PWR, HIGH); delay(100);
+  digitalWrite(PIN_MODEM_PWR, LOW);  delay(1000);    // pulso de encendido
+  digitalWrite(PIN_MODEM_PWR, HIGH);
+  SerialModem.begin(115200, SERIAL_8N1, PIN_MODEM_RX, PIN_MODEM_TX);
+#if MODO_SIMULACION
+  String r; unsigned long t0 = millis();
+  while (millis() - t0 < 6000 && r.indexOf("RDY") < 0) {
+    while (SerialModem.available()) r += (char)SerialModem.read();
+    delay(10);
+  }
+  em.encendido = atComando("ATE0").indexOf("OK") >= 0;
+  Serial.println(em.encendido ? "Módem A7670SA encendido" : "El módem no responde");
+#else
+  delay(3000);
+  em.encendido = modem.restart();
+  Serial.print("Módem: ");
+  Serial.println(modem.getModemInfo());
+#endif
+}
+
+void consultarModem() {
+#if MODO_SIMULACION
+  if (!em.encendido) { em.sim = em.red = false; return; }
+  em.sim = atComando("AT+CPIN?").indexOf("READY") >= 0;
+  String r = atComando("AT+CSQ");
+  int i = r.indexOf("+CSQ: ");
+  em.csq = i >= 0 ? r.substring(i + 6).toInt() : 99;
+  r = atComando("AT+CEREG?");
+  i = r.indexOf("+CEREG: ");
+  int stat = i >= 0 ? r.substring(r.indexOf(',', i) + 1).toInt() : 0;
+  em.red = em.sim && (stat == 1 || stat == 5);
+  r = atComando("AT+COPS?");
+  i = r.indexOf('"');
+  em.operador = i >= 0 ? r.substring(i + 1, r.indexOf('"', i + 1)) : "";
+#else
+  em.sim = modem.getSimStatus() == 1;      // SIM_READY
+  em.csq = modem.getSignalQuality();
+  em.red = modem.isNetworkConnected();
+  em.operador = em.red ? modem.getOperator() : "";
+#endif
+  Serial.printf("Módem: SIM %s · señal %d/31 · %s\n", em.sim ? "lista" : "NO", em.csq == 99 ? 0 : em.csq,
+                em.red ? ("red " + em.operador).c_str() : "sin red");
+}
+
+// ================= Conexión =================
+#if MODO_SIMULACION
+unsigned long wifiInicioMs = 0;
+#endif
+
+bool conectarRed() {
+#if MODO_SIMULACION
+  if (WiFi.status() == WL_CONNECTED) return true;
+  // WiFi.begin reinicia la asociación: se llama una vez y solo se repite tras 60 s sin conectar.
+  if (wifiInicioMs == 0 || millis() - wifiInicioMs > 60000) {
+    WiFi.disconnect();
+    WiFi.mode(WIFI_STA);
+    WiFi.begin("Wokwi-GUEST", "", 6);
+    wifiInicioMs = millis();
+  }
+  for (int i = 0; i < 40 && WiFi.status() != WL_CONNECTED; i++) delay(250);
+  if (WiFi.status() == WL_CONNECTED) return true;
+  Serial.printf("WiFi sin conexión (estado %d)\n", WiFi.status());
+  return false;
+#else
+  if (modem.isGprsConnected()) return true;
+  if (!modem.waitForNetwork(60000L)) return false;
+  return modem.gprsConnect(APN, APN_USER, APN_PASS);
+#endif
+}
+
+bool conectarMqtt() {
+  if (!em.red) return false;               // sin SIM o sin red celular: se guardan los envíos
+  if (mqtt.connected()) return true;
+  if (!conectarRed()) return false;
+  String id = String("riomonitor-") + BOYA + "-" + String((uint32_t)esp_random(), HEX);
+  Serial.print("Conectando a MQTT...");
+  bool ok = mqtt.connect(id.c_str(), MQTT_USUARIO, MQTT_CLAVE);
+  Serial.println(ok ? " listo" : String(" falló (estado ") + mqtt.state() + ")");
+  return ok;
+}
+
+// ================= Mensaje =================
+void campo(String &j, const char *clave, float v, int dec) {
+  if (isnan(v)) return;                    // sensor sin respuesta: la clave no se envía
+  j += ",\""; j += clave; j += "\":"; j += String(v, dec);
+}
+
+void campoBool(String &j, const char *clave, bool v) {
+  j += ",\""; j += clave; j += "\":"; j += v ? "true" : "false";
+}
+
+String jsonEnvio(const Envio &e) {
+  String j = String("{\"boya\":\"") + BOYA + "\",\"n\":" + String((unsigned long)e.n);
+  if (e.ts > 1700000000) j += ",\"ts\":\"" + isoUTC(e.ts) + "\"";
+  campo(j, "ph", e.ph, 2);                 // pH de entrada (agua del río)
+  campo(j, "tds_ppm", e.tds, 0);
+  campo(j, "temp_c", e.temp, 1);
+  campo(j, "turb_in_ntu", e.turbIn, 0);
+  campo(j, "turb_out_ntu", e.turbOut, 0);
+  campo(j, "eficiencia_pct", eficiencia(e.turbIn, e.turbOut), 1);
+  campo(j, "bat_v", e.batV, 2);
+  campo(j, "bat_pct", e.batPct, 0);
+  campo(j, "gen_v", e.genV, 1);
+  campoBool(j, "freno", e.freno);
+  campoBool(j, "bomba", e.bomba);
+  campoBool(j, "alerta", e.alerta);
+#if ENVIAR_CAMPOS_NUEVOS
+  campo(j, "ph_out", e.phOut, 2);          // pH después de los filtros
+  campo(j, "caudal_lpm", e.caudal, 2);
+  campo(j, "litros_total", e.litros, 1);
+  campo(j, "cesta_pct", e.cesta, 0);
+  campo(j, "bomba_a", e.bombaA, 2);
+  j += ",\"ciclos_bomba\":" + String((unsigned long)e.ciclos);
+  campo(j, "inclinacion_deg", e.inclinacion, 1);
+  campoBool(j, "golpe", e.golpe);
+  j += ",\"senal_csq\":" + String((int)e.csq);
+#endif
+  return j + "}";
+}
+
+void agregarPendiente(const Envio &e) {
+  if (numPendientes == MAX_PENDIENTES) {           // lleno: se pierde el más viejo
+    memmove(pendientes, pendientes + 1, sizeof(Envio) * (MAX_PENDIENTES - 1));
+    numPendientes--;
+  }
+  pendientes[numPendientes++] = e;
+}
+
+// Publica en orden; se detiene en el primer fallo y reintenta en el siguiente periodo.
+void enviarPendientes() {
+  bool ok = conectarMqtt();
+  int enviados = 0;
+  while (ok && enviados < numPendientes) {
+    ok = mqtt.publish(topico.c_str(), jsonEnvio(pendientes[enviados]).c_str());
+    if (ok) {
+      enviados++;
+      mqtt.loop();
+    }
+  }
+  if (enviados) {
+    memmove(pendientes, pendientes + enviados, sizeof(Envio) * (numPendientes - enviados));
+    numPendientes -= enviados;
+    Serial.printf("  -> enviado a %s (%d mensaje%s)\n", topico.c_str(), enviados, enviados == 1 ? "" : "s");
+  }
+  digitalWrite(PIN_ENVIO, ok ? HIGH : LOW);
+  if (numPendientes) Serial.printf("  Pendientes por enviar: %d\n", numPendientes);
+}
+
+// ================= Bluetooth (en campo, sin internet) =================
+void iniciarBLE() {
+#if USAR_BLE
+  String nombre = String("RioMonitor-") + BOYA;
+  NimBLEDevice::init(nombre.c_str());
+  NimBLEServer *servidor = NimBLEDevice::createServer();
+  NimBLEService *servicio = servidor->createService(BLE_SERVICIO);
+  bleLecturas = servicio->createCharacteristic(BLE_LECTURAS, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+  servicio->start();
+  NimBLEAdvertising *anuncio = NimBLEDevice::getAdvertising();
+  anuncio->addServiceUUID(BLE_SERVICIO);
+  anuncio->start();
+  Serial.println("Bluetooth activo: " + nombre);
+#endif
+}
+
+void publicarBLE(const String &json) {
+#if USAR_BLE
+  if (bleLecturas) { bleLecturas->setValue(std::string(json.c_str())); bleLecturas->notify(); }
+#endif
+}
+
+// ================= Programa =================
+void setup() {
+  Serial.begin(115200);
+  const int salidas[] = { PIN_PH_IN_PWR, PIN_PH_OUT_PWR, PIN_TDS_PWR, PIN_BOMBA, PIN_FRENO,
+                          PIN_ALERTA, PIN_ENVIO, PIN_TRIG };
+  for (int p : salidas) {
+    pinMode(p, OUTPUT);
+    digitalWrite(p, LOW);
+  }
+  pinMode(PIN_ECHO, INPUT);
+  pinMode(PIN_FLUJO, INPUT);
+  attachInterrupt(digitalPinToInterrupt(PIN_FLUJO), alPulsoFlujo, RISING);
+
+  Wire.begin(PIN_SDA, PIN_SCL);
+  ads1Ok = ads1.begin(0x48);
+  ads2Ok = ads2.begin(0x49);
+  if (ads1Ok) ads1.setGain(GAIN_ONE);   // ±4.096 V: las señales llegan en 0–3.3 V
+  if (ads2Ok) ads2.setGain(GAIN_ONE);
+  iniciarMPU();
+  termometro.begin();
+
+  sdLista = SD.begin(PIN_SD_CS);
+  if (sdLista) {
+    File f = SD.open("/lecturas.csv", FILE_WRITE);
+    if (f) {
+      f.println("ts,ph,ph_out,tds_ppm,temp_c,turb_in_ntu,turb_out_ntu,caudal_lpm,litros_total,cesta_pct,"
+                "bat_v,bat_pct,gen_v,bomba_a,bomba,freno,inclinacion_deg,alerta");
+      f.close();
+    }
+  }
+
+  Serial.println();
+  Serial.printf("=== Río Monitor · boya %s ===\n", BOYA);
+  Serial.printf("ADS1115 0x48: %s · 0x49: %s · MPU6050: %s · microSD: %s\n",
+                ads1Ok ? "ok" : "NO", ads2Ok ? "ok" : "NO", mpuOk ? "ok" : "NO", sdLista ? "ok" : "NO");
+
+  mqtt.setServer(MQTT_HOST, MQTT_PUERTO);
+  mqtt.setBufferSize(1024);   // el mensaje mide ~450 bytes; el default de PubSubClient es 256
+  iniciarModem();
+  iniciarBLE();
+  consultarModem();
+  if (em.red && conectarRed()) sincronizarReloj();
+  conectarMqtt();
+}
+
+void loop() {
+  mqtt.loop();   // mantiene viva la conexión (keepalive)
+  if (millis() - ultimaLectura < PERIODO_LECTURA_MS) return;
+  float dtMin = ultimaLectura == 0 ? 0 : (millis() - ultimaLectura) / 60000.0f;
+  ultimaLectura = millis();
+
+  termometro.requestTemperatures();
+  float temp = termometro.getTempCByIndex(0);
+  if (temp == DEVICE_DISCONNECTED_C) temp = NAN;
+  float tempComp = isnan(temp) ? 25.0f : temp;   // solo para compensar el TDS
+
+  alimentarSolo(PIN_PH_IN_PWR);
+  float phIn = aPH(voltsADS(ads1, ads1Ok, 0), PH_IN_V7, PH_IN_PEND);
+  alimentarSolo(PIN_PH_OUT_PWR);
+  float phOut = aPH(voltsADS(ads1, ads1Ok, 1), PH_OUT_V7, PH_OUT_PEND);
+  alimentarSolo(PIN_TDS_PWR);
+  float tds = aTDS(voltsADS(ads1, ads1Ok, 2), tempComp);
+  alimentarSolo(-1);
+
+  float turbIn  = aTurbidez(voltsADS(ads1, ads1Ok, 3));
+  float turbOut = aTurbidez(voltsADS(ads2, ads2Ok, 0));
+  float batV    = voltsADS(ads2, ads2Ok, 1) * DIVISOR_BAT;
+  float genV    = voltsADS(ads2, ads2Ok, 2) * DIVISOR_GEN;
+  float vAcs    = voltsADS(ads2, ads2Ok, 3);
+  float bombaA  = isnan(vAcs) ? NAN : max(0.0f, (vAcs - ACS_CERO_V) / ACS_V_POR_A);
+  float batPct  = porcentajeBateria(batV);
+
+  noInterrupts();
+  uint32_t pulsos = pulsosFlujo;
+  pulsosFlujo = 0;
+  interrupts();
+  float litros = pulsos / PULSOS_POR_LITRO;
+  litrosAcumulados += litros;
+  float caudal = dtMin > 0 ? litros / dtMin : 0;
+
+  float cesta = leerCestaPct();
+  float inclinacion = NAN, g = 1.0f;
+  bool golpe = false;
+  if (leerMPU(inclinacion, g)) golpe = fabsf(g - 1.0f) > GOLPE_G;
+
+  if (!isnan(batV) && !isnan(genV)) controlarFreno(genV, batV);
+  if (!isnan(batPct)) controlarBomba(batPct);
+
+  bool alerta = phIn < PH_MIN || phIn > PH_MAX || tds > TDS_MAX || turbIn > TURB_MAX ||
+                inclinacion > INCLINACION_MAX || golpe;
+  digitalWrite(PIN_ALERTA, alerta ? HIGH : LOW);
+
+  time_t ahora = relojListo ? time(nullptr) : 0;
+  ultimo.n = numEnvio + 1;       ultimo.ts = ahora;
+  ultimo.ph = phIn;              ultimo.phOut = phOut;
+  ultimo.tds = tds;              ultimo.temp = temp;
+  ultimo.turbIn = turbIn;        ultimo.turbOut = turbOut;
+  ultimo.batV = batV;            ultimo.batPct = batPct;      ultimo.genV = genV;
+  ultimo.caudal = caudal;        ultimo.litros = litrosAcumulados;
+  ultimo.cesta = cesta;          ultimo.bombaA = bombaA;      ultimo.inclinacion = inclinacion;
+  ultimo.ciclos = ciclosBomba;   ultimo.csq = em.csq == 99 ? 0 : em.csq;
+  ultimo.freno = frenoActivo;    ultimo.bomba = bombaEncendida;
+  ultimo.alerta = alerta;        ultimo.golpe = golpe;
+
+  String json = jsonEnvio(ultimo);
+  Serial.println(json);
+  publicarBLE(json);
+
+  if (sdLista) {
+    File f = SD.open("/lecturas.csv", FILE_APPEND);
+    if (f) {
+      f.printf("%s,%.2f,%.2f,%.0f,%.1f,%.0f,%.0f,%.2f,%.1f,%.0f,%.2f,%.0f,%.1f,%.2f,%d,%d,%.1f,%d\n",
+               relojListo ? isoUTC(ahora).c_str() : "", phIn, phOut, tds, temp, turbIn, turbOut,
+               caudal, litrosAcumulados, cesta, batV, batPct, genV, bombaA,
+               bombaEncendida, frenoActivo, inclinacion, alerta);
+      f.close();
+    }
+  }
+
+  // Cada periodo de envío se encola la última lectura y se publica todo lo pendiente.
+  if (ultimoEnvio == 0 || millis() - ultimoEnvio >= PERIODO_ENVIO_MS) {
+    ultimoEnvio = millis();
+    consultarModem();
+    ultimo.csq = em.csq == 99 ? 0 : em.csq;
+    if (!relojListo && em.red && conectarRed()) sincronizarReloj();
+    numEnvio++;
+    ultimo.n = numEnvio;
+    if (relojListo && ultimo.ts == 0) ultimo.ts = time(nullptr);
+    agregarPendiente(ultimo);
+    enviarPendientes();
+  }
+}
+===== FIN sketch.ino =====
+
+===== INICIO libraries.txt =====
+OneWire
+DallasTemperature
+PubSubClient
+Adafruit ADS1X15
+Adafruit BusIO
+===== FIN libraries.txt =====
+
+===== INICIO diagram.json =====
+{
+  "version": 1,
+  "author": "Río Monitor · HackaTec InnovaTecNM 2026",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "wokwi-esp32-devkit-v1",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_esp",
+      "top": -30,
+      "left": -10,
+      "attrs": {
+        "text": "ESP32 DevKit V1"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_titulo",
+      "top": -470,
+      "left": -760,
+      "attrs": {
+        "text": "Río Monitor · boya de bajo costo (misma electrónica que el modelo 3D)"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_zona1",
+      "top": -410,
+      "left": -760,
+      "attrs": {
+        "text": "SENSORES ANALÓGICOS (los potenciómetros hacen de sensor)"
+      }
+    },
+    {
+      "type": "chip-ads1115",
+      "id": "ads1",
+      "top": -150,
+      "left": -330,
+      "attrs": {
+        "address": "72"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_ads1",
+      "top": -180,
+      "left": -345,
+      "attrs": {
+        "text": "ADS1115 #1 (0x48)"
+      }
+    },
+    {
+      "type": "chip-ads1115",
+      "id": "ads2",
+      "top": 330,
+      "left": -330,
+      "attrs": {
+        "address": "73"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_ads2",
+      "top": 300,
+      "left": -345,
+      "attrs": {
+        "text": "ADS1115 #2 (0x49)"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_ph_in",
+      "top": -350,
+      "left": -720,
+      "attrs": {
+        "value": "512"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_pot_ph_in",
+      "top": -374,
+      "left": -730,
+      "attrs": {
+        "text": "pH entrada"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_ph_out",
+      "top": -230,
+      "left": -720,
+      "attrs": {
+        "value": "520"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_pot_ph_out",
+      "top": -254,
+      "left": -730,
+      "attrs": {
+        "text": "pH salida"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_tds",
+      "top": -110,
+      "left": -720,
+      "attrs": {
+        "value": "300"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_pot_tds",
+      "top": -134,
+      "left": -730,
+      "attrs": {
+        "text": "TDS"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_tin",
+      "top": 10,
+      "left": -720,
+      "attrs": {
+        "value": "600"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_pot_tin",
+      "top": -14,
+      "left": -730,
+      "attrs": {
+        "text": "Turbidez entrada"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_tout",
+      "top": 180,
+      "left": -720,
+      "attrs": {
+        "value": "850"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_pot_tout",
+      "top": 156,
+      "left": -730,
+      "attrs": {
+        "text": "Turbidez salida"
+      }
+    },
+    {
+      "type": "wokwi-slide-potentiometer",
+      "id": "sl_bat",
+      "top": 320,
+      "left": -760,
+      "attrs": {
+        "travelLength": "30",
+        "value": "90"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_sl_bat",
+      "top": 294,
+      "left": -760,
+      "attrs": {
+        "text": "Batería (divisor 100k/33k)"
+      }
+    },
+    {
+      "type": "wokwi-slide-potentiometer",
+      "id": "sl_gen",
+      "top": 430,
+      "left": -760,
+      "attrs": {
+        "travelLength": "30",
+        "value": "39"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_sl_gen",
+      "top": 404,
+      "left": -760,
+      "attrs": {
+        "text": "Voltaje del generador (100k/10k)"
+      }
+    },
+    {
+      "type": "wokwi-potentiometer",
+      "id": "pot_bomba",
+      "top": 530,
+      "left": -720,
+      "attrs": {
+        "value": "797"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_pot_bomba",
+      "top": 506,
+      "left": -730,
+      "attrs": {
+        "text": "Corriente bomba (ACS712)"
+      }
+    },
+    {
+      "type": "wokwi-hc-sr04",
+      "id": "sonar1",
+      "top": -330,
+      "left": -60,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_sonar",
+      "top": -360,
+      "left": -70,
+      "attrs": {
+        "text": "Nivel de la cesta (JSN-SR04T)"
+      }
+    },
+    {
+      "type": "wokwi-mpu6050",
+      "id": "mpu1",
+      "top": -320,
+      "left": 260,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_mpu",
+      "top": -350,
+      "left": 240,
+      "attrs": {
+        "text": "Inclinación y golpes (MPU6050)"
+      }
+    },
+    {
+      "type": "wokwi-ds18b20",
+      "id": "temp1",
+      "top": -320,
+      "left": 560,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_temp",
+      "top": -350,
+      "left": 540,
+      "attrs": {
+        "text": "Temperatura (DS18B20)"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_ow",
+      "top": -240,
+      "left": 480,
+      "attrs": {
+        "value": "4700"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-microsd-card",
+      "id": "sd1",
+      "top": -60,
+      "left": 560,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_sd",
+      "top": -90,
+      "left": 540,
+      "attrs": {
+        "text": "Registro CSV (microSD)"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_zona2",
+      "top": 170,
+      "left": 270,
+      "attrs": {
+        "text": "SALIDAS (en la boya real van a MOSFET y transistores)"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_phin",
+      "top": 230,
+      "left": 290,
+      "attrs": {
+        "color": "white"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_phin",
+      "top": 320,
+      "left": 280,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_phin",
+      "top": 202,
+      "left": 276,
+      "attrs": {
+        "text": "pH ent."
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_phout",
+      "top": 230,
+      "left": 380,
+      "attrs": {
+        "color": "white"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_phout",
+      "top": 320,
+      "left": 370,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_phout",
+      "top": 202,
+      "left": 366,
+      "attrs": {
+        "text": "pH sal."
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_tds",
+      "top": 230,
+      "left": 470,
+      "attrs": {
+        "color": "yellow"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_tds",
+      "top": 320,
+      "left": 460,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_tds",
+      "top": 202,
+      "left": 456,
+      "attrs": {
+        "text": "TDS"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_bomba",
+      "top": 230,
+      "left": 560,
+      "attrs": {
+        "color": "blue"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_bomba",
+      "top": 320,
+      "left": 550,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_bomba",
+      "top": 202,
+      "left": 546,
+      "attrs": {
+        "text": "Bomba"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_freno",
+      "top": 230,
+      "left": 650,
+      "attrs": {
+        "color": "orange"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_freno",
+      "top": 320,
+      "left": 640,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_freno",
+      "top": 202,
+      "left": 636,
+      "attrs": {
+        "text": "Freno"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_alerta",
+      "top": 230,
+      "left": 740,
+      "attrs": {
+        "color": "red"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_alerta",
+      "top": 320,
+      "left": 730,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_alerta",
+      "top": 202,
+      "left": 726,
+      "attrs": {
+        "text": "Alerta"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_envio",
+      "top": 230,
+      "left": 830,
+      "attrs": {
+        "color": "green"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_envio",
+      "top": 320,
+      "left": 820,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_envio",
+      "top": 202,
+      "left": 816,
+      "attrs": {
+        "text": "Envío"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_zona3",
+      "top": 470,
+      "left": -60,
+      "attrs": {
+        "text": "CAUDALÍMETRO YF-S401: pulsos solo con la bomba prendida"
+      }
+    },
+    {
+      "type": "wokwi-clock-generator",
+      "id": "clock1",
+      "top": 530,
+      "left": -40,
+      "attrs": {
+        "frequency": "245"
+      }
+    },
+    {
+      "type": "wokwi-gate-and-2",
+      "id": "and1",
+      "top": 520,
+      "left": 120,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_clock",
+      "top": 590,
+      "left": -60,
+      "attrs": {
+        "text": "2.5 L/min = 245 Hz"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_zona4",
+      "top": 470,
+      "left": 350,
+      "attrs": {
+        "text": "MÓDEM 4G A7670SA + SIM (clic para quitar la SIM o la señal)"
+      }
+    },
+    {
+      "type": "chip-a7670sa",
+      "id": "modem1",
+      "top": 530,
+      "left": 380,
+      "attrs": {
+        "sim": "1",
+        "senal": "22",
+        "red": "1"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led_4g",
+      "top": 520,
+      "left": 640,
+      "attrs": {
+        "color": "limegreen"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_led_4g",
+      "top": 610,
+      "left": 630,
+      "attrs": {
+        "value": "220"
+      },
+      "rotate": 90
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_led_4g",
+      "top": 492,
+      "left": 628,
+      "attrs": {
+        "text": "Red 4G"
+      }
+    },
+    {
+      "type": "wokwi-text",
+      "id": "t_nota",
+      "top": 700,
+      "left": -760,
+      "attrs": {
+        "text": "Wokwi no simula la red celular: el módem contesta los comandos AT y decide si hay red; los datos salen por el WiFi de Wokwi."
+      }
+    }
+  ],
+  "connections": [
+    [
+      "ads1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "ads1:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "ads1:SCL",
+      "esp:D22",
+      "gray",
+      []
+    ],
+    [
+      "ads1:SDA",
+      "esp:D21",
+      "purple",
+      []
+    ],
+    [
+      "ads1:ADDR",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "ads2:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "ads2:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "ads2:SCL",
+      "esp:D22",
+      "gray",
+      []
+    ],
+    [
+      "ads2:SDA",
+      "esp:D21",
+      "purple",
+      []
+    ],
+    [
+      "ads2:ADDR",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_ph_in:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_ph_in:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot_ph_in:SIG",
+      "ads1:A0",
+      "orange",
+      []
+    ],
+    [
+      "pot_ph_out:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_ph_out:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot_ph_out:SIG",
+      "ads1:A1",
+      "orange",
+      []
+    ],
+    [
+      "pot_tds:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_tds:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot_tds:SIG",
+      "ads1:A2",
+      "orange",
+      []
+    ],
+    [
+      "pot_tin:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_tin:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot_tin:SIG",
+      "ads1:A3",
+      "orange",
+      []
+    ],
+    [
+      "pot_tout:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_tout:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot_tout:SIG",
+      "ads2:A0",
+      "orange",
+      []
+    ],
+    [
+      "sl_bat:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "sl_bat:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "sl_bat:SIG",
+      "ads2:A1",
+      "orange",
+      []
+    ],
+    [
+      "sl_gen:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "sl_gen:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "sl_gen:SIG",
+      "ads2:A2",
+      "orange",
+      []
+    ],
+    [
+      "pot_bomba:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "pot_bomba:GND",
+      "esp:GND.1",
+      "black",
+      []
+    ],
+    [
+      "pot_bomba:SIG",
+      "ads2:A3",
+      "orange",
+      []
+    ],
+    [
+      "sonar1:VCC",
+      "esp:VIN",
+      "red",
+      []
+    ],
+    [
+      "sonar1:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "sonar1:TRIG",
+      "esp:D15",
+      "blue",
+      []
+    ],
+    [
+      "sonar1:ECHO",
+      "esp:D34",
+      "green",
+      []
+    ],
+    [
+      "mpu1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "mpu1:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "mpu1:SCL",
+      "esp:D22",
+      "gray",
+      []
+    ],
+    [
+      "mpu1:SDA",
+      "esp:D21",
+      "purple",
+      []
+    ],
+    [
+      "mpu1:AD0",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "temp1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "temp1:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "temp1:DQ",
+      "esp:D5",
+      "blue",
+      []
+    ],
+    [
+      "r_ow:1",
+      "temp1:DQ",
+      "blue",
+      []
+    ],
+    [
+      "r_ow:2",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "sd1:CS",
+      "esp:D13",
+      "purple",
+      []
+    ],
+    [
+      "sd1:SCK",
+      "esp:D18",
+      "gray",
+      []
+    ],
+    [
+      "sd1:DO",
+      "esp:D19",
+      "yellow",
+      []
+    ],
+    [
+      "sd1:DI",
+      "esp:D23",
+      "cyan",
+      []
+    ],
+    [
+      "sd1:VCC",
+      "esp:3V3",
+      "red",
+      []
+    ],
+    [
+      "sd1:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D32",
+      "r_led_phin:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_phin:2",
+      "led_phin:A",
+      "green",
+      []
+    ],
+    [
+      "led_phin:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D33",
+      "r_led_phout:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_phout:2",
+      "led_phout:A",
+      "green",
+      []
+    ],
+    [
+      "led_phout:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D26",
+      "r_led_tds:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_tds:2",
+      "led_tds:A",
+      "green",
+      []
+    ],
+    [
+      "led_tds:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D27",
+      "r_led_bomba:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_bomba:2",
+      "led_bomba:A",
+      "green",
+      []
+    ],
+    [
+      "led_bomba:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D14",
+      "r_led_freno:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_freno:2",
+      "led_freno:A",
+      "green",
+      []
+    ],
+    [
+      "led_freno:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D2",
+      "r_led_alerta:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_alerta:2",
+      "led_alerta:A",
+      "green",
+      []
+    ],
+    [
+      "led_alerta:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:D25",
+      "r_led_envio:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_envio:2",
+      "led_envio:A",
+      "green",
+      []
+    ],
+    [
+      "led_envio:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "clock1:CLK",
+      "and1:A",
+      "blue",
+      []
+    ],
+    [
+      "esp:D27",
+      "and1:B",
+      "blue",
+      []
+    ],
+    [
+      "and1:OUT",
+      "esp:D35",
+      "blue",
+      []
+    ],
+    [
+      "modem1:VCC",
+      "esp:VIN",
+      "red",
+      []
+    ],
+    [
+      "modem1:GND",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "modem1:TXD",
+      "esp:RX2",
+      "green",
+      []
+    ],
+    [
+      "modem1:RXD",
+      "esp:TX2",
+      "blue",
+      []
+    ],
+    [
+      "modem1:PWRKEY",
+      "esp:D4",
+      "purple",
+      []
+    ],
+    [
+      "modem1:NETLIGHT",
+      "r_led_4g:1",
+      "green",
+      []
+    ],
+    [
+      "r_led_4g:2",
+      "led_4g:A",
+      "green",
+      []
+    ],
+    [
+      "led_4g:C",
+      "esp:GND.2",
+      "black",
+      []
+    ],
+    [
+      "esp:TX0",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX0",
+      "$serialMonitor:TX",
+      "",
+      []
+    ]
+  ],
+  "dependencies": {}
+}
+===== FIN diagram.json =====
+
+===== INICIO ads1115.chip.json =====
+{
+  "name": "ADS1115",
+  "author": "Río Monitor",
+  "pins": ["VCC", "GND", "SCL", "SDA", "ADDR", "ALRT", "A0", "A1", "A2", "A3"]
+}
+===== FIN ads1115.chip.json =====
+
+===== INICIO ads1115.chip.c =====
+// ADS1115 para Wokwi (Wokwi no lo trae). Emula lo que usa la librería
+// Adafruit_ADS1X15: registros de conversión y configuración, MUX de entradas
+// (simples y diferenciales), ganancia (PGA) y modo de un disparo o continuo.
+// La dirección I2C se elige con el atributo "address" en diagram.json
+// (72 = 0x48, 73 = 0x49), como en el real se elige con el pin ADDR.
+#include "wokwi-api.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <math.h>
+
+typedef struct {
+  pin_t ain[4];
+  uint8_t pointer;      // 0 conversión, 1 configuración, 2 umbral bajo, 3 umbral alto
+  uint16_t regs[4];
+  uint8_t wbuf[2];
+  int windex;           // -1: el siguiente byte escrito es el puntero
+  int rindex;
+} chip_state_t;
+
+static float escala_pga(uint16_t cfg) {
+  switch ((cfg >> 9) & 7) {
+    case 0: return 6.144f;
+    case 1: return 4.096f;
+    case 2: return 2.048f;
+    case 3: return 1.024f;
+    case 4: return 0.512f;
+    default: return 0.256f;
+  }
+}
+
+static void convertir(chip_state_t *c) {
+  uint16_t cfg = c->regs[1];
+  int mux = (cfg >> 12) & 7;
+  float v;
+  switch (mux) {
+    case 0: v = pin_adc_read(c->ain[0]) - pin_adc_read(c->ain[1]); break;
+    case 1: v = pin_adc_read(c->ain[0]) - pin_adc_read(c->ain[3]); break;
+    case 2: v = pin_adc_read(c->ain[1]) - pin_adc_read(c->ain[3]); break;
+    case 3: v = pin_adc_read(c->ain[2]) - pin_adc_read(c->ain[3]); break;
+    default: v = pin_adc_read(c->ain[mux - 4]); break;
+  }
+  long codigo = lroundf(v / escala_pga(cfg) * 32768.0f);
+  if (codigo > 32767) codigo = 32767;
+  if (codigo < -32768) codigo = -32768;
+  c->regs[0] = (uint16_t)(int16_t)codigo;
+  c->regs[1] |= 0x8000;   // OS = 1: conversión terminada
+}
+
+static bool on_connect(void *ud, uint32_t address, bool read) {
+  chip_state_t *c = ud;
+  c->windex = -1;
+  c->rindex = 0;
+  bool continuo = (c->regs[1] & 0x0100) == 0;
+  if (read && c->pointer == 0 && continuo) convertir(c);
+  return true;
+}
+
+static uint8_t on_read(void *ud) {
+  chip_state_t *c = ud;
+  uint16_t r = c->regs[c->pointer & 3];
+  uint8_t b = (c->rindex == 0) ? (uint8_t)(r >> 8) : (uint8_t)(r & 0xFF);
+  c->rindex++;
+  return b;
+}
+
+static bool on_write(void *ud, uint8_t data) {
+  chip_state_t *c = ud;
+  if (c->windex < 0) {
+    c->pointer = data & 3;
+    c->windex = 0;
+  } else if (c->windex < 2) {
+    c->wbuf[c->windex++] = data;
+  }
+  return true;
+}
+
+static void on_disconnect(void *ud) {
+  chip_state_t *c = ud;
+  if (c->windex == 2) {
+    uint16_t v = ((uint16_t)c->wbuf[0] << 8) | c->wbuf[1];
+    if (c->pointer == 1) {
+      c->regs[1] = v;
+      if (v & 0x8000) convertir(c);   // OS = 1: iniciar conversión
+    } else if (c->pointer >= 2) {
+      c->regs[c->pointer] = v;
+    }
+  }
+  c->windex = -1;
+}
+
+void chip_init(void) {
+  chip_state_t *c = calloc(1, sizeof(chip_state_t));
+  c->ain[0] = pin_init("A0", ANALOG);
+  c->ain[1] = pin_init("A1", ANALOG);
+  c->ain[2] = pin_init("A2", ANALOG);
+  c->ain[3] = pin_init("A3", ANALOG);
+  c->regs[1] = 0x8583;   // valores de arranque del datasheet
+  c->regs[2] = 0x8000;
+  c->regs[3] = 0x7FFF;
+  c->windex = -1;
+
+  uint32_t attr_dir = attr_init("address", 0x48);
+  uint32_t dir = attr_read(attr_dir);
+
+  const i2c_config_t cfg = {
+    .address = dir,
+    .scl = pin_init("SCL", INPUT_PULLUP),
+    .sda = pin_init("SDA", INPUT_PULLUP),
+    .connect = on_connect,
+    .read = on_read,
+    .write = on_write,
+    .disconnect = on_disconnect,
+    .user_data = c,
+  };
+  i2c_init(&cfg);
+  printf("ADS1115 listo en 0x%02X\n", (unsigned)dir);
+}
+===== FIN ads1115.chip.c =====
+
+===== INICIO a7670sa.chip.json =====
+{
+  "name": "A7670SA 4G",
+  "author": "Río Monitor",
+  "pins": ["VCC", "GND", "TXD", "RXD", "PWRKEY", "STATUS", "NETLIGHT", ""],
+  "controls": [
+    { "id": "sim", "label": "SIM insertada (1 = sí)", "type": "range", "min": 0, "max": 1, "step": 1 },
+    { "id": "senal", "label": "Señal (CSQ 0–31)", "type": "range", "min": 0, "max": 31, "step": 1 },
+    { "id": "red", "label": "Red celular disponible (1 = sí)", "type": "range", "min": 0, "max": 1, "step": 1 }
+  ]
+}
+===== FIN a7670sa.chip.json =====
+
+===== INICIO a7670sa.chip.c =====
+// Módem 4G SIMCom A7670SA para Wokwi (Wokwi no simula la red celular).
+// Responde a los comandos AT que usa el firmware: encendido por PWRKEY,
+// estado de la SIM, señal, registro en la red, operador y hora de la red.
+// Controles en la simulación: SIM insertada, señal (CSQ) y red disponible.
+// Los datos de la boya salen por el WiFi de Wokwi; el módem decide si hay
+// "red" para enviarlos, igual que en el río.
+#include "wokwi-api.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+#define OUT_MAX 2048
+#define CHUNK 64
+
+typedef struct {
+  uart_dev_t uart;
+  pin_t pwrkey, status, netlight;
+  uint32_t a_sim, a_senal, a_red;
+  bool on, booting, echo, led;
+  uint64_t key_down_ns, on_ns;
+  char line[256]; int len;
+  char out[OUT_MAX]; int out_len;
+  uint8_t txbuf[2][CHUNK]; int tx_pending, tx_idx;
+  timer_t t_tx, t_boot, t_led;
+} chip_state_t;
+
+static void enviar(chip_state_t *c, const char *s) {
+  int n = (int)strlen(s);
+  if (c->out_len + n > OUT_MAX) n = OUT_MAX - c->out_len;
+  memcpy(c->out + c->out_len, s, n);
+  c->out_len += n;
+}
+
+// Envía la salida en bloques; uart_write devuelve false mientras transmite el anterior.
+static void on_tx_timer(void *ud) {
+  chip_state_t *c = ud;
+  if (c->tx_pending == 0 && c->out_len > 0) {
+    int n = c->out_len < CHUNK ? c->out_len : CHUNK;
+    memcpy(c->txbuf[c->tx_idx], c->out, n);
+    memmove(c->out, c->out + n, c->out_len - n);
+    c->out_len -= n;
+    c->tx_pending = n;
+  }
+  if (c->tx_pending > 0 && uart_write(c->uart, c->txbuf[c->tx_idx], c->tx_pending)) {
+    c->tx_pending = 0;
+    c->tx_idx ^= 1;
+  }
+}
+
+static bool sim_ok(chip_state_t *c) { return attr_read(c->a_sim) != 0; }
+static bool registrado(chip_state_t *c) { return c->on && sim_ok(c) && attr_read(c->a_red) != 0 && attr_read(c->a_senal) > 0; }
+
+static void on_led_timer(void *ud) {
+  chip_state_t *c = ud;
+  if (!c->on) { pin_write(c->netlight, LOW); return; }
+  c->led = !c->led;
+  pin_write(c->netlight, c->led ? HIGH : LOW);
+  // Registrado: parpadeo lento. Buscando red: parpadeo rápido.
+  timer_start(c->t_led, registrado(c) ? (c->led ? 100000 : 1500000) : 200000, false);
+}
+
+static void on_boot_timer(void *ud) {
+  chip_state_t *c = ud;
+  c->booting = false;
+  c->on = true;
+  c->echo = true;
+  c->on_ns = get_sim_nanos();
+  pin_write(c->status, HIGH);
+  enviar(c, "\r\nRDY\r\n");
+  if (sim_ok(c)) enviar(c, "\r\n+CPIN: READY\r\n\r\nSMS DONE\r\n\r\nPB DONE\r\n");
+  timer_start(c->t_led, 200000, false);
+  printf("A7670SA encendido\n");
+}
+
+static void on_pwrkey(void *ud, pin_t pin, uint32_t value) {
+  chip_state_t *c = ud;
+  (void)pin;
+  if (value == LOW) { c->key_down_ns = get_sim_nanos(); return; }
+  uint64_t ms = (get_sim_nanos() - c->key_down_ns) / 1000000;
+  if (!c->on && !c->booting && ms >= 50) {
+    c->booting = true;
+    timer_start(c->t_boot, 2000000, false);          // arranca en ~2 s
+  } else if (c->on && ms >= 2500) {
+    c->on = false;
+    pin_write(c->status, LOW);
+    pin_write(c->netlight, LOW);
+    enviar(c, "\r\nNORMAL POWER DOWN\r\n");
+  }
+}
+
+static void ok(chip_state_t *c) { enviar(c, "\r\nOK\r\n"); }
+
+static void procesar(chip_state_t *c, char *cmd) {
+  char r[160];
+  for (char *p = cmd; *p; p++) *p = (char)toupper((unsigned char)*p);
+  if (strcmp(cmd, "AT") == 0) { ok(c); return; }
+  if (strcmp(cmd, "ATE0") == 0) { c->echo = false; ok(c); return; }
+  if (strcmp(cmd, "ATE1") == 0) { c->echo = true; ok(c); return; }
+  if (strcmp(cmd, "ATI") == 0 || strcmp(cmd, "AT+CGMM") == 0 || strcmp(cmd, "AT+GMM") == 0) {
+    enviar(c, "\r\nManufacturer: SIMCOM INCORPORATED\r\nModel: A7670SA\r\nRevision: A7670M7_V1.11.1\r\n"); ok(c); return;
+  }
+  if (strcmp(cmd, "AT+CGSN") == 0 || strcmp(cmd, "AT+GSN") == 0) { enviar(c, "\r\n860000000000001\r\n"); ok(c); return; }
+  if (strcmp(cmd, "AT+CPIN?") == 0) {
+    if (sim_ok(c)) { enviar(c, "\r\n+CPIN: READY\r\n"); ok(c); }
+    else enviar(c, "\r\n+CME ERROR: SIM not inserted\r\n");
+    return;
+  }
+  if (strcmp(cmd, "AT+CICCID") == 0 || strcmp(cmd, "AT+CCID") == 0) {
+    if (sim_ok(c)) { enviar(c, "\r\n+ICCID: 8952020000000000001\r\n"); ok(c); }
+    else enviar(c, "\r\n+CME ERROR: SIM not inserted\r\n");
+    return;
+  }
+  if (strcmp(cmd, "AT+CSQ") == 0) {
+    int s = c->on && attr_read(c->a_red) ? (int)attr_read(c->a_senal) : 99;
+    snprintf(r, sizeof r, "\r\n+CSQ: %d,99\r\n", s); enviar(c, r); ok(c); return;
+  }
+  if (strcmp(cmd, "AT+CREG?") == 0 || strcmp(cmd, "AT+CGREG?") == 0 || strcmp(cmd, "AT+CEREG?") == 0) {
+    const char *tipo = cmd[3] == 'R' ? "CREG" : cmd[3] == 'G' ? "CGREG" : "CEREG";
+    int stat = !sim_ok(c) ? 0 : registrado(c) ? 1 : 2;     // 1 = registrado, 2 = buscando
+    snprintf(r, sizeof r, "\r\n+%s: 0,%d\r\n", tipo, stat); enviar(c, r); ok(c); return;
+  }
+  if (strcmp(cmd, "AT+COPS?") == 0) {
+    enviar(c, registrado(c) ? "\r\n+COPS: 0,0,\"TELCEL\",7\r\n" : "\r\n+COPS: 0\r\n"); ok(c); return;
+  }
+  if (strcmp(cmd, "AT+CGATT?") == 0 || strcmp(cmd, "AT+NETOPEN?") == 0) {
+    snprintf(r, sizeof r, "\r\n+%s: %d\r\n", cmd[3] == 'G' ? "CGATT" : "NETOPEN", registrado(c) ? 1 : 0); enviar(c, r); ok(c); return;
+  }
+  if (strcmp(cmd, "AT+CCLK?") == 0) {
+    // Hora de la red: 24/11/2026 17:00:00 (UTC-6) más el tiempo simulado desde el arranque
+    uint64_t s = (get_sim_nanos() - c->on_ns) / 1000000000ULL + 17 * 3600;
+    snprintf(r, sizeof r, "\r\n+CCLK: \"26/11/24,%02d:%02d:%02d-24\"\r\n", (int)(s / 3600 % 24), (int)(s / 60 % 60), (int)(s % 60));
+    enviar(c, r); ok(c); return;
+  }
+  if (strcmp(cmd, "AT+CRESET") == 0) { ok(c); c->on = false; pin_write(c->status, LOW); c->booting = true; timer_start(c->t_boot, 2000000, false); return; }
+  if (strncmp(cmd, "AT+CPOF", 7) == 0) { ok(c); c->on = false; pin_write(c->status, LOW); return; }
+  if (strncmp(cmd, "AT", 2) == 0) { ok(c); return; }     // configuración (CMEE, CGDCONT, CFUN...): se acepta
+  enviar(c, "\r\nERROR\r\n");
+}
+
+static void on_rx(void *ud, uint8_t b) {
+  chip_state_t *c = ud;
+  if (!c->on) return;                                     // apagado: no contesta
+  if (c->echo) { char e[2] = { (char)b, 0 }; enviar(c, e); }
+  if (b == '\r' || b == '\n') {
+    if (c->len > 0) { c->line[c->len] = 0; procesar(c, c->line); c->len = 0; }
+  } else if (c->len < (int)sizeof(c->line) - 1) {
+    c->line[c->len++] = (char)b;
+  }
+}
+
+void chip_init(void) {
+  chip_state_t *c = calloc(1, sizeof(chip_state_t));
+  c->a_sim = attr_init("sim", 1);
+  c->a_senal = attr_init("senal", 22);
+  c->a_red = attr_init("red", 1);
+  c->status = pin_init("STATUS", OUTPUT_LOW);
+  c->netlight = pin_init("NETLIGHT", OUTPUT_LOW);
+  c->pwrkey = pin_init("PWRKEY", INPUT_PULLUP);
+
+  const uart_config_t ucfg = {
+    .tx = pin_init("TXD", INPUT_PULLUP),
+    .rx = pin_init("RXD", INPUT),
+    .baud_rate = 115200,
+    .rx_data = on_rx,
+    .user_data = c,
+  };
+  c->uart = uart_init(&ucfg);
+
+  const timer_config_t ttx = { .callback = on_tx_timer, .user_data = c };
+  const timer_config_t tboot = { .callback = on_boot_timer, .user_data = c };
+  const timer_config_t tled = { .callback = on_led_timer, .user_data = c };
+  c->t_tx = timer_init(&ttx);
+  c->t_boot = timer_init(&tboot);
+  c->t_led = timer_init(&tled);
+  timer_start(c->t_tx, 500, true);
+
+  const pin_watch_config_t w = { .edge = BOTH, .pin_change = on_pwrkey, .user_data = c };
+  pin_watch(c->pwrkey, &w);
+  printf("A7670SA listo: pulsa PWRKEY para encender\n");
+}
+===== FIN a7670sa.chip.c =====
