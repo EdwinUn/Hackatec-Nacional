@@ -67,6 +67,17 @@ El backend asigna los `sensor_id` (UUID); el firmware **no** manda IDs de sensor
   cada 1–2 min. El firmware resincroniza el reloj en cada envío para que la hora no se atrase.
 - Lo que solo existe en la simulación 3D (RPM del molino, potencia en W, tensión de las líneas de
   anclaje) **no** se muestra como dato medido.
+- **Baliza y LED de envío:** la baliza roja sobre el domo es el LED de alerta (GPIO2) y sigue la clave
+  `alerta` del paquete (`alarm_on`); el LED de la punta de la antena es el LED verde de envío (GPIO25)
+  y cada paquete nuevo lo enciende con unas ondas. Sin paquete el LED de envío queda apagado (igual
+  que el firmware antes del primer envío o cuando falla) y la baliza aplica la regla del firmware al
+  estado inicial del diseño, que ya enciende la alerta (turbidez de salida ≈ 22 > 5 NTU, como en Wokwi). Sin paquete ni `congelado` (artefacto suelto) el modelo simula los
+  envíos cada 5 min y el guardado sin señal con las mismas reglas que `sketch.ino`.
+- **Manguera y tanque en la orilla:** el agua que sale del caudalímetro va por una manguera lastrada por
+  el fondo hasta un tinaco de ≈1,100 L en la orilla. Son piezas mecánicas sin sensor: el nivel del
+  tinaco es *derivado* de los litros del caudalímetro (`litros_total`), no medido. No entran en el
+  costo de $5,384 mientras no esté `hardware/bom.csv`. `API.md` todavía describe `wqi_outlet` como
+  «agua que regresa al río».
 
 ## 3. Valores creíbles
 
