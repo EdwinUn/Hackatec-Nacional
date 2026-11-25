@@ -5,7 +5,7 @@ import { AuthService } from '../auth/auth.service';
 import { APP_CONFIG } from '../config/app-config';
 
 /** Paths of the operations module that need the staff session. */
-const STAFF_PATHS = ['/users', '/citizen-reports', '/work-orders', '/auth/me'];
+const STAFF_PATHS = ['/users', '/citizen-reports', '/work-orders', '/auth/me', '/tasks', '/skimmers/recoleccion'];
 
 /**
  * Adds `Authorization: Bearer <token>` to requests to our API while a staff member is logged in,

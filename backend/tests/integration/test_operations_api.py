@@ -74,11 +74,14 @@ async def test_missing_or_invalid_bearer_is_401(client, staff):
 
 
 # ── Usuarios ────────────────────────────────────
-async def test_users_are_admin_only(client, staff):
-    r = await client.get(f"{V1}/users", headers=staff["admin"]["h"])
-    assert [u["name"] for u in r.json()] == sorted(a["name"] for a in ACCOUNTS)
-    r = await client.get(f"{V1}/users", headers=staff["sup"]["h"])
+async def test_managers_list_users_but_only_admin_manages_them(client, staff):
+    for who in ("admin", "sup"):  # el supervisor necesita ver a los técnicos para asignar órdenes
+        r = await client.get(f"{V1}/users", headers=staff[who]["h"])
+        assert [u["name"] for u in r.json()] == sorted(a["name"] for a in ACCOUNTS)
+    r = await client.get(f"{V1}/users", headers=staff["tec"]["h"])
     assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden"
+    new = {"name": "X", "email": "x@demo.mx", "role": "technician", "password": "demo123"}
+    assert (await client.post(f"{V1}/users", json=new, headers=staff["sup"]["h"])).status_code == 403
 
 
 async def test_create_user_and_duplicates(client, staff):
@@ -470,3 +473,20 @@ async def test_successful_logins_do_not_count_toward_the_limit(client, staff):
     for _ in range(15):
         r = await client.post(f"{V1}/auth/login", json={"email": "tecnico@demo.mx", "password": "demo123"})
         assert r.status_code == 200
+
+
+async def test_report_keeps_the_ai_analysis_and_rejects_a_huge_one(client):
+    ai = {
+        "category": "peces_muertos",
+        "severity": "critica",
+        "summary": "Peces muertos",
+        "reasons": ["escena 100 %"],
+    }
+    r = await new_report(client, type="dead_fish", ai=ai)
+    assert r.status_code == 201 and r.json()["ai"] == ai
+    listed = (await client.get(f"{V1}/citizen-reports", headers={"X-API-Key": ""})).json()
+    assert listed[0]["ai"]["category"] == "peces_muertos"
+    assert (await client.get(f"{V1}/citizen-reports/by-folio/{r.json()['folio']}")).json()["ai"] == ai
+    assert (await new_report(client)).json()["ai"] is None
+    huge = await new_report(client, ai={"annotated_image": "x" * 250_000})
+    assert huge.status_code == 422

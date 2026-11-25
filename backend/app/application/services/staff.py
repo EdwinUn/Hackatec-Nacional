@@ -17,7 +17,7 @@ from app.domain.errors import (
     RateLimitedError,
     UnauthorizedError,
 )
-from app.domain.operations import Role, User
+from app.domain.operations import MANAGERS, Role, User
 
 MIN_PASSWORD = 6  # criterio de prototipo
 
@@ -94,7 +94,8 @@ class StaffService:
         return user
 
     async def list_users(self, actor: User) -> list[User]:
-        require_role(actor, Role.ADMIN)
+        """Supervisores también: necesitan ver a los técnicos para asignarles órdenes y tareas."""
+        require_role(actor, *MANAGERS)
         async with self._uow_factory() as uow:
             return await uow.users.list()
 

@@ -12,6 +12,7 @@ import { Textarea } from 'primeng/textarea';
 import { OpsApi } from '../../core/api/ops-api';
 import { CitizenReport, NewWorkOrder, Priority, ReportStatus, ReportType, WorkOrder } from '../../core/models/ops.models';
 import { StationsService } from '../../core/services/stations.service';
+import { AiAnalysis } from '../../shared/components/ai-analysis';
 import { MapPoint, MiniMap } from '../../shared/components/mini-map';
 import { Pill } from '../../shared/components/pill';
 import { formatCoords, timeAgo } from '../../shared/utils/format.util';
@@ -26,7 +27,7 @@ const PRIORITY_BY_TYPE: Record<ReportType, Priority> = { dead_fish: 'urgent', di
 
 @Component({
   selector: 'app-inbox-page',
-  imports: [DatePipe, FormsModule, RouterLink, Button, Dialog, SelectButton, TableModule, Textarea, MiniMap, Pill, WorkOrderDialog],
+  imports: [DatePipe, FormsModule, RouterLink, Button, Dialog, SelectButton, TableModule, Textarea, AiAnalysis, MiniMap, Pill, WorkOrderDialog],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrl: './ops.scss',
   template: `
@@ -73,7 +74,8 @@ const PRIORITY_BY_TYPE: Record<ReportType, Priority> = { dead_fish: 'urgent', di
                 <span class="spacer muted small">{{ r.created_at | date: 'dd/MM/yyyy HH:mm' }}</span>
               </div>
               <p class="m0"><i [class]="typeMeta[r.type].icon" [style.color]="typeMeta[r.type].color"></i> <strong>{{ typeMeta[r.type].label }}</strong></p>
-              @if (r.photo) { <img class="photo" [src]="r.photo" alt="Foto del reporte" /> }
+              @if (r.ai) { <app-ai-analysis [analysis]="r.ai" [original]="r.photo" /> }
+              @else if (r.photo) { <img class="photo" [src]="r.photo" alt="Foto del reporte" /> }
               @if (r.description) { <p class="m0">"{{ r.description }}"</p> }
               <p class="m0 muted small"><i class="pi pi-map-marker"></i> {{ coords(r.latitude, r.longitude) }}@if (r.accuracy) { · ±{{ r.accuracy }} m } · {{ stationName(r.station_id) }}</p>
               @if (r.public_note) { <p class="m0 small calib">{{ r.public_note }}</p> }

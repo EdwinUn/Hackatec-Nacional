@@ -25,6 +25,8 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:4200"
     ingest_api_key: SecretStr = SecretStr(DEFAULT_INGEST_KEY)
+    # Llave opcional de los nodos IoT (header X-Device-Key de POST /telemetry/iot).
+    device_key: SecretStr | None = None
     # Sesiones del personal (login): JWT HS256.
     jwt_secret: SecretStr = SecretStr(DEFAULT_JWT_SECRET)
     jwt_expires_min: int = Field(default=720, ge=1)
@@ -54,8 +56,20 @@ class Settings(BaseSettings):
     mqtt_url: SecretStr = SecretStr("")  # mqtt://[user:pass@]host[:1883] o mqtts://…
     mqtt_topic: str = "riomonitor/+/telemetria"  # el `+` es el código de la boya
     # Suscripción compartida ($share/<grupo>/…): con varios workers cada mensaje se ingiere una vez.
-    # Vacío = suscripción normal (solo con WEB_CONCURRENCY=1).
-    mqtt_shared_group: str = "rio-api"
+    # Vacío (default) = suscripción normal, para un solo worker. En un broker público no uses un grupo
+    # que otro backend del equipo también use: el broker repartiría los mensajes entre los dos.
+    mqtt_shared_group: str = ""
+
+    # Visión artificial de los reportes ciudadanos (requiere `uv sync --extra vision`).
+    vision_enabled: bool = True
+    vision_model: str = "yolov8s-worldv2.pt"
+    vision_models_dir: str = "models"
+    vision_conf: float = Field(default=0.15, gt=0, le=1)  # umbral del detector; el dominio filtra de nuevo
+    vision_imgsz: int = Field(default=640, ge=160, le=1280)
+    # Tope de la foto. La petición completa también pasa por MAX_BODY_KB: súbelo si subes este.
+    vision_max_image_mb: int = Field(default=2, ge=1, le=50)
+    vision_scene_enabled: bool = True  # clasificador de escena CLIP (complementa al detector)
+    vision_preload: bool = False  # cargar el modelo al arrancar en vez de en la primera foto
 
     simulation_enabled: bool = False
     simulation_interval_s: float = Field(default=5, gt=0)

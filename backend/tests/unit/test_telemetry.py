@@ -2,9 +2,10 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from app.adapters.inbound.mqtt.bridge import BrokerConfig, code_from_topic
-from app.adapters.inbound.telemetry_payload import TelemetryIn
+from app.adapters.inbound.telemetry_payload import TelemetryIn, csq_to_dbm
 from app.domain.entities import Sensor, Station, normalize_device_code
 from app.domain.enums import SensorLocation as L
 from app.domain.enums import SensorType as T
@@ -33,6 +34,7 @@ def test_channels_map_to_inlet_and_outlet_sensors():
     assert resolved["turb_in_ntu"] is turb_in
     assert resolved["turb_out_ntu"] is turb_out
     assert resolved["tds_ppm"] is tds
+    assert resolved["ph_out"].location is L.OUTLET
     assert "temp_c" not in resolved  # sin sensor de temperatura: queda como unmapped
 
 
@@ -113,3 +115,32 @@ def test_broker_url():
     assert (tls.port, tls.tls, tls.username, tls.password) == (9999, True, "u@x", "p:ss")
     with pytest.raises(ValueError):
         BrokerConfig.from_url("http://host")
+
+
+def test_full_electronics_fields_reach_the_device_state():
+    data = TelemetryIn.model_validate(
+        {
+            "boya": "RM-01", "ph": 6.7, "ph_out": 6.81, "caudal_lpm": 2.5, "litros_total": 120.5,
+            "cesta_pct": 37, "bomba_a": 0.4, "ciclos_bomba": 3, "inclinacion_deg": 2.3, "golpe": False,
+            "senal_csq": 22,
+        }
+    ).to_input()  # fmt: skip
+    assert data.values == {"ph": 6.7, "ph_out": 6.81}
+    assert (data.flow_rate_lpm, data.basket_fill_pct, data.pump_current_a) == (2.5, 37, 0.4)
+    assert (data.water_liters_total, data.pump_cycles, data.tilt_deg, data.shock) == (120.5, 3, 2.3, False)
+    assert (data.signal_csq, data.rssi_dbm) == (22, -69.0)
+
+
+@pytest.mark.parametrize(("csq", "dbm"), [(0, -113.0), (31, -51.0), (99, None), (None, None)])
+def test_csq_to_dbm(csq, dbm):
+    assert csq_to_dbm(csq) == dbm
+
+
+def test_unknown_signal_is_not_reported_as_zero():
+    data = TelemetryIn.model_validate({"senal_csq": 99}).to_input()
+    assert data.signal_csq is None and data.rssi_dbm is None
+
+
+def test_basket_over_100_is_rejected():
+    with pytest.raises(ValidationError):
+        TelemetryIn.model_validate({"cesta_pct": 140})

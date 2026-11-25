@@ -5,8 +5,10 @@
     uv run python -m scripts.buoy --scenario bateria-baja --interval 5
 
 Sirve cuando Wokwi en línea no da WiFi a dos simulaciones a la vez: una boya corre en Wokwi y
-la otra aquí. Para el backend es indistinguible (mismo tópico, mismo JSON, mismas reglas de
-bomba, freno y alerta que el firmware). Los valores son SIMULADOS, no mediciones reales.
+la otra aquí. Para el backend es indistinguible (mismo tópico, mismas claves que
+firmware/boya-rm01/sketch.ino y mismas reglas de bomba, freno y alerta). El filtrado sigue las
+reglas del modelo 3D (frontend/src/app/features/buoys/three/buoy-factory.ts): sin bomba no pasa
+agua por los filtros, y la calcita solo sube el pH del agua ácida. Los valores son SIMULADOS.
 Usa el broker de MQTT_URL (backend/.env) salvo que se pase --broker.
 """
 
@@ -24,12 +26,23 @@ from app.adapters.inbound.mqtt.bridge import BrokerConfig
 from app.config.settings import get_settings
 from app.domain.entities import utcnow
 
-# Mismas constantes que el firmware (firmware/boya-rm01/sketch01.ino).
+# Mismas constantes que el firmware (firmware/boya-rm01/sketch.ino).
 BAT_VACIA, BAT_LLENA = 9.0, 12.6
 BAT_PARAR, BAT_ARRANCAR = 35.0, 75.0
 GEN_V_FRENAR, GEN_V_SOLTAR = 26.0, 22.0
 BAT_V_LLENA_FRENO, BAT_V_SOLTAR = 12.5, 12.3
-PH_MIN, PH_MAX, TDS_MAX, TURB_MAX = 6.5, 8.5, 500.0, 50.0
+# Alerta local: mismos umbrales que las reglas por defecto del backend (app/domain/defaults.py).
+PH_MIN, PH_MAX = 6.5, 8.5
+TURB_ENTRADA_MAX, TURB_SALIDA_MAX = 100.0, 5.0
+TEMP_MIN, TEMP_MAX = 10.0, 30.0
+TDS_TOPE = 1000.0  # TDS Meter V1.0: 0–1000 ppm
+INCLINACION_MAX = 30.0
+
+# Mismos valores que el modelo 3D (BOYA_CFG): bomba de 2.5 L/min y 0.4 A, calcita al 20 % de
+# saturación (eficiencia 0.6 · (1 − 0.2³)), módem con CSQ 22 como el chip a7670sa de Wokwi.
+CAUDAL_LPM, BOMBA_A = 2.5, 0.4
+CALCITA_EF = 0.6 * (1 - 0.2**3)
+CSQ = 22
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +109,11 @@ class BuoyEmulator:
         self.n = 0
         self.battery_pct = scenario.battery_pct
         self.pump = self.battery_pct > BAT_ARRANCAR
+        self.cycles = 1 if self.pump else 0
         self.brake = False
+        self.liters = 0.0
+        self.basket = 5.0
+        self._last: datetime | None = None
         self._state = {k: getattr(scenario, k)[0] for k in ("ph", "tds", "temp", "turb_in", "gen_v")}
 
     def _walk(self, name: str) -> float:
@@ -107,11 +124,12 @@ class BuoyEmulator:
 
     def step(self, now: datetime) -> dict:
         self.n += 1
+        minutes = (now - self._last).total_seconds() / 60 if self._last else 0.0
+        self._last = now
         ph = min(max(self._walk("ph"), 0.0), 14.0)
-        tds = max(self._walk("tds"), 0.0)
+        tds = min(max(self._walk("tds"), 0.0), TDS_TOPE)
         temp = self._walk("temp")
         turb_in = min(max(self._walk("turb_in"), 0.0), 1000.0)
-        turb_out = turb_in * (1 - self.s.removal) * self.rng.uniform(0.85, 1.15)
         gen_v = max(self._walk("gen_v"), 0.0)
 
         # Batería: carga con el generador y se descarga mientras la bomba trabaja.
@@ -124,13 +142,39 @@ class BuoyEmulator:
             self.pump = False
         if not self.pump and self.battery_pct > BAT_ARRANCAR:
             self.pump = True
+            self.cycles += 1
         if not self.brake and (gen_v > GEN_V_FRENAR or (bat_v >= BAT_V_LLENA_FRENO and gen_v > bat_v)):
             self.brake = True
         if self.brake and gen_v < GEN_V_SOLTAR and bat_v < BAT_V_SOLTAR:
             self.brake = False
 
-        alerta = ph < PH_MIN or ph > PH_MAX or tds > TDS_MAX or turb_in > TURB_MAX
-        eficiencia = (turb_in - turb_out) / turb_in * 100 if turb_in > 0 else 0.0
+        # Solo pasa agua por los filtros con la bomba prendida (el caudalímetro marca 0 si no).
+        caudal = CAUDAL_LPM * self.rng.uniform(0.96, 1.04) if self.pump else 0.0
+        self.liters += caudal * minutes
+        # Sin flujo, las sondas de salida están en agua estancada: no se reportan (como el firmware).
+        outlet: dict[str, float] = {}
+        if self.pump:
+            turb_out = turb_in * (1 - self.s.removal) * self.rng.uniform(0.85, 1.15)
+            ph_out = ph + (7 - ph) * 0.6 * CALCITA_EF if ph < 7 else ph
+            ph_out = min(max(ph_out + self.rng.gauss(0, 0.02), 0.0), 14.0)
+            eficiencia = (turb_in - turb_out) / turb_in * 100 if turb_in > 0 else 0.0
+            outlet = {
+                "turb_out_ntu": round(turb_out),
+                "eficiencia_pct": round(min(max(eficiencia, 0.0), 100.0), 1),
+                "ph_out": round(ph_out, 2),
+            }
+        self.basket = min(100.0, self.basket + self.rng.uniform(0.0, 0.3))
+        tilt = abs(self.rng.gauss(2.3, 0.3))  # ≈ 0.05·v² rad con v ≈ 0.9 m/s, como el modelo 3D
+
+        ph_out = outlet.get("ph_out")
+        alerta = (
+            not PH_MIN <= ph <= PH_MAX
+            or (ph_out is not None and not PH_MIN <= ph_out <= PH_MAX)
+            or turb_in > TURB_ENTRADA_MAX
+            or outlet.get("turb_out_ntu", 0) > TURB_SALIDA_MAX
+            or not TEMP_MIN <= temp <= TEMP_MAX
+            or tilt > INCLINACION_MAX
+        )
         return {
             "boya": self.code,
             "n": self.n,
@@ -139,14 +183,21 @@ class BuoyEmulator:
             "tds_ppm": round(tds),
             "temp_c": round(temp, 1),
             "turb_in_ntu": round(turb_in),
-            "turb_out_ntu": round(turb_out),
-            "eficiencia_pct": round(min(max(eficiencia, 0.0), 100.0), 1),
+            **outlet,
             "bat_v": round(bat_v, 2),
             "bat_pct": round(self.battery_pct),
             "gen_v": round(gen_v, 1),
             "freno": self.brake,
             "bomba": self.pump,
             "alerta": alerta,
+            "caudal_lpm": round(caudal, 2),
+            "litros_total": round(self.liters, 1),
+            "cesta_pct": round(self.basket),
+            "bomba_a": round(BOMBA_A * self.rng.uniform(0.95, 1.05), 2) if self.pump else 0.0,
+            "ciclos_bomba": self.cycles,
+            "inclinacion_deg": round(tilt, 1),
+            "golpe": False,
+            "senal_csq": CSQ,
         }
 
 

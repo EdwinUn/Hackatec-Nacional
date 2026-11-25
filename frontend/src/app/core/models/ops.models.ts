@@ -4,6 +4,7 @@
  * the front uses `MockOpsApi` (see `opsMocks` in the environments).
  */
 import { WasteType } from './rio.models';
+import type { VisionAnalysis } from './vision.models';
 
 export type Role = 'technician' | 'supervisor' | 'admin';
 
@@ -54,6 +55,8 @@ export interface CitizenReport extends GeoPoint {
   description: string;
   /** Compressed JPEG as data URL (prototype; the backend would store a file URL). */
   photo: string | null;
+  /** AI analysis of the photo (`POST /vision/analyze`), with the annotated image shrunk for storage. */
+  ai?: VisionAnalysis | null;
   status: ReportStatus;
   /** Station closest to the report, when known. */
   station_id: string | null;
@@ -68,6 +71,7 @@ export interface NewCitizenReport extends GeoPoint {
   type: ReportType;
   description: string;
   photo: string | null;
+  ai?: VisionAnalysis | null;
 }
 
 export interface ReportPatch {

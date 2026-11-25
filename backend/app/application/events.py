@@ -19,6 +19,7 @@ from app.domain.entities import (
     WasteCollection,
     utcnow,
 )
+from app.domain.field_ops import SkimmerCollection
 from app.domain.telemetry import DeviceTelemetry
 from app.domain.treatment import compare_treatment
 
@@ -33,6 +34,7 @@ class EventType(StrEnum):
     WORK_ORDER_ASSIGNED = "work_order_assigned"
     CITIZEN_REPORT_CREATED = "citizen_report_created"
     DEVICE_TELEMETRY = "device_telemetry"
+    SKIMMER_COLLECTED = "skimmer_collected"
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,3 +129,9 @@ def citizen_report_created_event(report: dict[str, Any], station_id: UUID | None
 def device_telemetry_event(telemetry: DeviceTelemetry, code: str) -> Event:
     data = _payload(telemetry, "created_at") | {"code": code}
     return Event(EventType.DEVICE_TELEMETRY, telemetry.station_id, data)
+
+
+def skimmer_event(collection: SkimmerCollection) -> Event:
+    return Event(
+        EventType.SKIMMER_COLLECTED, collection.station_id, _payload(collection, "created_at", "updated_at")
+    )

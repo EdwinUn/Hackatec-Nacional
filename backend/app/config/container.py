@@ -21,20 +21,26 @@ from app.adapters.outbound.security.tokens import JwtTokenService
 from app.adapters.outbound.simulation.generator import RiverSimulator
 from app.adapters.outbound.simulation.runner import LiveRunner
 from app.adapters.outbound.simulation.sinks import ServiceSink
+from app.adapters.outbound.vision.clip_scene import ClipSceneClassifier
+from app.adapters.outbound.vision.engine import OpenCvYoloEngine
+from app.adapters.outbound.vision.yolo_world import YoloWorldDetector
 from app.application.ports import Clock
 from app.application.services.alerts import AlertService
 from app.application.services.analytics import AnalyticsService
 from app.application.services.catalog import CatalogService
 from app.application.services.citizen_reports import CitizenReportService, ReportPolicy
+from app.application.services.field_ops import FieldOpsService
 from app.application.services.ingestion import IngestionService
 from app.application.services.monitoring import MonitoringService
 from app.application.services.operations import OperationsService
 from app.application.services.staff import LoginPolicy, StaffService
 from app.application.services.telemetry import TelemetryService
+from app.application.services.vision import VisionService
 from app.application.services.work_orders import WorkOrderService
 from app.config.settings import Settings
 from app.domain.entities import utcnow
 from app.domain.sensor_health import SensorHealthPolicy
+from app.domain.vision import DEFAULT_POLICY
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +108,21 @@ class Container:
             ),
         )
         self.work_orders = WorkOrderService(uow_factory, self.broker, self.media, self.clock, s.max_photo_kb)
+        # Bandeja del operador (tareas rápidas) y bitácora de boyas skimmer.
+        self.field_ops = FieldOpsService(uow_factory, self.broker, self.clock)
+
+        # Visión artificial: el modelo se carga en la primera foto (o al arrancar con VISION_PRELOAD).
+        self.vision: VisionService | None = None
+        self._vision_engine: OpenCvYoloEngine | None = None
+        if s.vision_enabled:
+            detector = YoloWorldDetector(s.vision_model, s.vision_models_dir, s.vision_conf, s.vision_imgsz)
+            scene = ClipSceneClassifier() if s.vision_scene_enabled else None
+            self._vision_engine = OpenCvYoloEngine(detector, DEFAULT_POLICY.min_confidence, scene)
+            self.vision = VisionService(
+                self._vision_engine,
+                model_name=s.vision_model.removesuffix(".pt"),
+                max_bytes=s.vision_max_image_mb * 1024 * 1024,
+            )
 
     # ── Salud ───────────────────────────────────
     async def check_health(self) -> dict[str, str]:
@@ -165,6 +186,11 @@ class Container:
 
     async def start(self) -> None:
         s = self.settings
+        if s.vision_preload and self._vision_engine is not None:
+            try:
+                await asyncio.to_thread(self._vision_engine.preload)
+            except Exception:
+                log.exception("vision preload failed; se reintentará con la primera foto")
         self._spawn("ws-forwarder", forward_events(self.broker, self.ws_manager))  # type: ignore[arg-type]
         self._spawn(
             "health-sweep",

@@ -19,6 +19,9 @@ export const routes: Routes = [
       // ── Public (citizens) ──────────────────────────────────────────────────
       { path: 'resumen', title: 'Resumen ejecutivo · Río Monitor', loadComponent: () => import('./features/dashboard/dashboard-page').then((m) => m.DashboardPage) },
       { path: 'mapa', title: 'Vista satelital · Río Monitor', loadComponent: () => import('./features/satellite/satellite-page').then((m) => m.SatellitePage) },
+      { path: 'telemetria', redirectTo: 'boyas' },
+      { path: 'boyas', title: 'Boyas · Río Monitor', loadComponent: () => import('./features/buoys/buoys-page').then((m) => m.BuoysPage) },
+      { path: 'boyas/:id', title: 'Boya en 3D · Río Monitor', loadComponent: () => import('./features/buoys/buoy-detail-page').then((m) => m.BuoyDetailPage) },
       { path: 'alertas', title: 'Alertamiento temprano · Río Monitor', loadComponent: () => import('./features/alerts/alerts-page').then((m) => m.AlertsPage) },
       { path: 'analitica', pathMatch: 'full', redirectTo: 'analitica/pronostico' },
       { path: 'analitica/:tab', title: 'Analítica predictiva · Río Monitor', loadComponent: () => import('./features/predictive/predictive-page').then((m) => m.PredictivePage) },
@@ -31,6 +34,7 @@ export const routes: Routes = [
         canActivate: [authGuard],
         children: [
           { path: '', pathMatch: 'full', redirectTo: 'mis-tareas' },
+          { path: 'bandeja', title: 'Mi bandeja · Atl-Monitor', loadComponent: () => import('./features/operator/bandeja-page').then((m) => m.BandejaPage) },
           { path: 'mis-tareas', title: 'Mis tareas · Río Monitor', loadComponent: () => import('./features/ops/my-tasks-page').then((m) => m.MyTasksPage) },
           { path: 'tarea/:id', title: 'Orden de trabajo · Río Monitor', loadComponent: () => import('./features/ops/task-page').then((m) => m.TaskPage) },
           { path: 'reportes', title: 'Reportes ciudadanos · Río Monitor', canActivate: [MANAGERS], loadComponent: () => import('./features/ops/inbox-page').then((m) => m.InboxPage) },

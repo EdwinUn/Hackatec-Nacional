@@ -19,3 +19,17 @@
 .rule-form { display: flex; flex-direction: column; gap: .9rem; label.lbl { display: flex; flex-direction: column; gap: .35rem; } }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
 :host ::ng-deep .rule-form .p-inputnumber, :host ::ng-deep .rule-form .p-inputnumber input { width: 100%; }
+
+@media (max-width: 767px), (pointer: coarse) and (max-width: 1400px) {
+  :host { display: block; max-width: 100%; overflow-x: hidden; }
+  .page, .layout, .stack, .cards, .alert, .rules { max-width: 100%; min-width: 0; }
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .filters { flex-direction: column; align-items: stretch; gap: .75rem; .count { margin-left: 0; } }
+  .filters :host-context(p-selectbutton), .f { min-width: 0; max-width: 100%; }
+  :host ::ng-deep .f .p-selectbutton { display: flex; flex-wrap: wrap; max-width: 100%; }
+  .alert { flex-direction: column; overflow: hidden; header { flex-direction: row; flex-wrap: wrap; } }
+  .alert .msg, .alert .meta, .alert .note, .rules li, .rules .r-head, .rules code, .page-sub { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+  .alert footer { flex-direction: column; align-items: stretch; }
+  .rules .r-head { flex-direction: column; align-items: flex-start; }
+  .head { flex-direction: column; align-items: stretch; }
+}

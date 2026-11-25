@@ -23,31 +23,40 @@ typedef struct {
   uint64_t key_down_ns, on_ns;
   char line[256]; int len;
   char out[OUT_MAX]; int out_len;
-  uint8_t txbuf[2][CHUNK]; int tx_pending, tx_idx;
+  uint8_t txbuf[CHUNK]; bool tx_busy;
   timer_t t_tx, t_boot, t_led;
 } chip_state_t;
+
+// Transmite el siguiente bloque de la salida. Solo trabaja cuando hay algo que mandar: el siguiente
+// bloque sale en on_write_done (fin del anterior), sin un temporizador que despierte a cada rato y
+// frene la simulación.
+static void tx_siguiente(chip_state_t *c) {
+  if (c->tx_busy || c->out_len == 0) return;
+  int n = c->out_len < CHUNK ? c->out_len : CHUNK;
+  memcpy(c->txbuf, c->out, n);
+  if (!uart_write(c->uart, c->txbuf, n)) {
+    timer_start(c->t_tx, 1000, false);              // UART ocupado: reintento en 1 ms
+    return;
+  }
+  memmove(c->out, c->out + n, c->out_len - n);
+  c->out_len -= n;
+  c->tx_busy = true;
+}
+
+static void on_write_done(void *ud) {
+  chip_state_t *c = ud;
+  c->tx_busy = false;
+  tx_siguiente(c);
+}
+
+static void on_tx_retry(void *ud) { tx_siguiente(ud); }
 
 static void enviar(chip_state_t *c, const char *s) {
   int n = (int)strlen(s);
   if (c->out_len + n > OUT_MAX) n = OUT_MAX - c->out_len;
   memcpy(c->out + c->out_len, s, n);
   c->out_len += n;
-}
-
-// Envía la salida en bloques; uart_write devuelve false mientras transmite el anterior.
-static void on_tx_timer(void *ud) {
-  chip_state_t *c = ud;
-  if (c->tx_pending == 0 && c->out_len > 0) {
-    int n = c->out_len < CHUNK ? c->out_len : CHUNK;
-    memcpy(c->txbuf[c->tx_idx], c->out, n);
-    memmove(c->out, c->out + n, c->out_len - n);
-    c->out_len -= n;
-    c->tx_pending = n;
-  }
-  if (c->tx_pending > 0 && uart_write(c->uart, c->txbuf[c->tx_idx], c->tx_pending)) {
-    c->tx_pending = 0;
-    c->tx_idx ^= 1;
-  }
+  tx_siguiente(c);
 }
 
 static bool sim_ok(chip_state_t *c) { return attr_read(c->a_sim) != 0; }
@@ -165,17 +174,17 @@ void chip_init(void) {
     .rx = pin_init("RXD", INPUT),
     .baud_rate = 115200,
     .rx_data = on_rx,
+    .write_done = on_write_done,
     .user_data = c,
   };
   c->uart = uart_init(&ucfg);
 
-  const timer_config_t ttx = { .callback = on_tx_timer, .user_data = c };
+  const timer_config_t ttx = { .callback = on_tx_retry, .user_data = c };
   const timer_config_t tboot = { .callback = on_boot_timer, .user_data = c };
   const timer_config_t tled = { .callback = on_led_timer, .user_data = c };
   c->t_tx = timer_init(&ttx);
   c->t_boot = timer_init(&tboot);
   c->t_led = timer_init(&tled);
-  timer_start(c->t_tx, 500, true);
 
   const pin_watch_config_t w = { .edge = BOTH, .pin_change = on_pwrkey, .user_data = c };
   pin_watch(c->pwrkey, &w);

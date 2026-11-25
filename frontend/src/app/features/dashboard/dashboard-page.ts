@@ -1,8 +1,17 @@
+import { TelemetryService } from '../../core/services/telemetry.service';
+import { BuoysService } from '../../core/services/buoys.service';
+import { deviceCodeFor } from '../../core/models/telemetry.models';
 import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { ChartConfiguration, ChartDataset } from 'chart.js';
 import { Button } from 'primeng/button';
 import { ProgressBar } from 'primeng/progressbar';
+import { OpsApi } from '../../core/api/ops-api';
+import { AlertCounterService } from '../../core/services/alert-counter.service';
+import { FiltersService, PRESET_LABEL, RangePreset } from '../../core/services/filters.service';
+import { StationsService } from '../../core/services/stations.service';
+import { valueOrUndefined } from '../../shared/utils/resource.util';
 import { KpiTile } from '../../shared/components/kpi-tile';
 import { Pill } from '../../shared/components/pill';
 import { TimeSeriesChart } from '../../shared/components/time-series-chart';
@@ -24,6 +33,39 @@ const GREEN = '#1f7a5a';
 })
 export class DashboardPage {
   protected readonly s = inject(DashboardStore);
+  protected readonly filters = inject(FiltersService);
+  private readonly stationsSvc = inject(StationsService);
+  protected readonly alerts = inject(AlertCounterService);
+  private readonly iot = inject(TelemetryService);
+  private readonly buoyList = inject(BuoysService).buoys;
+  /** Skimmer buoys whose ESP32 is sending right now (`/ws/live`). */
+  protected readonly liveBuoys = computed(() => new Set(this.buoyList().map((b) => deviceCodeFor(b.code)).filter((c) => this.iot.isLive(c)())).size);
+  private readonly ops = inject(OpsApi);
+
+  // ── Phone summary: station/period selector + four headline KPIs ──
+  protected readonly presets: Exclude<RangePreset, 'custom'>[] = ['24h', '7d', '30d'];
+  protected readonly presetLabel = PRESET_LABEL;
+  /** `null` first = «Todas las estaciones». */
+  private readonly stationIds = computed<(string | null)[]>(() => [null, ...this.stationsSvc.stations().map((x) => x.id)]);
+  protected readonly stationName = computed(() => {
+    const id = this.filters.stationId();
+    return id ? this.stationsSvc.name(id) : 'Todas las estaciones';
+  });
+  protected readonly activeStations = computed(() => this.stationsSvc.stations().filter((x) => x.status === 'active').length);
+  private readonly reportsRes = rxResource({ params: () => this.filters.tick(), stream: () => this.ops.citizenReports() });
+  /** Skimmer buoys the citizen-report AI flagged as defective or saturated and still unresolved. */
+  protected readonly buoyAlerts = computed(
+    () =>
+      (valueOrUndefined(this.reportsRes) ?? []).filter(
+        (r) => r.status !== 'resolved' && r.status !== 'rejected' && (r.ai?.category === 'boya_defectuosa' || r.ai?.category === 'boya_saturada'),
+      ).length,
+  );
+
+  protected stepStation(dir: -1 | 1): void {
+    const ids = this.stationIds();
+    const i = ids.indexOf(this.filters.stationId());
+    this.filters.setStation(ids[(i + dir + ids.length) % ids.length]);
+  }
   protected readonly wqi = WQI_META;
   protected readonly sensorMeta = SENSOR_STATUS_META;
   protected readonly cfMeta = CENTRIFUGE_META;

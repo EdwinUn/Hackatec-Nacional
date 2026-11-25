@@ -17,6 +17,22 @@ dependencies = [
     "pyjwt>=2.9",
     "argon2-cffi>=23.1",
     "aiomqtt>=2.3",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+# Visión artificial de los reportes ciudadanos (POST /api/v1/vision/analyze). Instalar con:
+#   uv sync --extra vision
+# Sin este extra la API arranca igual y el endpoint responde 503 `vision_unavailable`.
+vision = [
+    "ultralytics>=8.3,<9",
+    "opencv-python-headless>=4.9,<5",
+    "torch>=2.2",
+    "torchvision>=0.17",
+    # YOLO-World codifica los prompts de texto con CLIP (fork de Ultralytics).
+    "clip @ git+https://github.com/ultralytics/CLIP.git",
+    "ftfy",
+    "regex",
 ]
 
 [dependency-groups]
@@ -28,6 +44,19 @@ dev = [
 
 [tool.uv]
 package = false
+# ultralytics exige `opencv-python` (con GUI); en un servidor usamos la variante headless.
+# Ambas escriben el mismo módulo `cv2`, así que se excluye la primera.
+override-dependencies = ["opencv-python ; sys_platform == 'never'"]
+
+# PyTorch solo-CPU en Linux (la variante CUDA por defecto pesa varios GB).
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

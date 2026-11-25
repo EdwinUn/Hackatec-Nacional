@@ -1,6 +1,14 @@
 /*
-  Río Monitor · Boya 1 (RM-01, colector Panzacola) · firmware ESP32
-  Misma electrónica que el modelo 3D y que la boya 2 en Wokwi (ADS1115, módem A7670SA, etc.).
+  Río Monitor · Boyas RM-01 y RM-02 · firmware ESP32 (simulado en Wokwi; no hay boya física)
+  Misma electrónica que el modelo 3D (frontend/src/app/features/buoys/three/buoy-factory.ts).
+  Los valores iniciales de diagram.json reproducen el estado inicial del modelo 3D:
+  pH 6.70 → 6.80, TDS ≈ 690 ppm, 19.4 °C, turbidez 82 → 22 NTU, batería 80 % (bomba prendida),
+  generador ≈ 14 V (río a 0.9 m/s), bomba 0.4 A y 2.5 L/min, inclinación ≈ 2.3°, cesta vacía.
+  En la app, el modelo 3D se mueve con lo que manda este firmware (batería, bomba, freno, cesta…).
+  pH y turbidez de salida solo se reportan con flujo (caudalímetro > 0.1 L/min). En Wokwi, el
+  ACS712 es un chip propio: con la bomba apagada (GPIO27 en LOW) da 2.5 V = 0 A.
+  Ojo: en Wokwi los potenciómetros dan 0–5 V (referencia fija de sus ADC virtuales), no 0–3.3 V;
+  los valores de diagram.json ya están en esa escala y solo tienen sentido entre 0 y 675 (3.3 V).
 
   Publica la telemetría por MQTT; el backend FastAPI está suscrito al mismo broker:
       tópico  riomonitor/RM-01/telemetria          (RM-01 = `code` de la estación en el backend)
@@ -23,7 +31,7 @@
     A0 Turbidez salida                Potenciómetro
     A1 Batería (divisor 100k/33k)     Deslizador
     A2 Generador (divisor 100k/10k)   Deslizador
-    A3 Corriente bomba (ACS712 5 A)   Potenciómetro
+    A3 Corriente bomba (ACS712 5 A)   Chip propio acs712 (IP = GPIO27: sin bomba, 0 A)
   MPU6050 (0x68) inclinación/golpes   MPU6050                        I2C SDA21 SCL22
   DS18B20 temperatura                 DS18B20                        GPIO5
   JSN-SR04T nivel de la cesta         HC-SR04                        TRIG GPIO15, ECHO GPIO34
@@ -122,8 +130,14 @@ const float GEN_V_FRENAR = 26.0, GEN_V_SOLTAR = 22.0;
 const float BAT_V_LLENA_FRENO = 12.5, BAT_V_SOLTAR = 12.3;
 const float BAT_PARAR = 35.0, BAT_ARRANCAR = 75.0;
 
-// ---------- Alertas locales (el backend evalúa las suyas) ----------
-const float PH_MIN = 6.5, PH_MAX = 8.5, TDS_MAX = 500.0, TURB_MAX = 50.0;
+// ---------- Alerta local (LED rojo y clave "alerta") ----------
+// Mismos umbrales que las reglas por defecto del backend (backend/app/domain/defaults.py) para lo
+// que mide la boya, así el LED y la lista de alertas de la web dicen lo mismo. La regla de TDS del
+// backend (> 1000 ppm) no aplica: el TDS Meter V1.0 se satura en 1000 ppm.
+// La inclinación y el golpe son alarma del dispositivo; el backend no los convierte en alerta.
+const float PH_MIN = 6.5, PH_MAX = 8.5;                 // entrada y salida
+const float TURB_ENTRADA_MAX = 100.0, TURB_SALIDA_MAX = 5.0;   // NTU
+const float TEMP_MIN = 10.0, TEMP_MAX = 30.0;           // °C
 const float INCLINACION_MAX = 30.0;    // grados: boya volcada o jalada por la corriente
 const float GOLPE_G = 0.5;             // desviación de 1 g que cuenta como golpe
 
@@ -135,9 +149,10 @@ const unsigned long PERIODO_LECTURA_MS = 30000, PERIODO_ENVIO_MS = 300000;  // c
 #endif
 
 // ---------- Buffer de envíos pendientes ----------
-// ts = 0 significa "sin hora": el backend usa la hora de llegada.
+// ts = 0 significa "sin hora": al sincronizar el reloj se reconstruye con `ms` (millis() de la
+// lectura); si el reloj nunca se sincroniza, el backend usa la hora de llegada.
 struct Envio {
-  uint32_t n, ciclos;
+  uint32_t n, ciclos, ms;
   time_t ts;
   float ph, phOut, tds, temp, turbIn, turbOut, batV, batPct, genV;
   float caudal, litros, cesta, bombaA, inclinacion;
@@ -186,7 +201,8 @@ float aPH(float v, float v7, float pend) {
 float aTDS(float v, float tempC) {
   if (isnan(v)) return NAN;
   float vc = v / (1.0f + 0.02f * (tempC - 25.0f));
-  return max(0.0f, (133.42f * vc * vc * vc - 255.86f * vc * vc + 857.39f * vc) * 0.5f);
+  float ppm = (133.42f * vc * vc * vc - 255.86f * vc * vc + 857.39f * vc) * 0.5f;
+  return constrain(ppm, 0.0f, 1000.0f);    // el TDS Meter V1.0 mide de 0 a 1000 ppm
 }
 
 float aTurbidez(float v) {
@@ -271,6 +287,16 @@ void sincronizarReloj() {
 #endif
   relojListo = time(nullptr) > 1700000000;
   Serial.println(relojListo ? "Reloj sincronizado (UTC)" : "Reloj sin sincronizar: el backend usará la hora de llegada");
+}
+
+// El reloj del ESP32 avanza al ritmo de la simulación, y en Wokwi suele ir más lento que el tiempo
+// real: se vuelve a sincronizar en cada envío para que la hora de los datos no se quede atrás.
+void resincronizarReloj() {
+#if MODO_SIMULACION
+  configTime(0, 0, "pool.ntp.org", "time.google.com");   // no bloquea: SNTP corrige al responder
+#else
+  sincronizarReloj();                                    // hora de la red celular
+#endif
 }
 
 String isoUTC(time_t ts) {
@@ -409,7 +435,7 @@ String jsonEnvio(const Envio &e) {
   j += ",\"ciclos_bomba\":" + String((unsigned long)e.ciclos);
   campo(j, "inclinacion_deg", e.inclinacion, 1);
   campoBool(j, "golpe", e.golpe);
-  j += ",\"senal_csq\":" + String((int)e.csq);
+  if (e.csq != 99) j += ",\"senal_csq\":" + String((int)e.csq);   // 99 = el módem no sabe la señal
 #endif
   return j + "}";
 }
@@ -422,8 +448,18 @@ void agregarPendiente(const Envio &e) {
   pendientes[numPendientes++] = e;
 }
 
+// Lecturas guardadas antes de tener hora: se fechan hacia atrás con millis().
+void fecharPendientes() {
+  if (!relojListo) return;
+  time_t ahora = time(nullptr);
+  uint32_t ms = millis();
+  for (int i = 0; i < numPendientes; i++)
+    if (pendientes[i].ts == 0) pendientes[i].ts = ahora - (time_t)((ms - pendientes[i].ms) / 1000);
+}
+
 // Publica en orden; se detiene en el primer fallo y reintenta en el siguiente periodo.
 void enviarPendientes() {
+  fecharPendientes();
   bool ok = conectarMqtt();
   int enviados = 0;
   while (ok && enviados < numPendientes) {
@@ -486,7 +522,9 @@ void setup() {
   termometro.begin();
 
   sdLista = SD.begin(PIN_SD_CS);
-  if (sdLista) {
+  // En el ESP32, FILE_WRITE abre en modo "w" y vacía el archivo: el encabezado solo se escribe
+  // si el CSV no existe, para no borrar el respaldo en cada reinicio.
+  if (sdLista && !SD.exists("/lecturas.csv")) {
     File f = SD.open("/lecturas.csv", FILE_WRITE);
     if (f) {
       f.println("ts,ph,ph_out,tds_ppm,temp_c,turb_in_ntu,turb_out_ntu,caudal_lpm,litros_total,cesta_pct,"
@@ -544,6 +582,10 @@ void loop() {
   litrosAcumulados += litros;
   float caudal = dtMin > 0 ? litros / dtMin : 0;
 
+  // Sin flujo (bomba apagada o recién encendida), las sondas de salida están en agua estancada:
+  // no miden agua filtrada, así que no se reportan (igual que el modelo 3D y el emulador).
+  if (caudal < 0.1f) { phOut = NAN; turbOut = NAN; }
+
   float cesta = leerCestaPct();
   float inclinacion = NAN, g = 1.0f;
   bool golpe = false;
@@ -552,19 +594,21 @@ void loop() {
   if (!isnan(batV) && !isnan(genV)) controlarFreno(genV, batV);
   if (!isnan(batPct)) controlarBomba(batPct);
 
-  bool alerta = phIn < PH_MIN || phIn > PH_MAX || tds > TDS_MAX || turbIn > TURB_MAX ||
-                inclinacion > INCLINACION_MAX || golpe;
+  // Con NaN (sensor sin dato o sin flujo) cada comparación da false: no dispara la alerta.
+  bool alerta = phIn < PH_MIN || phIn > PH_MAX || phOut < PH_MIN || phOut > PH_MAX ||
+                turbIn > TURB_ENTRADA_MAX || turbOut > TURB_SALIDA_MAX ||
+                temp < TEMP_MIN || temp > TEMP_MAX || inclinacion > INCLINACION_MAX || golpe;
   digitalWrite(PIN_ALERTA, alerta ? HIGH : LOW);
 
   time_t ahora = relojListo ? time(nullptr) : 0;
-  ultimo.n = numEnvio + 1;       ultimo.ts = ahora;
+  ultimo.n = numEnvio + 1;       ultimo.ts = ahora;           ultimo.ms = millis();
   ultimo.ph = phIn;              ultimo.phOut = phOut;
   ultimo.tds = tds;              ultimo.temp = temp;
   ultimo.turbIn = turbIn;        ultimo.turbOut = turbOut;
   ultimo.batV = batV;            ultimo.batPct = batPct;      ultimo.genV = genV;
   ultimo.caudal = caudal;        ultimo.litros = litrosAcumulados;
   ultimo.cesta = cesta;          ultimo.bombaA = bombaA;      ultimo.inclinacion = inclinacion;
-  ultimo.ciclos = ciclosBomba;   ultimo.csq = em.csq == 99 ? 0 : em.csq;
+  ultimo.ciclos = ciclosBomba;   ultimo.csq = em.csq;
   ultimo.freno = frenoActivo;    ultimo.bomba = bombaEncendida;
   ultimo.alerta = alerta;        ultimo.golpe = golpe;
 
@@ -587,8 +631,9 @@ void loop() {
   if (ultimoEnvio == 0 || millis() - ultimoEnvio >= PERIODO_ENVIO_MS) {
     ultimoEnvio = millis();
     consultarModem();
-    ultimo.csq = em.csq == 99 ? 0 : em.csq;
+    ultimo.csq = em.csq;
     if (!relojListo && em.red && conectarRed()) sincronizarReloj();
+    else if (relojListo && em.red) resincronizarReloj();
     numEnvio++;
     ultimo.n = numEnvio;
     if (relojListo && ultimo.ts == 0) ultimo.ts = time(nullptr);

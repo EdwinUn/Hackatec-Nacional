@@ -70,6 +70,13 @@ def normalize_device_code(code: str) -> str:
     return normalized
 
 
+def device_code_aliases(code: str) -> list[str]:
+    """Código normalizado + alias de la boya: la maqueta 3D y Wokwi la llaman «B-02» / «BM-02» (= RM-02)."""
+    normalized = normalize_device_code(code)
+    match = re.fullmatch(r"(?:B|BM)-0*(\d+)", normalized)
+    return [normalized, f"RM-{int(match.group(1)):02d}"] if match else [normalized]
+
+
 @dataclass(kw_only=True)
 class Sensor(Entity):
     station_id: UUID

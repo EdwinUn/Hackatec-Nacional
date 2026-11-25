@@ -48,6 +48,16 @@ class TelemetryInput:
     brake_on: bool | None = None
     alarm_on: bool | None = None
     device_efficiency_pct: float | None = None
+    flow_rate_lpm: float | None = None
+    basket_fill_pct: float | None = None
+    rssi_dbm: float | None = None
+    gas_v: float | None = None
+    signal_csq: int | None = None
+    pump_current_a: float | None = None
+    water_liters_total: float | None = None
+    pump_cycles: int | None = None
+    tilt_deg: float | None = None
+    shock: bool | None = None
 
 
 @dataclass(slots=True)

@@ -34,7 +34,7 @@
       "top": -410,
       "left": -760,
       "attrs": {
-        "text": "SENSORES ANALÓGICOS (los potenciómetros hacen de sensor)"
+        "text": "SENSORES ANALÓGICOS (los potenciómetros hacen de sensor; en Wokwi dan 0–5 V: usar 0–675 = 0–3.3 V)"
       }
     },
     {
@@ -79,7 +79,7 @@
       "top": -350,
       "left": -720,
       "attrs": {
-        "value": "512"
+        "value": "352"
       }
     },
     {
@@ -97,7 +97,7 @@
       "top": -230,
       "left": -720,
       "attrs": {
-        "value": "520"
+        "value": "347"
       }
     },
     {
@@ -115,7 +115,7 @@
       "top": -110,
       "left": -720,
       "attrs": {
-        "value": "300"
+        "value": "310"
       }
     },
     {
@@ -133,7 +133,7 @@
       "top": 10,
       "left": -720,
       "attrs": {
-        "value": "600"
+        "value": "620"
       }
     },
     {
@@ -151,7 +151,7 @@
       "top": 180,
       "left": -720,
       "attrs": {
-        "value": "850"
+        "value": "660"
       }
     },
     {
@@ -170,7 +170,7 @@
       "left": -760,
       "attrs": {
         "travelLength": "30",
-        "value": "90"
+        "value": "603"
       }
     },
     {
@@ -189,7 +189,7 @@
       "left": -760,
       "attrs": {
         "travelLength": "30",
-        "value": "39"
+        "value": "259"
       }
     },
     {
@@ -202,21 +202,21 @@
       }
     },
     {
-      "type": "wokwi-potentiometer",
-      "id": "pot_bomba",
+      "type": "chip-acs712",
+      "id": "acs1",
       "top": 530,
       "left": -720,
       "attrs": {
-        "value": "797"
+        "corriente": "0.4"
       }
     },
     {
       "type": "wokwi-text",
-      "id": "t_pot_bomba",
+      "id": "t_acs",
       "top": 506,
       "left": -730,
       "attrs": {
-        "text": "Corriente bomba (ACS712)"
+        "text": "Corriente bomba (ACS712): 2.5 V = 0 A; solo hay corriente con la bomba prendida (IP = GPIO27)"
       }
     },
     {
@@ -224,7 +224,9 @@
       "id": "sonar1",
       "top": -330,
       "left": -60,
-      "attrs": {}
+      "attrs": {
+        "distance": "44"
+      }
     },
     {
       "type": "wokwi-text",
@@ -240,7 +242,10 @@
       "id": "mpu1",
       "top": -320,
       "left": 260,
-      "attrs": {}
+      "attrs": {
+        "accelX": "0.04",
+        "accelZ": "1"
+      }
     },
     {
       "type": "wokwi-text",
@@ -256,7 +261,9 @@
       "id": "temp1",
       "top": -320,
       "left": 560,
-      "attrs": {}
+      "attrs": {
+        "temperature": "19.4"
+      }
     },
     {
       "type": "wokwi-text",
@@ -778,19 +785,25 @@
       []
     ],
     [
-      "pot_bomba:VCC",
-      "esp:3V3",
+      "acs1:VCC",
+      "esp:VIN",
       "red",
       []
     ],
     [
-      "pot_bomba:GND",
+      "acs1:GND",
       "esp:GND.1",
       "black",
       []
     ],
     [
-      "pot_bomba:SIG",
+      "acs1:IP",
+      "esp:D27",
+      "blue",
+      []
+    ],
+    [
+      "acs1:VIOUT",
       "ads2:A3",
       "orange",
       []

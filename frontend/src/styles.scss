@@ -13,6 +13,20 @@
   --rm-green: #1f7a5a;
   --rm-green-soft: #e4f3ec;
   --rm-focus: #1f7a5a;
+  --atl-bg: #f7f8fa;
+  --atl-ink: #1b263b;
+  --atl-muted: #7b8798;
+  --atl-line: #eaecf0;
+  --atl-blue: #00b4d8;
+  --atl-blue-soft: #90e0ef;
+}
+
+/* Atl-Monitor phone look: light fintech canvas, white 20px cards, hairline borders. */
+@media (max-width: 767px), (pointer: coarse) and (max-width: 1400px) {
+  :root { --rm-canvas: var(--atl-bg); --rm-border: var(--atl-line); --rm-muted: var(--atl-muted); --rm-text: var(--atl-ink); }
+  .rm-card { border-radius: 20px; box-shadow: none; }
+  .page { padding: .5rem 1rem 1.5rem; }
+  .page-title { font-size: 1.5rem; font-weight: 800; letter-spacing: -.03em; }
 }
 
 html { accent-color: var(--rm-green); scrollbar-color: #b8c2bd transparent; scrollbar-width: thin; }
@@ -62,7 +76,8 @@ a { color: inherit; }
 @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
 
 /* Satellite map: pulsing station pins & Google-Earth-like glass panel */
-.station-pin { position: relative; display: block; width: 40px; height: 40px; padding: 0; border: 0; background: none; cursor: pointer; }
+/* No `position` here: it would override `.maplibregl-marker { position: absolute }` and drift the pins on zoom. */
+.station-pin { display: block; width: 40px; height: 40px; padding: 0; border: 0; background: none; cursor: pointer; }
 .station-pin .core { position: absolute; inset: 7px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 6px rgb(0 0 0 / .6); }
 .station-pin .pulse { position: absolute; inset: 0; border-radius: 50%; opacity: .55; animation: pulse 1.8s ease-out infinite; }
 @keyframes pulse { 0% { transform: scale(.45); opacity: .7; } 100% { transform: scale(1.7); opacity: 0; } }
@@ -81,4 +96,8 @@ a { color: inherit; }
 
 /* Citizen report pins on the satellite map */
 .report-pin { padding: 0; border: 0; background: none; cursor: pointer; }
+.buoy-pin { display: flex; align-items: center; gap: .3rem; padding: 0; border: 0; background: none; cursor: pointer; }
+.buoy-pin .icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; border: 2px solid #fff; background: #0e7490; color: #fff; font-size: .85rem; box-shadow: 0 1px 5px rgb(0 0 0 / .55); }
+.buoy-pin .name { background: rgb(9 28 34 / .82); color: #eaf7fa; font: 600 .72rem/1 inherit; padding: .25rem .45rem; border-radius: 6px; white-space: nowrap; }
+.buoy-popup .open { margin-top: .45rem; display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .6rem; border: 0; border-radius: 6px; background: var(--rm-green); color: #fff; font: 600 12px/1.2 inherit; cursor: pointer; }
 .report-pin span { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 5px rgb(0 0 0 / .55); color: #fff; font-size: .75rem; }
