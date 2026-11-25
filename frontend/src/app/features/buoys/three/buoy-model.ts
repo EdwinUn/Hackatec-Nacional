@@ -27,7 +27,17 @@ export interface BuoyTelemetry {
   [key: string]: unknown;
 }
 
-/** Typed API of the object returned by `createBoyaRioMonitor` (artifact v8). */
+/** Alert beacon (red LED, GPIO2) and send LED (green, GPIO25) as the model shows them. */
+export interface BuoyComms {
+  senal: boolean;
+  alerta: boolean;
+  guardadas: number;
+  enviadas: number;
+  enviando: boolean;
+  [key: string]: unknown;
+}
+
+/** Typed API of the object returned by `createBoyaRioMonitor` (artifact v8 + beacon, hose and shore tank). */
 export interface BuoyModel {
   diseno: BuoyDesign;
   root: Group;
@@ -37,6 +47,8 @@ export interface BuoyModel {
   telemetria(): BuoyTelemetry;
   /** Shows the ESP32's packet (Wokwi); `null` = the design's initial state. */
   aplicarTelemetria(packet: DeviceTelemetryDto | null): void;
+  /** State of the alert beacon and the 4G sends (in the app it follows the packet; see the factory). */
+  comunicacion(): BuoyComms;
   setRayosX(on: boolean): void;
   localAMundo(x: number, y: number, z: number): Vector3;
 }

@@ -17,6 +17,20 @@
 //     firmware/boya-rm01/diagram.json.
 //   - SENSORES_BOYA lists the firmware's JSON keys instead of text sensor_ids
 //     (the backend assigns UUIDs; see API.md).
+//  Updated design (artifact Fn2THZZeCsftdrQCnc7HN5): alert beacon, send LED and
+//  waves on the antenna, hose along the riverbed to a ~1,100 L tank on the bank,
+//  and the demo controls (fijarBateria, setSenal, setPhRio, prepararDemo,
+//  comunicacion). Changes vs that artifact:
+//   - `alertas` uses sketch.ino's thresholds (pH 6.5–8.5 in and out, turbidity
+//     in > 100 / out > 5 NTU, 10–30 °C, tilt > 30°); the artifact had TDS > 500
+//     and turbidity > 50, which the firmware doesn't use.
+//   - With a packet (or `congelado`) the beacon follows `alarm_on` and each new
+//     packet (seq/ts) lights the send LED and the waves; no sends are simulated.
+//   - No signal = send LED off (GPIO25 goes LOW), not a blinking red LED.
+//   - The tank level is derived from the liters of the flow meter (no sensor).
+//   - The inlet water keeps diagram.json's initial state (pH 6.7, 690 ppm, 82 NTU)
+//     instead of the artifact's 7.0 / 380 / 40; with the firmware's rule that
+//     state already lights the alert (outlet turbidity ≈ 22 > 5 NTU), as in Wokwi.
 // =====================================================================
 import * as THREE from 'three';
 
@@ -41,7 +55,11 @@ export const BOYA_CFG = {
   sonar: { mast: 0.3, distEmpty: 44, distFull: 30 },
   basket: { x0: -0.62, len: 0.8, halfW: 0.36, top: 0.14, bottom: -0.25, lip: -0.04, holeX: -1.17, holeR: 0.07, capKg: 4 },
   vane: { x0: -1.48, len: 0.5, yTop: -0.04, yBot: -0.4 },
-  timeScale: 600, satSpeed: 0.006
+  timeScale: 600, satSpeed: 0.006,
+  envioMin: 5,                                                          // envío cada 5 min (PERIODO_ENVIO_MS real; en MODO_SIMULACION son 15 s)
+  // LED rojo de alerta (GPIO2): mismos umbrales que sketch.ino (PH_MIN/MAX, TURB_ENTRADA_MAX, TURB_SALIDA_MAX, TEMP_MIN/MAX, INCLINACION_MAX)
+  alertas: { phMin: 6.5, phMax: 8.5, turbInMax: 100, turbOutMax: 5, tempMin: 10, tempMax: 30, inclMax: 30 },
+  tanque: { litros: 1100 }                                              // tinaco en la orilla (≈1,100 L)
 };
 
 // Cuatro etapas, sin sensor propio: se sabe que se saturan por lo que miden las sondas de salida.
@@ -456,6 +474,20 @@ export function createBoyaRioMonitor(opts = {}) {
   }
 
 
+  // ---------- Avisos visibles: baliza de alerta (LED rojo, GPIO2) y LED de envío en la antena (LED verde, GPIO25) ----------
+  const baliza = new THREE.Group(); baliza.position.set(0, C.deck + 0.2, 0); body.add(baliza);
+  const balizaMat = new THREE.MeshBasicMaterial({ color: 0x4a2420 });
+  mesh(new THREE.SphereGeometry(0.022, 20, 14), balizaMat, baliza, 0, 0, 0);
+  const halo = mesh(new THREE.SphereGeometry(0.07, 20, 14), new THREE.MeshBasicMaterial({ color: 0xff2a1a, transparent: true, opacity: 0, depthWrite: false }), baliza, 0, 0, 0);
+  anchor('baliza', baliza, 0.03, 0.01, 0);
+  const antPunta = V3(0.07, TOP + 0.002, -0.05);
+  const ledAntMat = new THREE.MeshBasicMaterial({ color: 0x34d17a });
+  mesh(new THREE.SphereGeometry(0.008, 14, 10), ledAntMat, body, antPunta.x, antPunta.y, antPunta.z);
+  const ondas = [0, 1, 2].map(() => {
+    const o = mesh(new THREE.TorusGeometry(0.03, 0.0025, 8, 40), new THREE.MeshBasicMaterial({ color: 0x9ef0ff, transparent: true, opacity: 0, depthWrite: false }), body, antPunta.x, antPunta.y, antPunta.z);
+    o.rotation.x = Math.PI / 2; o.visible = false; return o;
+  });
+
   // ---------- Componentes electrónicos, uno por uno (los mismos de Wokwi y del BOM) ----------
   const componentes = [
     ['Control y comunicación', 'esp32', 'Microcontrolador', 'ESP32 DevKit V1 (WiFi y Bluetooth)', 'I2C SDA 21, SCL 22 · lee todos los sensores', 'ESP32 DevKit V1', esp],
@@ -491,7 +523,8 @@ export function createBoyaRioMonitor(opts = {}) {
     ['Energía', 'freno', 'Freno del molino', 'Resistencia 10 Ω 50 W (aluminio)', 'En paralelo al generador, sumergida', 'LED naranja (GPIO14)', brakeG],
     ['Actuadores', 'bomba', 'Bomba', 'Mini bomba sumergible 12 V (800 L/h)', 'Por MOSFET en GPIO27', 'LED azul', pumpG],
     ['Actuadores', 'fetb', 'MOSFET de la bomba', 'D4184', 'GPIO27', 'LED azul', fetB],
-    ['Actuadores', 'fetf', 'MOSFET del freno', 'D4184', 'GPIO14', 'LED naranja', fetF]
+    ['Actuadores', 'fetf', 'MOSFET del freno', 'D4184', 'GPIO14', 'LED naranja', fetF],
+    ['Actuadores', 'baliza', 'Baliza de alerta', 'LED rojo de alta luminosidad', 'GPIO2 · se prende con la clave «alerta»', 'LED rojo (GPIO2)', baliza]
   ].map(([grupo, key, nombre, modelo, conexion, wokwi, obj]) => ({ grupo, key, nombre, modelo, conexion, wokwi, obj }));
 
   const selBox = new THREE.Box3(), selHelper = new THREE.Box3Helper(selBox, 0x35d0e0);
@@ -548,7 +581,7 @@ export function createBoyaRioMonitor(opts = {}) {
     else if (u < U.col) { const k = (u - U.fun) / (U.col - U.fun); y = C.colTop - k * (C.colTop - C.colBottom); r = (C.colR - 0.03) * (0.15 + 0.8 * j); a += 0.4 + k * 0.6; }
     else if (u < U.bowl) { const k = (u - U.col) / (U.bowl - U.col); y = -0.41 - k * 0.09; r = lerpProfile(C.bowl, y) * (0.3 + 0.55 * j) * (1 - 0.6 * k); a += 1.0 + k * 1.5; }
     else if (u < U.noz) { const k = (u - U.bowl) / (U.noz - U.bowl); out.set(-k * 0.14, -0.525 - 0.01 * k, (j - 0.5) * 0.008); return; }
-    else { const k = (u - U.noz) / (1 - U.noz); out.set(-0.14 - k * 0.8, C.nozzleBottom - k * 0.06 - j * 0.04 * k, Math.sin(a) * (0.01 + k * 0.15) * j); return; }
+    else { const k = (u - U.noz) / (1 - U.noz); out.set(-0.14 - k * 0.03, -0.535, 0); return; }   // entra a la manguera
     out.set(Math.cos(a) * r, y, Math.sin(a) * r);
   }
 
@@ -565,17 +598,88 @@ export function createBoyaRioMonitor(opts = {}) {
   flow([[0.0, boxY - 0.012, 0.05], [dTop.x, C.deck + 0.03, dTop.z], [dp.x, -0.1, dp.z], [dp.x, -0.38, dp.z], [0.05, -0.45, 0.05], [0.0, -0.5, 0.02]], 0x35d0e0, 'pump');
   flow([[dp.x, -0.3, dp.z], [dp.x, -0.1, dp.z], [dTop.x, C.deck + 0.03, dTop.z], [0.0, (boxY + C.deck) / 2, 0.11], [0.0, boxY + 0.01, 0.03]], 0xffffff, 'data');
 
+  // ---------- Manguera: del caudalímetro, por el fondo, a un tanque en la orilla ----------
+  // Lleva el agua que sale de los filtros. El tramo del fondo va lastrado; sube por el talud y cae al tanque.
+  const ORI = { z0: -2.6, z1: -3.7, z2: -6.5, alto: 3.3, };
+  const oriTop = bedY + ORI.alto, slopeY = z => bedY + ORI.alto * Math.min(1, Math.max(0, (ORI.z0 - z) / (ORI.z0 - ORI.z1)));
+  {
+    const sh = new THREE.Shape();
+    sh.moveTo(-ORI.z0 - 0.1, bedY - 0.4); sh.lineTo(-ORI.z0, bedY); sh.lineTo(-ORI.z1, oriTop); sh.lineTo(-ORI.z2, oriTop); sh.lineTo(-ORI.z2, bedY - 0.4); sh.closePath();
+    const g = new THREE.ExtrudeGeometry(sh, { depth: 24, bevelEnabled: false }); g.rotateY(Math.PI / 2); g.translate(-12, 0, 0);
+    mesh(g, M(0x6b5a3e, { roughness: 1 }), root);
+    box(24, 0.02, ORI.z1 - ORI.z2, M(0x4f7a3a, { roughness: 1 }), root, 0, oriTop + 0.01, (ORI.z1 + ORI.z2) / 2);
+  }
+  // Tanque de almacenamiento tipo tinaco (≈1,100 L) sobre la orilla
+  const TQ = { z: -4.75, R: 0.55, H: 1.4 };
+  const boteG = new THREE.Group(); boteG.position.set(0, oriTop + 0.02, TQ.z); root.add(boteG);
+  const tqMat = M(0xe6dfcc, { roughness: 0.6 });
+  const perfil = [[0, 0], [TQ.R * 0.97, 0], [TQ.R, 0.04], [TQ.R, TQ.H * 0.78], [TQ.R * 0.93, TQ.H * 0.88], [TQ.R * 0.62, TQ.H * 0.97], [TQ.R * 0.3, TQ.H], [0, TQ.H]].map(([r, y]) => new THREE.Vector2(r, y));
+  mesh(new THREE.LatheGeometry(perfil, 48), tqMat, boteG);
+  [0.2, 0.4, 0.6].forEach(k => torusH(TQ.R + 0.006, 0.012, M(0xd8d0bb, { roughness: 0.6 }), boteG, TQ.H * k));
+  cyl(0.2, 0.07, M(0x26282a, { roughness: 0.5 }), boteG, 0, TQ.H + 0.03, 0, 32);
+  cyl(0.035, 0.08, M(0x26282a), boteG, TQ.R * 0.72, 0.08, TQ.R * 0.72, 14).rotation.x = Math.PI / 2;   // llave de salida
+  // indicador de nivel (manguera transparente por fuera); no hay sensor: el nivel sale de los litros del caudalímetro
+  const nivelG = new THREE.Group(); nivelG.position.set(TQ.R * 0.71, 0, TQ.R * 0.71); boteG.add(nivelG);
+  cyl(0.014, TQ.H * 0.8, new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 }), nivelG, 0, TQ.H * 0.42, 0, 10);
+  const boteAgua = cyl(0.011, 1, new THREE.MeshBasicMaterial({ color: 0x35c4e0 }), nivelG, 0, 0, 0, 10);
+  anchor('bote', boteG, -TQ.R * 0.7, TQ.H * 0.7, TQ.R * 0.7);
+  const mangMat = M(0x2e8b3a, { roughness: 0.55 });
+  const mangera = new THREE.Mesh(new THREE.BufferGeometry(), mangMat); root.add(mangera);
+  const lastres = [0.3, 0.42, 0.54].map(() => cyl(0.03, 0.05, M(0x8a8f92), root, 0, 0, 0, 12));
+  const anclaMang = anchor('manguera', root, 0, 0, 0);
+  const boteFin = V3(0, oriTop + 0.02 + TQ.H + 0.08, TQ.z + 0.12);   // entra por la tapa
+  function actualizarManguera() {
+    body.updateMatrixWorld(true);
+    const p0 = body.localToWorld(V3(-0.17, -0.535, 0)), p1 = body.localToWorld(V3(-0.27, -0.6, 0)), p2 = body.localToWorld(V3(-0.3, -0.78, -0.1));
+    const fondo = bedY + 0.05, bajo = (a, b) => Math.max(fondo, Math.min(a, b));
+    const pts = [p0, p1, p2,
+      V3(p2.x * 0.6, bajo(p2.y - 0.3, fondo + 0.4), p2.z - 0.7),
+      V3(0.15, fondo, -1.9), V3(0.1, fondo, ORI.z0 + 0.12),
+      V3(0.06, slopeY((ORI.z0 + ORI.z1) / 2) + 0.05, (ORI.z0 + ORI.z1) / 2), V3(0.02, oriTop + 0.05, ORI.z1 - 0.05),
+      V3(0, oriTop + 0.06, TQ.z + TQ.R + 0.12), V3(0, oriTop + 0.3, TQ.z + TQ.R + 0.03), V3(0, oriTop + TQ.H * 0.75, TQ.z + TQ.R + 0.03),
+      V3(0, oriTop + TQ.H * 0.98, TQ.z + TQ.R * 0.62), V3(0, boteFin.y + 0.06, TQ.z + 0.25), boteFin];
+    const curva = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+    mangera.geometry.dispose(); mangera.geometry = new THREE.TubeGeometry(curva, 110, 0.013, 8, false);
+    curva.getPoint(0.62, anclaMang.position);
+    [V3(0.14, fondo + 0.02, -1.5), V3(0.13, fondo + 0.02, -2.0), V3(0.11, fondo + 0.02, ORI.z0 + 0.2)].forEach((q, i) => lastres[i].position.copy(q));
+    // Nivel del tanque derivado del agua procesada (suma del caudalímetro); no lo mide ningún sensor.
+    const nivel = TQ.H * 0.78 * Math.max(0.005, Math.min(1, sim.liters / C.tanque.litros));
+    boteAgua.scale.y = nivel; boteAgua.position.y = 0.03 + nivel / 2;
+  }
+
   // ---------- Simulación (mismas reglas que sketch.ino) ----------
   const sim = { t: 0, omega: 0, batWh: C.battery.wh * 0.8, pGen: 0, pCharge: 0, load: 0, genV: 0, brake: false, pump: true, cycles: 1, liters: 0,
     trash: 0, kg: 0, bodyY: 0, water: 0, sat: ETAPAS_FILTRO.map(e => e.sat0), mode: 'filtrando', resting: false, tension: 0, flow: 0, hi: -1,
-    yaw: opts.flowAngle || 0, flowAngle: 0, drift: 0, tilt: 0, flapK: 0, v: 0 };
+    yaw: opts.flowAngle || 0, flowAngle: 0, drift: 0, tilt: 0, flapK: 0, v: 0,
+    phRio: 6.85, senal: true, guardadas: 0, enviadas: 0, envT: 0, rafaga: 0, enRafaga: false, rafagaN: 0, rafagaFin: -99,
+    ultimoEnvio: 0, ondaT: -1, alerta: false, alertaEstado: '' };
   let bodyInit = false;
+  const ruido = (a, f) => a * Math.sin(sim.t * f) + a * 0.5 * Math.sin(sim.t * f * 2.7 + 1);
+  const clampN = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+  // Lo que miden las sondas de entrada: agua "normal" del tramo + lo que se mueva en la demostración.
+  // Valores base = estado inicial de diagram.json (pH 6.7, TDS ≈ 690 ppm, turbidez 82 NTU).
+  const phIn = () => clampN(sim.phRio - 0.15 + ruido(0.08, 0.2), 0, 14);
+  const tdsIn = () => clampN(690 + ruido(20, 0.15), 0, 1000);
+  const turbIn = () => clampN(82 + ruido(8, 0.4), 0, 1000);
+  const tempIn = () => 19.4 + ruido(0.3, 0.05);
+  // Misma regla que el LED rojo del firmware; sin flujo no hay dato de salida y esas reglas no cuentan.
+  const enAlerta = () => {
+    const A = C.alertas, r = lecturasSimuladas(), fuera = (x, lo, hi) => x != null && (x < lo || x > hi);
+    return fuera(r.ph_in, A.phMin, A.phMax) || fuera(r.ph_out, A.phMin, A.phMax) || r.turb_in > A.turbInMax ||
+      (r.turb_out != null && r.turb_out > A.turbOutMax) || fuera(r.temp, A.tempMin, A.tempMax) || r.inclinacion > A.inclMax;
+  };
 
   // Paquete en vivo del ESP32 (DeviceTelemetryDto del backend). Cuando llega, manda sobre la
   // simulación local: el modelo enseña lo mismo que sale de Wokwi. `null` = simular solo.
-  let ext = null;
+  let ext = null, extClave = null;
   const has = x => typeof x === 'number' && Number.isFinite(x);
-  function aplicarTelemetria(t) { ext = t ?? null; }
+  function aplicarTelemetria(t) {
+    ext = t ?? null;
+    // Cada paquete nuevo es un envío correcto: el LED verde (GPIO25) se prende y salen las ondas de la antena.
+    const clave = ext ? `${ext.seq ?? ''}|${ext.ts ?? ''}` : null;
+    if (clave && clave !== extClave) { sim.ultimoEnvio = sim.t; sim.ondaT = 0; }
+    extClave = clave;
+  }
   const congelado = !!opts.congelado;
   // Filtrado medido por el ESP32 (turbidez entrada vs salida); null si no vino (p. ej., sin flujo).
   function eficienciaMedida() {
@@ -642,6 +746,43 @@ export function createBoyaRioMonitor(opts = {}) {
     }
     if (has(ext?.water_liters_total)) sim.liters = ext.water_liters_total;
     if (has(ext?.basket_fill_pct)) sim.kg = B.capKg * Math.min(100, Math.max(0, ext.basket_fill_pct)) / 100;
+
+    if (ext || congelado) {
+      // Con paquete la baliza dice lo que mandó el ESP32 (`alerta` → alarm_on); sin paquete, la regla del
+      // firmware sobre el estado inicial del diseño (el de diagram.json). No se simulan envíos.
+      sim.alerta = ext ? ext.alarm_on === true : enAlerta();
+      sim.senal = !!ext;
+    } else {
+      // Envío al tablero: cada 5 min; al empezar una alerta, al momento; sin señal se guarda
+      // y al volver la señal se manda todo en orden (mismas reglas que sketch.ino).
+      sim.envT += dt * ts / 60;
+      const alerta = enAlerta(), nueva = alerta && !sim.alerta;
+      sim.alerta = alerta; if (!alerta) sim.alertaEstado = '';
+      let toca = nueva;
+      if (sim.envT >= C.envioMin) { sim.envT = 0; toca = true; }
+      if (nueva) sim.envT = 0;
+      if (toca) {
+        if (sim.senal && !sim.enRafaga) { sim.enviadas++; sim.ultimoEnvio = sim.t; sim.ondaT = 0; if (nueva) sim.alertaEstado = 'enviada'; }
+        else { sim.guardadas++; if (nueva) sim.alertaEstado = sim.senal ? 'enviada' : 'guardada'; }
+      }
+      if (sim.senal && sim.guardadas > 0) {
+        if (!sim.enRafaga) { sim.enRafaga = true; sim.rafagaN = sim.guardadas; sim.rafaga = 0; }
+        sim.rafaga += dt * Math.max(3, sim.rafagaN / 1.5);
+        while (sim.rafaga >= 1 && sim.guardadas > 0) { sim.rafaga -= 1; sim.guardadas--; sim.enviadas++; sim.ultimoEnvio = sim.t; sim.ondaT = 0; }
+      }
+      if (sim.enRafaga && sim.guardadas === 0) { sim.enRafaga = false; sim.rafagaFin = sim.t; if (sim.alertaEstado === 'guardada') sim.alertaEstado = 'enviada'; }
+    }
+
+    const parpadeo = Math.sin(sim.t * 9) > 0;
+    balizaMat.color.setHex(sim.alerta ? (parpadeo ? 0xff2a1a : 0x8a1d12) : 0x4a2420);
+    halo.material.opacity = sim.alerta && parpadeo ? 0.35 : 0;
+    // LED verde de envío (GPIO25): prendido si el último envío salió; apagado sin señal (el firmware no lo hace parpadear en rojo).
+    ledAntMat.color.setHex(!sim.senal ? 0x0f2a1a : sim.ondaT >= 0 && sim.ondaT < 0.25 ? 0xeafff6 : 0x34d17a);
+    if (sim.ondaT >= 0) {
+      sim.ondaT += dt;
+      ondas.forEach((o, i) => { const k = (sim.ondaT - i * 0.15) / 0.9, on = k > 0 && k < 1; o.visible = on; if (on) { o.scale.setScalar(1 + k * 5); o.material.opacity = 0.85 * (1 - k); } });
+      if (sim.ondaT > 1.3) sim.ondaT = -1;
+    } else ondas.forEach(o => { o.visible = false; });
     if (!congelado) ETAPAS_FILTRO.forEach((e, i) => { sim.sat[i] = Math.min(1, sim.sat[i] + dt * sim.flow * e.rate * C.satSpeed); });
 
     wheel.rotation.y -= sim.omega * dt;
@@ -694,6 +835,8 @@ export function createBoyaRioMonitor(opts = {}) {
       pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
     }
 
+    actualizarManguera();
+
     const showE = s.showEnergy !== false;
     flows.forEach(L => {
       const speed = L.kind === 'gen' ? Math.min(0.9, sim.pGen / 8) : L.kind === 'charge' ? (sim.pCharge > sim.load ? 0.4 : 0) : L.kind === 'brake' ? (sim.brake && sim.pGen > sim.pCharge ? 0.6 : 0) : L.kind === 'pump' ? (on ? 0.5 : 0) : (sim.batWh > 0.3 ? 0.25 : 0);
@@ -707,16 +850,15 @@ export function createBoyaRioMonitor(opts = {}) {
 
   // Mismos 14 datos y unidades que el JSON del firmware.
   function lecturasSimuladas() {
-    const t = sim.t, n = (a, f = 1) => a * Math.sin(t * f) + a * 0.5 * Math.sin(t * f * 2.7 + 1);
-    const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+    const n = (a, f = 1) => ruido(a, f), clamp = clampN;
     const E = effs(), flowing = sim.flow > 0.05;
-    const ph_in = clamp(6.7 + n(0.3, 0.2), 0, 14);
-    const turb_in = clamp(82 + n(8, 0.4), 0, 1000);
+    const ph_in = phIn();
+    const turb_in = turbIn();
     const calc = flowing && ph_in < 7 ? (7 - ph_in) * 0.6 * E[3] : 0;
     const r = {
       // Sin flujo las sondas de salida están en agua estancada: no hay dato (igual que el firmware).
       ph_in, ph_out: flowing ? clamp(ph_in + calc + n(0.03, 0.9), 0, 14) : null,
-      tds: clamp(690 + n(20, 0.15), 0, 1000), temp: 19.4 + n(0.3, 0.05),
+      tds: tdsIn(), temp: tempIn(),
       turb_in, turb_out: flowing ? turb_in * (1 - turbEff()) : null,
       caudal_lpm: C.pumpLpm * sim.flow, litros: sim.liters,
       cesta_pct: Math.min(100, 100 * sim.kg / B.capKg),
@@ -762,9 +904,25 @@ export function createBoyaRioMonitor(opts = {}) {
   function bocaCesta() { return { x: B.x0, y: sim.bodyY - 0.01, halfW: B.halfW, offsetX: -sim.drift, boom: BOOM, full: sim.kg >= B.capKg }; }
   function localAMundo(x, y, z) { body.updateMatrixWorld(true); return body.localToWorld(V3(x, y, z)); }
 
+  // ---- Controles de la demostración (solo sin paquete del ESP32 y sin `congelado`) ----
+  function fijarBateria(pct) { sim.batWh = C.battery.wh * clampN(pct, 0, 100) / 100; }
+  function setSenal(on) { sim.senal = !!on; }
+  function setPhRio(v) { sim.phRio = clampN(+v, 0, 14); }
+  function prepararDemo() {
+    fijarBateria(50); sim.pump = false; sim.brake = false; sim.phRio = 7; sim.senal = true;
+    sim.guardadas = 0; sim.enviadas = 0; sim.envT = 0; sim.enRafaga = false; sim.rafagaFin = -99; sim.alerta = false; sim.alertaEstado = '';
+  }
+  function comunicacion() {
+    return { senal: sim.senal, guardadas: sim.guardadas, enviadas: sim.enviadas, enviando: sim.enRafaga, rafagaN: sim.rafagaN,
+      segDesdeRafaga: sim.t - sim.rafagaFin, segDesdeEnvio: sim.t - sim.ultimoEnvio, alerta: sim.alerta, alertaEstado: sim.alertaEstado, phRio: sim.phRio };
+  }
+
   const etiquetas = [
     ['electronica', 'Caja: ESP32, 2 ADS1115, módem 4G, tarjetas de sondas', 0, 0, 0],
     ['antena', 'Antena LTE del módem A7670SA', 1],
+    ['baliza', 'Baliza de alerta (roja con una descarga)', 1],
+    ['manguera', 'Manguera: el agua filtrada va a la orilla', 0],
+    ['bote', 'Tanque de almacenamiento: agua filtrada (no es para beber)', 0],
     ['domo', 'Domo: garrafón o cono', 1],
     ['toma', 'Toma lateral con malla fina', 1],
     ['molino', 'Molino de PVC entre los anillos de PET', 0, 1, 1], ['generador', 'Motor RS-775 reciclado como generador', 1, 1],
@@ -779,5 +937,5 @@ export function createBoyaRioMonitor(opts = {}) {
     ['jaula', 'Jaula de varilla', 0, 0, 1], ['linea', 'Cuerda de polipropileno', 0], ['cadena', '1.5 m de cadena', 0], ['ancla', 'Ancla helicoidal', 1], ['lastre', 'Cubeta con concreto', 1]
   ];
 
-  return { diseno: D, etiquetas, componentes, seleccionarComponente, vistaComponente, root, body, anchors, update, telemetria, lecturasSimuladas, aplicarTelemetria, registrarBasura, vaciarCesta, cambiarCartuchos, resaltarEtapa, bocaCesta, bocaRed: bocaCesta, setRayosX, localAMundo, config: C };
+  return { diseno: D, etiquetas, componentes, seleccionarComponente, vistaComponente, root, body, anchors, update, telemetria, lecturasSimuladas, aplicarTelemetria, registrarBasura, vaciarCesta, cambiarCartuchos, fijarBateria, setSenal, setPhRio, prepararDemo, comunicacion, resaltarEtapa, bocaCesta, bocaRed: bocaCesta, setRayosX, localAMundo, config: C };
 }
