@@ -1,9 +1,14 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
+import { AuthService } from '../core/auth/auth.service';
 import { LayoutService } from '../core/services/layout.service';
 import { AlertCounterService } from '../core/services/alert-counter.service';
+import { PublicAlertsService } from '../core/services/public-alerts.service';
 
-/** Floating pill navigation for phones. */
+/**
+ * Floating pill navigation for phones. Citizens (no session) get Inicio · Mapa · Reportar · Mis reportes ·
+ * Avisos; staff get their work tools (inbox, buoys, map, technical alerts, dashboard).
+ */
 @Component({
   selector: 'app-bottom-nav',
   imports: [RouterLink, RouterLinkActive],
@@ -20,22 +25,40 @@ import { AlertCounterService } from '../core/services/alert-counter.service';
     a.active span { display: inline; }
     a:focus-visible { outline: 2px solid #90e0ef; outline-offset: 2px; }
     .badge { position: absolute; top: 3px; right: 3px; min-width: 1.1rem; padding: 0 .3rem; border-radius: 999px; background: #e5484d; color: #fff; font-size: .65rem; line-height: 1.1rem; text-align: center; }
+    a.primary:not(.active) { background: rgb(0 180 216 / .18); color: #90e0ef; }
     a.active .badge { top: -2px; right: -2px; border: 2px solid #1b263b; }
   `,
   template: `
     <nav aria-label="Navegación principal" [class.hidden]="layout.navHidden()" [attr.aria-hidden]="layout.navHidden()">
-      <a routerLink="/resumen" routerLinkActive="active" aria-label="Inicio"><i class="pi pi-objects-column" aria-hidden="true"></i><span>Inicio</span></a>
-      <a routerLink="/mapa" routerLinkActive="active" aria-label="Mapa"><i class="pi pi-map" aria-hidden="true"></i><span>Mapa</span></a>
-      <a routerLink="/boyas" routerLinkActive="active" aria-label="Boyas"><i class="pi pi-compass" aria-hidden="true"></i><span>Boyas</span></a>
-      <a routerLink="/reportar" routerLinkActive="active" aria-label="Reportes IA"><i class="pi pi-camera" aria-hidden="true"></i><span>Reportes IA</span></a>
-      <a routerLink="/alertas" routerLinkActive="active" aria-label="Alertas">
-        <i class="pi pi-bell" aria-hidden="true"></i><span>Alertas</span>
-        @if (alerts.open() > 0) { <b class="badge">{{ alerts.open() > 99 ? '99+' : alerts.open() }}</b> }
-      </a>
+      @if (auth.isLoggedIn()) {
+        <a [routerLink]="auth.homeUrl()" routerLinkActive="active" [attr.aria-label]="work().label"><i [class]="work().icon" aria-hidden="true"></i><span>{{ work().label }}</span></a>
+        <a routerLink="/boyas" routerLinkActive="active" aria-label="Boyas"><i class="pi pi-compass" aria-hidden="true"></i><span>Boyas</span></a>
+        <a routerLink="/mapa" routerLinkActive="active" aria-label="Mapa"><i class="pi pi-map" aria-hidden="true"></i><span>Mapa</span></a>
+        <a routerLink="/alertas" routerLinkActive="active" aria-label="Alertas">
+          <i class="pi pi-bell" aria-hidden="true"></i><span>Alertas</span>
+          @if (alerts.open() > 0) { <b class="badge">{{ alerts.open() > 99 ? '99+' : alerts.open() }}</b> }
+        </a>
+        <a routerLink="/resumen" routerLinkActive="active" aria-label="Resumen"><i class="pi pi-objects-column" aria-hidden="true"></i><span>Resumen</span></a>
+      } @else {
+        <a routerLink="/inicio" routerLinkActive="active" aria-label="Inicio"><i class="pi pi-home" aria-hidden="true"></i><span>Inicio</span></a>
+        <a routerLink="/mapa" routerLinkActive="active" aria-label="Mapa"><i class="pi pi-map" aria-hidden="true"></i><span>Mapa</span></a>
+        <a class="primary" routerLink="/reportar" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" aria-label="Reportar"><i class="pi pi-camera" aria-hidden="true"></i><span>Reportar</span></a>
+        <a routerLink="/reportar/mis-reportes" routerLinkActive="active" aria-label="Mis reportes"><i class="pi pi-send" aria-hidden="true"></i><span>Mis reportes</span></a>
+        <a routerLink="/avisos" routerLinkActive="active" aria-label="Avisos">
+          <i class="pi pi-bell" aria-hidden="true"></i><span>Avisos</span>
+          @if (notices.count() > 0) { <b class="badge">{{ notices.count() > 99 ? '99+' : notices.count() }}</b> }
+        </a>
+      }
     </nav>
   `,
 })
 export class BottomNav {
+  protected readonly auth = inject(AuthService);
   protected readonly alerts = inject(AlertCounterService);
+  protected readonly notices = inject(PublicAlertsService);
   protected readonly layout = inject(LayoutService);
+  /** First tab of the staff bar: technicians work from their inbox, managers from the citizen reports. */
+  protected readonly work = computed(() =>
+    this.auth.isManager() ? { label: 'Reportes', icon: 'pi pi-megaphone' } : { label: 'Bandeja', icon: 'pi pi-inbox' },
+  );
 }

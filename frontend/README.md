@@ -1,7 +1,7 @@
 # Río Monitor · Frontend
 
 Monitoreo, alertamiento temprano y analítica del tratamiento de agua en la **Cuenca del Alto Atoyac (Puebla)** —
-reto SECIHTI Puebla, HackaTec 2026. Angular 22 (standalone + signals), PrimeNG, Leaflet y Chart.js.
+reto CAPCEE Puebla, HackaTec 2026. Angular 22 (standalone + signals), PrimeNG, Leaflet y Chart.js.
 
 ```bash
 npm install

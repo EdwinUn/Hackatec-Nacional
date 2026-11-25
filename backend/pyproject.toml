@@ -1,7 +1,7 @@
 [project]
 name = "rio-monitor-backend"
 version = "0.1.0"
-description = "API de monitoreo y limpieza de agua de ríos (Hackatec Nacional 2026 · reto SECIHTI Puebla)"
+description = "API de monitoreo y limpieza de agua de ríos (Hackatec Nacional 2026 · reto CAPCEE Puebla)"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [

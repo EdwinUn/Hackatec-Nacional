@@ -4,7 +4,7 @@ Contexto del proyecto para Claude Code.
 
 ## Proyecto
 
-Proyecto para el Hackatec Nacional 2026, reto SECIHTI Puebla: monitorear y ayudar a reducir la contaminación de ríos, barrancas y cuerpos de agua de Puebla. La propuesta es una boya anclada de bajo costo que mide la calidad del agua (pH, TDS, turbidez, temperatura), la pasa por 4 capas de filtro con una bomba de 12 V, recoge basura flotante en una cesta y manda sus datos por 4G. El dashboard compara pH y turbidez de entrada contra salida, estado de la bomba, batería, cesta, salud de sensores y alertas tempranas.
+Proyecto para el Hackatec Nacional 2026, reto CAPCEE Puebla: monitorear y ayudar a reducir la contaminación de ríos, barrancas y cuerpos de agua de Puebla. La propuesta es una boya anclada de bajo costo que mide la calidad del agua (pH, TDS, turbidez, temperatura), la pasa por 4 capas de filtro con una bomba de 12 V, recoge basura flotante en una cesta y manda sus datos por 4G. El dashboard compara pH y turbidez de entrada contra salida, estado de la bomba, batería, cesta, salud de sensores y alertas tempranas.
 
 Todo es digital, no hay prototipo físico: las boyas RM-01 y RM-02 corren en Wokwi (`firmware/boya-rm01/`) y publican por MQTT; `backend/scripts/buoy.py` emula una boya y `backend/scripts/simulate.py` alimenta las estaciones sin `code`. El modelo 3D de la boya está en `frontend/src/app/features/buoys/three/buoy-factory.ts`.
 

@@ -52,8 +52,8 @@ export class Shell {
   protected readonly collapsed = signal(this.readCollapsed());
   protected readonly mobileOpen = signal(false);
   private readonly url = signal(this.router.url);
-  /** Phone: Inicio and Mapa carry their own station/period controls, so the filter bar is hidden there. */
-  protected readonly cleanMobile = computed(() => /^\/(resumen|mapa|operaciones|boyas)(\/|$|\?)/.test(this.url()) || this.url() === '/');
+  /** Phone: these screens carry their own controls or need none, so the station/period filter bar is hidden there. */
+  protected readonly cleanMobile = computed(() => /^\/(inicio|avisos|reportar|resumen|mapa|operaciones|boyas)(\/|$|\?)/.test(this.url()) || this.url() === '/');
   protected readonly onMap = computed(() => this.url().startsWith('/mapa'));
   protected readonly presetLabel = PRESET_LABEL;
   protected readonly presets: Exclude<RangePreset, 'custom'>[] = ['24h', 'yesterday', '7d', '30d'];

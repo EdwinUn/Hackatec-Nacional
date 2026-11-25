@@ -1,8 +1,18 @@
+import { inject } from '@angular/core';
 import { Routes } from '@angular/router';
 import { authGuard, guestGuard, roleGuard } from './core/auth/auth.guard';
+import { AuthService } from './core/auth/auth.service';
+import { isMobileViewport } from './core/services/layout.service';
 import { Shell } from './layout/shell';
 
 const MANAGERS = roleGuard('supervisor', 'admin');
+
+/** Entry point: staff go to their work home; citizens on a phone to the simple home; desktop to the dashboard. */
+function homeRedirect(): string {
+  const auth = inject(AuthService);
+  if (auth.isLoggedIn()) return auth.homeUrl();
+  return isMobileViewport() ? '/inicio' : '/resumen';
+}
 
 export const routes: Routes = [
   {
@@ -15,8 +25,13 @@ export const routes: Routes = [
     path: '',
     component: Shell,
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'resumen' },
-      // ── Public (citizens) ──────────────────────────────────────────────────
+      { path: '', pathMatch: 'full', redirectTo: homeRedirect },
+      // ── Citizens (phone, no session) ───────────────────────────────────────
+      { path: 'inicio', title: 'Inicio · Río Monitor', loadComponent: () => import('./features/citizen/citizen-home-page').then((m) => m.CitizenHomePage) },
+      { path: 'avisos', title: 'Avisos · Río Monitor', loadComponent: () => import('./features/citizen/public-alerts-page').then((m) => m.PublicAlertsPage) },
+      { path: 'boyas/conoce', title: 'Conoce la boya · Río Monitor', loadComponent: () => import('./features/citizen/buoy-explainer-page').then((m) => m.BuoyExplainerPage) },
+      { path: 'reportar/mis-reportes', title: 'Mis reportes · Río Monitor', loadComponent: () => import('./features/reports/my-reports-page').then((m) => m.MyReportsPage) },
+      // ── Public (dashboard) ─────────────────────────────────────────────────
       { path: 'resumen', title: 'Resumen ejecutivo · Río Monitor', loadComponent: () => import('./features/dashboard/dashboard-page').then((m) => m.DashboardPage) },
       { path: 'mapa', title: 'Vista satelital · Río Monitor', loadComponent: () => import('./features/satellite/satellite-page').then((m) => m.SatellitePage) },
       { path: 'telemetria', redirectTo: 'boyas' },
@@ -45,5 +60,5 @@ export const routes: Routes = [
       },
     ],
   },
-  { path: '**', redirectTo: 'resumen' },
+  { path: '**', redirectTo: homeRedirect },
 ];

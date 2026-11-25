@@ -49,7 +49,7 @@ import { ROLE_META } from '../shared/utils/ops.util';
   `,
   template: `
     <header>
-      <a class="brand" routerLink="/resumen" aria-label="Atl-Monitor, inicio">
+      <a class="brand" [routerLink]="home()" aria-label="Atl-Monitor, inicio">
         <img src="logo-atl-mark.png" alt="" width="34" height="34" />
         <strong>atl-monitor</strong>
       </a>
@@ -114,6 +114,8 @@ export class AppHeader {
   protected readonly initials = computed(() =>
     (this.auth.user()?.name ?? '').split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join(''),
   );
+  /** Phone home of the current mode: the staff member's work screen, or the citizen home. */
+  protected readonly home = computed(() => (this.auth.isLoggedIn() ? this.auth.homeUrl() : '/inicio'));
   protected readonly statusText = computed(() => {
     switch (this.live.status()) {
       case 'connected': return 'En vivo';
@@ -157,6 +159,6 @@ export class AppHeader {
 
   protected logout(): void {
     this.auth.logout(false);
-    void this.router.navigateByUrl('/resumen');
+    void this.router.navigateByUrl('/inicio');
   }
 }

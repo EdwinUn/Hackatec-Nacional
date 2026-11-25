@@ -7,7 +7,11 @@
       <i [class]="menuOpen() ? 'pi pi-times' : 'pi pi-sliders-h'" aria-hidden="true"></i>
       <span>Capas</span>
     </button>
-    <span class="cap-info"><strong>{{ list().length }}</strong> estaciones · <strong [class.bad]="totals().open > 0">{{ totals().open }}</strong> alertas</span>
+    @if (citizen()) {
+      <a class="cap-info" routerLink="/avisos"><strong>{{ list().length }}</strong> zonas · <strong [class.bad]="notices.count() > 0">{{ notices.count() }}</strong> {{ notices.count() === 1 ? 'aviso' : 'avisos' }}</a>
+    } @else {
+      <span class="cap-info"><strong>{{ list().length }}</strong> estaciones · <strong [class.bad]="totals().open > 0">{{ totals().open }}</strong> alertas</span>
+    }
     <button type="button" class="cap-btn icon" aria-label="Centrar cuenca" (click)="resetView()"><i class="pi pi-compass" aria-hidden="true"></i></button>
   </div>
   @if (menuOpen()) {
@@ -42,6 +46,7 @@
   }
 
   <!-- Phone: live ESP32 telemetry capsule (fed by /ws/live) -->
+  @if (!citizen()) {
   <div class="m-only iot" [class.hide]="menuOpen()">
     <button type="button" class="iot-pill" [class.live]="iotLive()" (click)="iotOpen.set(!iotOpen())" [attr.aria-expanded]="iotOpen()" aria-controls="iot-card">
       <span class="pulse" aria-hidden="true"></span>IoT Live · ESP32<i class="pi pi-angle-down chev" [class.up]="iotOpen()" aria-hidden="true"></i>
@@ -64,6 +69,7 @@
       </div>
     }
   </div>
+  }
 
   <!-- Phone: dedicated strip under the map (above the floating navbar) holding both pills -->
   <div class="m-only dock" [class.hide]="reportsOpen()">
@@ -71,7 +77,7 @@
     <div class="station-fab">
       <button type="button" class="open" (click)="toggleStation()" aria-controls="station-card" [attr.aria-expanded]="stationOpen()">
         <span class="dot" [style.background]="wqi[h.wqi.category].color"></span>
-        <span class="nm">{{ shortName(h.name) }} · {{ wqiText(h.wqi) }}</span>
+        <span class="nm">{{ shortName(h.name) }} · {{ citizen() ? wqi[h.wqi.category].label : wqiText(h.wqi) }}</span>
         <i class="pi pi-angle-up chev" [class.up]="stationOpen()" aria-hidden="true"></i>
       </button>
       <button type="button" class="x" (click)="deselect()" aria-label="Deseleccionar estación"><i class="pi pi-times" aria-hidden="true"></i></button>
@@ -158,54 +164,68 @@
         <button type="button" class="x" aria-label="Cerrar panel" (click)="closeStation()"><i class="pi pi-times"></i></button>
       </header>
 
-      <div class="wqi" [style.border-color]="wqi[h.wqi.category].color">
-        <div class="score" [style.color]="wqi[h.wqi.category].color">{{ wqiText(h.wqi) }}<small>WQI</small></div>
-        <div>
-          <app-pill [label]="wqi[h.wqi.category].label" [color]="wqi[h.wqi.category].color" [bg]="wqi[h.wqi.category].bg" />
-          <div class="dom">Parámetro dominante: <strong>{{ paramLabel(h.wqi.dominant_parameter) }}</strong></div>
-        </div>
-      </div>
-
-      <div class="alert-counts">
-        <div><strong>{{ h.open_alerts }}</strong><span>Alertas abiertas</span></div>
-        <div [class.crit]="h.critical_alerts > 0"><strong>{{ h.critical_alerts }}</strong><span>Críticas</span></div>
-      </div>
-
-      @if (selectedCritical(); as c) {
-        <div class="crit" [style.border-color]="levelMeta[c.level].color">
-          <div class="crit-head">
-            <div class="score" [style.color]="levelMeta[c.level].color">{{ c.score | number: '1.0-0' }}<small>Criticidad</small></div>
-            <div>
-              <app-pill [label]="levelMeta[c.level].label" [color]="levelMeta[c.level].color" [bg]="levelMeta[c.level].bg" />
-              <div class="dom">Puesto <strong>{{ c.rank }}</strong> de {{ ranking().length }} en la cuenca</div>
-            </div>
+      @if (citizen()) {
+        <div class="wqi" [style.border-color]="wqi[h.wqi.category].color">
+          <div>
+            <app-pill [label]="wqi[h.wqi.category].label" [color]="wqi[h.wqi.category].color" [bg]="wqi[h.wqi.category].bg" />
+            <div class="dom">{{ wqiPlain[h.wqi.category] }}</div>
           </div>
-          <ul class="why" aria-label="Motivos">
-            @for (r of c.reasons; track r) { <li>{{ r }}</li> }
-          </ul>
         </div>
-      }
-
-      <h3>Telemetría en vivo · pH</h3>
-      <ul class="tele">
-        @for (t of telemetry(); track t.pos) {
-          <li>
-            <div><span class="pos">{{ positionLabel[t.pos] }}</span>
-              @if (t.sensor; as s) { <app-pill [label]="sensorMeta[s.status].label" [color]="sensorMeta[s.status].color" [bg]="sensorMeta[s.status].bg" /> }
-            </div>
-            <div class="val">
-              @if (t.last; as l) {
-                <strong>{{ l.value | number: '1.2-2' }}</strong> <small class="muted">{{ ago(l.ts) }}</small>
-                @if (t.live) { <span class="live-dot" title="Lectura en vivo"></span> }
-              } @else { <span class="muted">—</span> }
-            </div>
-          </li>
+        <p class="dom">Índice estimado a partir de las mediciones; valores de prototipo.</p>
+        @if (noticesAt(h.station_id); as n) {
+          <a class="link" routerLink="/avisos"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ n === 1 ? 'Hay 1 aviso' : 'Hay ' + n + ' avisos' }} en esta zona <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
         }
-      </ul>
-      @if (auth.isLoggedIn()) {
-        <button type="button" class="reset survey-btn" (click)="surveyOpen.set(true)"><i class="pi pi-inbox" aria-hidden="true"></i> Registrar vaciado de boya</button>
+        <a class="link" routerLink="/reportar"><i class="pi pi-camera" aria-hidden="true"></i> Reportar un problema aquí <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
+      } @else {
+        <div class="wqi" [style.border-color]="wqi[h.wqi.category].color">
+          <div class="score" [style.color]="wqi[h.wqi.category].color">{{ wqiText(h.wqi) }}<small>WQI</small></div>
+          <div>
+            <app-pill [label]="wqi[h.wqi.category].label" [color]="wqi[h.wqi.category].color" [bg]="wqi[h.wqi.category].bg" />
+            <div class="dom">Parámetro dominante: <strong>{{ paramLabel(h.wqi.dominant_parameter) }}</strong></div>
+          </div>
+        </div>
+
+        <div class="alert-counts">
+          <div><strong>{{ h.open_alerts }}</strong><span>Alertas abiertas</span></div>
+          <div [class.crit]="h.critical_alerts > 0"><strong>{{ h.critical_alerts }}</strong><span>Críticas</span></div>
+        </div>
+
+        @if (selectedCritical(); as c) {
+          <div class="crit" [style.border-color]="levelMeta[c.level].color">
+            <div class="crit-head">
+              <div class="score" [style.color]="levelMeta[c.level].color">{{ c.score | number: '1.0-0' }}<small>Criticidad</small></div>
+              <div>
+                <app-pill [label]="levelMeta[c.level].label" [color]="levelMeta[c.level].color" [bg]="levelMeta[c.level].bg" />
+                <div class="dom">Puesto <strong>{{ c.rank }}</strong> de {{ ranking().length }} en la cuenca</div>
+              </div>
+            </div>
+            <ul class="why" aria-label="Motivos">
+              @for (r of c.reasons; track r) { <li>{{ r }}</li> }
+            </ul>
+          </div>
+        }
+
+        <h3>Telemetría en vivo · pH</h3>
+        <ul class="tele">
+          @for (t of telemetry(); track t.pos) {
+            <li>
+              <div><span class="pos">{{ positionLabel[t.pos] }}</span>
+                @if (t.sensor; as s) { <app-pill [label]="sensorMeta[s.status].label" [color]="sensorMeta[s.status].color" [bg]="sensorMeta[s.status].bg" /> }
+              </div>
+              <div class="val">
+                @if (t.last; as l) {
+                  <strong>{{ l.value | number: '1.2-2' }}</strong> <small class="muted">{{ ago(l.ts) }}</small>
+                  @if (t.live) { <span class="live-dot" title="Lectura en vivo"></span> }
+                } @else { <span class="muted">—</span> }
+              </div>
+            </li>
+          }
+        </ul>
+        @if (auth.isLoggedIn()) {
+          <button type="button" class="reset survey-btn" (click)="surveyOpen.set(true)"><i class="pi pi-inbox" aria-hidden="true"></i> Registrar vaciado de boya</button>
+        }
+        <a class="link" routerLink="/alertas">Ver alertas de la estación <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
       }
-      <a class="link" routerLink="/alertas">Ver alertas de la estación <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
     </aside>
   } @else if (!hotspots.error()) {
     <div class="glass hint-chip">Selecciona una estación en el mapa</div>

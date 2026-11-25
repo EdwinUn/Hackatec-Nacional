@@ -33,7 +33,7 @@ from app.config.settings import Settings, get_settings
 access_log = logging.getLogger("app.access")
 
 DESCRIPTION = """
-API del prototipo de monitoreo y limpieza de agua de ríos (Hackatec Nacional 2026 · SECIHTI Puebla).
+API del prototipo de monitoreo y limpieza de agua de ríos (Hackatec Nacional 2026 · CAPCEE Puebla).
 
 - **Ingesta** (`X-API-Key`): lecturas de sensores, ciclos de centrifugado, lotes tratados, basura.
 - **Dispositivos**: telemetría plana de la boya ESP32 por HTTP o MQTT (`riomonitor/{code}/telemetria`).

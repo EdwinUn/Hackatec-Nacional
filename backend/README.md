@@ -1,6 +1,6 @@
 # Backend — Río Monitor
 
-API para monitorear y limpiar el agua de ríos (Hackatec Nacional 2026 · reto SECIHTI Puebla).
+API para monitorear y limpiar el agua de ríos (Hackatec Nacional 2026 · reto CAPCEE Puebla).
 Recibe lecturas de sensores (simulados en Three.js o generados aquí). Calcula la calidad del agua, la salud de sensores, alertas tempranas y una proyección de pH, y lo sirve por REST y WebSocket al dashboard.
 
 **Stack:** Python 3.12 · FastAPI · SQLAlchemy 2 async + asyncpg · PostgreSQL 16+ · Alembic · Redis pub/sub · Pydantic v2 · uv · ruff · pytest.

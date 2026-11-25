@@ -12,7 +12,9 @@ import { BUOY_SOURCE, Buoy } from '../../core/models/buoy.models';
 import { BuoysService } from '../../core/services/buoys.service';
 import { FiltersService } from '../../core/services/filters.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
-import { LayoutService } from '../../core/services/layout.service';
+import { LayoutService, MOBILE_QUERY, isMobileViewport } from '../../core/services/layout.service';
+import { PublicAlertsService } from '../../core/services/public-alerts.service';
+import { WQI_PLAIN } from '../../shared/utils/public-alerts.util';
 import { TelemetryService } from '../../core/services/telemetry.service';
 import { deviceCodeFor } from '../../core/models/telemetry.models';
 import { AuthService } from '../../core/auth/auth.service';
@@ -385,6 +387,17 @@ export class SatellitePage {
   private readonly ops = inject(OpsApi);
   protected readonly auth = inject(AuthService);
   private readonly iot = inject(TelemetryService);
+  protected readonly notices = inject(PublicAlertsService);
+  protected readonly wqiPlain = WQI_PLAIN;
+  private readonly mobile = signal(isMobileViewport());
+  /**
+   * Citizen on a phone (no session): the map hides technical data (raw WQI, criticality, ESP32
+   * telemetry, technical alert counts) and shows plain-language status and public notices instead.
+   */
+  protected readonly citizen = computed(() => this.mobile() && !this.auth.isLoggedIn());
+  protected noticesAt(stationId: string): number {
+    return this.notices.notices().filter((n) => n.station_id === stationId).length;
+  }
   protected readonly iotOpen = signal(false);
   /** The buoy that is sending (the most recent packet wins), else the first one. */
   protected readonly iotCode = computed(() => {
@@ -505,6 +518,12 @@ export class SatellitePage {
 
   constructor() {
     const destroyRef = inject(DestroyRef);
+    if (typeof matchMedia === 'function') {
+      const mq = matchMedia(MOBILE_QUERY);
+      const onChange = () => this.mobile.set(mq.matches);
+      mq.addEventListener('change', onChange);
+      destroyRef.onDestroy(() => mq.removeEventListener('change', onChange));
+    }
     let destroyed = false;
 
     afterNextRender(() => {
@@ -710,7 +729,7 @@ export class SatellitePage {
         name.className = 'name';
         name.textContent = b.name;
         el.append(icon, name);
-        const popup = new this.ml.Popup({ offset: 18, maxWidth: '220px' }).setDOMContent(buoyContent(b, () => void this.router.navigate(['/boyas', b.id])));
+        const popup = new this.ml.Popup({ offset: 18, maxWidth: '220px' }).setDOMContent(buoyContent(b, () => void this.router.navigate(this.citizen() ? ['/boyas/conoce'] : ['/boyas', b.id])));
         return new this.ml.Marker({ element: el, anchor: 'left', offset: [-14, 0] }).setLngLat([b.longitude, b.latitude]).setPopup(popup).addTo(this.map!);
       });
     });

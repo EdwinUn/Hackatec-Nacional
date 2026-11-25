@@ -344,7 +344,7 @@ export class MockOpsApi extends OpsApi {
       { id: 'u-tec-1', name: 'Luis Hernández', email: 'tecnico@demo.mx', role: 'technician', active: true, password: DEMO_PASSWORD },
       { id: 'u-tec-2', name: 'María Pérez', email: 'tecnico2@demo.mx', role: 'technician', active: true, password: DEMO_PASSWORD },
       { id: 'u-sup-1', name: 'Andrea Ramírez', email: 'supervisor@demo.mx', role: 'supervisor', active: true, password: DEMO_PASSWORD },
-      { id: 'u-adm-1', name: 'Coordinación SECIHTI', email: 'admin@demo.mx', role: 'admin', active: true, password: DEMO_PASSWORD },
+      { id: 'u-adm-1', name: 'Coordinación CAPCEE', email: 'admin@demo.mx', role: 'admin', active: true, password: DEMO_PASSWORD },
     ];
     const st = (i: number) => stations[i % Math.max(1, stations.length)];
     const near = (i: number, dLat: number, dLng: number) => ({ latitude: (st(i)?.latitude ?? 19.04) + dLat, longitude: (st(i)?.longitude ?? -98.2) + dLng });
